@@ -1,3 +1,8 @@
+
+
+
+![Alt text](docs/espn_ff_logo.png)
+
 Notes for now 
 
 Things to focus on:
