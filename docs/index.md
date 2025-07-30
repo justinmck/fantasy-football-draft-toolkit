@@ -1,7 +1,7 @@
 
 
 
-![Alt text](docs/espn_ff_logo.png)
+![Alt text](espn_ff_logo.png)
 
 Notes for now 
 
