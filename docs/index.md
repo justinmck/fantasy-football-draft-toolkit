@@ -5,6 +5,8 @@
 
 Notes for now 
 
+"1What makes a player a good draft pick, and how can I draft better to win my league in the future?”
+
 Things to focus on:
 
 player data:
@@ -13,13 +15,57 @@ player_id, fullName, position, teamId, total fantasy points, games played.
 draft data:
 player_id, round, pick, ADP
 
+
+USE QUARTO FOR WEBSITE
+
 schedule data:
 Simplify it to teamId → Strength of Schedule score (aggregate opponents’ defensive ranks).
 
+df_players columns needed:
+    -   points
+    -   avg_points
+    -   projected_points
+    -   projected_avg_points
+    -   games_played
+    -   actual_pointsScored
+    -   player_name
+    -   pro_team
+    -   posRank
+    -   player_id
+    -   team_id
+    -   team_name
+    -   schedule
+    -   position
+
+adp_df columns needed:
+    -   Rank
+    -   Player
+    -   player_id
+    -   Team
+    -   POS
+        - Should seperate position from rank
+    -   ESPN
+    -   Sleeper
+    -   AVG
+
+df_draft columns needed:
+    -   player_id
+    -   overallPickNumber
+    -   team_id
+    -   roundPickNumber
+    -   roundId
+    -   autoDraftTypeId
+    -   lineupSlotId
+
+"
 
 
 Core Questions to Answer
-1. Which players scored the most fantasy points last season?
+1. Which player had the most value last season?
+
+    Should just do the difference between points scored and average draft position 
+
+    Draft Value = (PPG – Replacement PPG at that position)/ overallPickNumber
 
     - Use player_data → fields like stats (season totals) and position.
         - Getting player data has been difficult
@@ -47,11 +93,8 @@ Core Questions to Answer
 4. Which players are best values relative to ADP (Average Draft Position)?
     -Find “sleepers” by comparing actual performance vs. where they were drafted.
 
-5. (Optional): How much should schedule strength matter?
+5. Which players were overvalued in our league specifically and did that risk pay off?
 
-You don’t need every detail from proTeams; just figure out if a player’s team faces a tough or easy schedule by opponent defense ranking.
-
-A simple “Strength of Schedule” score per team is enough — you don’t need every matchup detail unless you’re building week-by-week projections.
 
 
 

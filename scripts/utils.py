@@ -49,35 +49,63 @@ def get_league_data(year):
         swid=swid,
     )
 
-
-
-def get_rostered_player_stats(league):
+def process_players(players, team_name=None,team_id=None):
+    """Takes a list of players (roster or free agents) and returns a DataFrame of their stats."""
     all_stats = []
-    for team in league.teams:
-        for player in team.roster:
-            if not player.stats:
+    for player in players:
+        if not player.stats:
                 continue
-            stats = player.stats[0]
-            stats_df = pd.DataFrame([stats])
-            breakdown_df = pd.json_normalize(stats_df['breakdown'])
-            proj_breakdown_df = pd.json_normalize(stats_df['projected_breakdown'])
-            df_flat = pd.concat([
-            stats_df.drop(columns=['breakdown', 'projected_breakdown']).reset_index(drop=True),
-            breakdown_df.add_prefix('actual_'),           # prefix so we know which is actual
-            proj_breakdown_df.add_prefix('proj_')         # prefix for projections
-            ], axis=1)
-            df_flat['player_name'] = player.name
-            df_flat['pro_team'] = player.proTeam
-            df_flat['acquisition_type'] = player.acquisitionType
-            df_flat['posRank'] = player.posRank
-            df_flat['player_id'] = player.playerId
-            df_flat['team_id'] = player.onTeamId
-            df_flat['team_name'] = team.team_name
-            all_stats.append(df_flat)
-    final_df = pd.concat(all_stats, ignore_index=True) if all_stats else pd.DataFrame()
-    final_df = final_df.set_index(['player_name',
-                                   'player_id',
-                                   'team_name',
-                                   'team_id',
-                                   'acquisition_type'])
-    return final_df
+        ## Gets stats
+        stats = player.stats[0]
+        stats_df = pd.DataFrame([stats])
+
+        breakdown_data = stats.get('breakdown', {}) or {}
+        proj_breakdown_data = stats.get('projected_breakdown', {}) or {}
+
+        # Normalize nested breakdown
+        breakdown_df = pd.json_normalize(breakdown_data)
+        proj_breakdown_df = pd.json_normalize(proj_breakdown_data)
+    
+        # Combine everything into one flat DataFrame
+        df_flat = pd.concat([
+        stats_df.drop(columns=['breakdown', 'projected_breakdown'], errors='ignore').reset_index(drop=True),
+        breakdown_df.add_prefix('actual_'),           # prefix so we know which is actual
+        proj_breakdown_df.add_prefix('proj_')         # prefix for projections
+        ], axis=1)
+    
+        # Safely fetch player attributes
+        df_flat['player_name'] = getattr(player, 'name', 'Unknown')
+        df_flat['pro_team'] = getattr(player, 'proTeam', 'Unknown')
+        df_flat['acquisition_type'] = getattr(player, 'acquisitionType', 'FA') or 'FA'
+        df_flat['posRank'] = getattr(player, 'posRank', None)
+        df_flat['player_id'] = getattr(player, 'playerId', None)
+        df_flat['current_team_id'] = team_id
+        df_flat['current_team_name'] = team_name if team_id is not None else 'FA'
+        df_flat['position'] = getattr(player, 'lineupSlot', None)
+        df_flat['schedule'] = player.schedule
+    
+    
+        all_stats.append(df_flat)
+    return pd.concat(all_stats, ignore_index=True) if all_stats else pd.DataFrame()
+
+
+def get_all_player_stats(league, num_fa=50):
+    """Gets stats for all rostered players and free agents, combined in one DataFrame."""
+    all_dfs = []
+
+    # Rostered players
+    for team in league.teams:
+        team_df = process_players(team.roster, team_name=team.team_name, team_id=team.team_id)
+        all_dfs.append(team_df)
+
+    # Free agents
+    all_free_agents = league.free_agents(size=num_fa)
+
+    # Process all free agents
+    if all_free_agents:
+        free_df = process_players(all_free_agents)
+        print(f"Pulled {len(all_free_agents)} free agents")
+        all_dfs.append(free_df)
+
+    # Combine all into one final DataFrame
+    return pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame()
