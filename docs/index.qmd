@@ -1,7 +1,9 @@
 ---
-title: "Which Fantasy Draft Picks Delivered the Most Value?"
-format: html
-theme: cosmo
+title: "Your Project Title"
+format:
+  html:
+    theme: cyborg
+    self-contained: true
 ---
 
 # Who Was Worth the Pick?
@@ -30,7 +32,7 @@ import plotly.express as px
 import pandas as pd
 import plotly.graph_objects as go
 %config InlineBackend.figure_formats = ['svg']
-
+heatmap_df = pd.read_csv("../data/raw/heatmap_df.csv")
 
 # Step 1: Add hover text column to the dataframe
 heatmap_df["hover_text"] = heatmap_df.apply(
