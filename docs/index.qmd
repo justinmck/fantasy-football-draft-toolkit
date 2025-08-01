@@ -1,9 +1,13 @@
 ---
-title: "How Important Is Drafting in Fantasy Football"
+title: "How Important is Drafting In Fantasy Football"
 format:
   html:
     theme: cyborg
-    self-contained: true
+    self-contained: false
+    toc: true
+    toc-title: "On this page"
+    smooth-scroll: true
+    page-layout: full
 ---
 
 # 🏈 How Important is Drafting
@@ -26,10 +30,17 @@ From there, I calculated a custom **Value Over Replacement Player (VORP)** based
 
 > VORP = Player Points − Avg. Starter at Position
 
+---
+## 📈 Correlation Between VORP and Final Standings
+The first step was to see if there was a correlation between the average VORP of a teams draft and their final standings. Based on this chart, clearly the draft matters. There is a strong correlation, an r value of -0.51, which indicates that the higher the average VORP of your players, the better they will do.
+
+![](charts/corr_vorp_standings.png)
 
 
 ---
+
 ## 📊 Average VORP by Team
+TO 
 
 ![](charts/avg_vorp.png)
 
