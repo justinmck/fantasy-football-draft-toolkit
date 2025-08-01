@@ -1,54 +1,87 @@
 ---
-title: "Your Project Title"
+title: "How Important Is Drafting in Fantasy Football"
 format:
   html:
     theme: cyborg
     self-contained: true
 ---
 
-# What was the most valuable pick last year
+# 🏈 How Important is Drafting
 
-I wanted to find out which fantasy football players **delivered the most value** in last season’s draft. Using data from ESPN’s Fantasy API and draft results from my league, I analyzed who truly lived up to their draft slot – and who didn’t.
+I wanted to find out how important the draft is in fantasy football and which players **delivered the most value** in last season’s draft. Using data from ESPN’s Fantasy API and draft results from my league, I analyzed who truly lived up to their draft slot – and who didn’t.
 
 ---
 
-## How I Got the Data
+## 📊 How I Got the Data
 
-I pulled the full draft order, fantasy points scored across the season, and positional ranks for every drafted player. Using that, I calculated a custom version of **Value Over Replacement Player (VORP)** based on our league format:
+To figure this out, I pulled:
+- Full draft order
+- Fantasy points scored
+- Positional ranks
+
+From there, I calculated a custom **Value Over Replacement Player (VORP)** based on my league format:
 
 - 14 teams
-- 2 RB, 2 WR, 1 TE, 1 Flex (WR/RB/TE), 1 QB, 1 Kicker, 1 D/ST
+- 2 RB, 2 WR, 1 TE, 1 Flex (WR/RB/TE), 1 QB, 1 K, 1 D/ST
 
-VORP was calculated by comparing each drafted player’s points to the **average performance of a replacement-level starter at that position.**
+> VORP = Player Points − Avg. Starter at Position
+
+
+
+---
+## 📊 Average VORP by Team
+
+![](charts/avg_vorp.png)
 
 ---
 
-## Draft Value Heatmap
+## 📈 Correlation Between VORP and Final Standings
 
-The interactive plot below shows draft **round and pick number**, colored by the **VORP** of the player selected. **Hover over a cell** to view the player's name, position, average points, and draft position.
-
-<iframe src="charts/draft_value_chart.html" width="100%" height="700px" style="border:none;"></iframe>
+![](charts/corr_vorp_standings.png)
 
 ---
 
-## Top Draft Steals
+## 🎯 Draft Pick vs. VORP
 
-The table below highlights the **top 10 players** with the highest VORP in the draft. These were the most valuable picks relative to replacement-level players at their position.
-
-
-## Overdrafted Players
-
-These players were selected early but returned **below-replacement performance**. In other words, they cost more than they delivered.
+![](charts/draft_pick_vs_vorp.png)
 
 ---
 
-## Conclusion
+## 🔎 Reaches (Original)
 
-This analysis reveals that fantasy value isn’t just about total points. **Drafting players who outperform their positional average** can give your team a serious edge.
+![](charts/reaches_og.png)
 
-Key Takeaways:
-- Late-round hits can carry your team
-- Don’t overpay for names without checking upside
-- VORP helps normalize performance across positions
+---
 
-This kind of analysis can make you a smarter fantasy drafter next season.
+## 🔎 Reaches (Paid Off)
+
+![](charts/reaches_paid_off.png)
+
+---
+
+## 💰 Steals (Original)
+
+![](charts/steals_og.png)
+
+---
+
+## 💰 Steals (Paid Off)
+
+![](charts/steals_paid_off.png)
+
+---
+
+## 📌 VORP by Position
+
+![](charts/vorp_by_pos.png)
+
+---
+
+## 🧾 Conclusion
+
+This analysis reveals that fantasy value isn’t just about total points.
+
+### Key Takeaways:
+- **Late-round picks** can win you the league.
+- **Overpaying for names** is risky—look for upside.
+- **VORP** helps you normalize across positions.

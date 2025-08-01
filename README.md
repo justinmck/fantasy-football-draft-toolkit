@@ -1,5 +1,3 @@
-[![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/tPsjfIAZ)
-
 # 🏈 Fantasy Football Draft Analysis (2024–2025)
 
 This project analyzes the draft efficiency and season performance of teams in a 14-team fantasy football league using ESPN's API. It calculates custom metrics such as Value Over Replacement Player (VORP), draft delta, and performance payoff.
@@ -8,18 +6,29 @@ This project analyzes the draft efficiency and season performance of teams in a 
 
 ## 📦 Project Structure
 
-📁 notebooks/
-│ └── draft_analysis.ipynb # Main analysis notebook
-📁 scripts/
-│ └── utils.py # Helper functions for data collection
-📁 data/
-│ ├── raw/ # Raw API data
-│ └── processed/ # Cleaned datasets
-📁 images/
-│ └── charts/ # Exported charts for visualization
-README.md
-requirements.txt
+```
 
+├── notebooks/                # Jupyter notebooks for exploration
+│   └── NB01.ipynb  # Data Collection
+    └── NB02.ipynb  # Data Processing
+    └── NB03.ipynb  # Data Analysis
+│
+├── scripts/                  # Python scripts for automation and data handling
+│   └── utils.py              # Helper functions for data collection
+│
+├── data/                     # Data files
+│   ├── raw/                  # Raw API data
+│   └── fantasy_data.db           # Cleaned datasets
+│
+├── docs/                   
+│   └── charts/ # Project charts
+    └── tables/ # Project Tables
+    └── index.qmd/ # Creates the website
+Exported charts for visualization
+│
+├── README.md                 # Project overview
+└── requirements.txt          # Python dependencies
+```
 
 
 ---
@@ -110,8 +119,5 @@ MIT License (if you want this to be open source)
 ## 🙋‍♂️ Questions?
 Reach out via [LinkedIn](https://linkedin.com/in/justinmckendry) or open an Issue in this repo.
 
-yaml
-Copy
-Edit
 
 ---
