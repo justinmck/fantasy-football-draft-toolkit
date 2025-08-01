@@ -103,6 +103,14 @@ This visualization breaks down where the **most draft value** came by position. 
 
 ---
 
+## 🔥 Draft Value Heatmap
+
+This is a heatmap containing all the players drafted within our leagues draft based on their VORP.
+
+<iframe src="charts/draft_value_chart.html" width="100%" height="700px" style="border:none;"></iframe>
+
+---
+
 ## 🧾 Conclusion
 
 This analysis shows that the **draft is absolutely critical** to fantasy football success — especially in the first **7 rounds**, where the majority of value is concentrated.
