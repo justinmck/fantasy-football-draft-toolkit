@@ -15,6 +15,17 @@ What team drafted the best x
 
 What positions are actually the most important x
 
+
+Visualizations: 
+
+1. Heatmap with VORP of our draft picks
+Boom and bust? Actual points - Projected
+
+2. Heatmap with VORP of adp
+
+3. bubble chart of the top 10 picks. Ordered by adp. Lines go to where we drafted them. Final lines to rank by points
+
+
 Things to focus on:
 
 player data:

@@ -26,11 +26,9 @@ VORP was calculated by comparing each drafted player’s points to the **average
 ## Draft Value Heatmap
 
 The interactive plot below shows draft **round and pick number**, colored by the **VORP** of the player selected. **Hover over a cell** to view the player's name, position, average points, and draft position.
-::: {.cell-output-display}
-```{=html}
+
 <iframe src="charts/draft_value_chart.html" width="100%" height="700px" style="border:none;"></iframe>
-```
-:::
+
 ---
 
 ## Top Draft Steals
