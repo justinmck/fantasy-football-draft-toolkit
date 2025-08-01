@@ -12,7 +12,7 @@ format:
 
 # 🏈 How Important is Drafting?
 
-I wanted to find out how much the draft impacts fantasy football success — and which players **delivered the most value** in last season’s draft. Using data from ESPN’s Fantasy API and draft results from my league, I analyzed who truly lived up to their draft slot – and who didn’t.
+I wanted to find out how much the draft impacts fantasy football success — and which players **delivered the most value** in last season’s draft in order to build a draft board for this upcoming season. Using data from a Fantasy API built of ESPN's private API, draft results from my league, and average draft positions (adp) from Fantasy Pros, I analyzed if the draft really matters and who met or exceeded expectations.
 
 ---
 
@@ -23,6 +23,11 @@ To conduct this analysis, I pulled:
 - Fantasy points scored
 - Positional ranks
 
+I also pulled average draft position(adp) from the website fantasy pros at this URL:
+https://www.fantasypros.com/nfl/adp/overall.php
+
+This data combines adp from different fantasy sites, creating one number we can can treat as their "market value".
+
 From there, I calculated a custom **Value Over Replacement Player (VORP)** metric based on my league format:
 
 - 14 teams
@@ -30,11 +35,13 @@ From there, I calculated a custom **Value Over Replacement Player (VORP)** metri
 
 > **VORP = Player Points − Avg. Starter at Position**
 
+This was usually calculated by getting the next 3-4 players at each position who are treated as the waiver wire/bench players. 
+
 ---
 
 ## 📈 Correlation Between VORP and Final Standings
 
-The first step was to measure whether average draft VORP correlates with league success. As shown in the chart below, there's a **strong negative correlation** (r = –0.51), meaning that the **higher your team’s average VORP, the better you tend to finish**.
+The first step was to measure whether average draft VORP correlates with league success. As shown in the chart below, there's a **moderate negative correlation** (r = –0.51), meaning that the **higher your team’s average VORP, the better you tend to finish**. 
 
 ![Scatter plot of VORP vs Final Standings](charts/corr_vorp_standings.png)
 
