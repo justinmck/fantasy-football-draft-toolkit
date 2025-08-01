@@ -27,65 +27,7 @@ VORP was calculated by comparing each drafted player’s points to the **average
 
 The interactive plot below shows draft **round and pick number**, colored by the **VORP** of the player selected. **Hover over a cell** to view the player's name, position, average points, and draft position.
 
-```{python}
-import plotly.express as px
-import pandas as pd
-import plotly.graph_objects as go
-%config InlineBackend.figure_formats = ['svg']
-heatmap_df = pd.read_csv("../data/raw/heatmap_df.csv")
-
-# Step 1: Add hover text column to the dataframe
-heatmap_df["hover_text"] = heatmap_df.apply(
-    lambda row: f"<b>{row['player_name']}</b><br>"
-                f"Position: {row['position']}<br>"
-                f"Pick: Round {int(row['roundId'])}, Pick {int(row['roundPickNumber'])}<br>"
-                f"VORP: {row['vorp']:.2f}",
-    axis=1
-)
-
-# Step 2: Pivot VORP data
-heatmap = heatmap_df.pivot_table(
-    index="roundId",
-    columns="roundPickNumber",
-    values="vorp",
-    aggfunc="mean"
-)
-
-# Step 3: Pivot hover text to match shape
-hover_matrix = heatmap_df.pivot_table(
-    index="roundId",
-    columns="roundPickNumber",
-    values="hover_text",
-    aggfunc="first"
-)
-
-# Step 4: Plot with Plotly
-fig = go.Figure(
-    data=go.Heatmap(
-        z=heatmap.values,
-        x=heatmap.columns,
-        y=heatmap.index,
-        text=hover_matrix.values,
-        hoverinfo="text",
-        colorscale="RdYlGn",
-        colorbar=dict(title="VORP"),
-        showscale=True
-    )
-)
-
-# Step 5: Clean layout
-fig.update_layout(
-    title="Interactive Draft VORP Heatmap",
-    xaxis_title="Pick in Round",
-    yaxis_title="Draft Round",
-    yaxis=dict(autorange="reversed", tickmode="linear", dtick=1),
-    font=dict(family="Arial", size=14),
-    plot_bgcolor="white",
-    margin=dict(t=60, b=40, l=60, r=40)
-)
-
-fig.show()
-```
+<iframe src="charts/draft_value_chart.html" width="100%" height="700px" style="border:none;"></iframe>
 
 ---
 
@@ -93,27 +35,10 @@ fig.show()
 
 The table below highlights the **top 10 players** with the highest VORP in the draft. These were the most valuable picks relative to replacement-level players at their position.
 
-```{python}
-top_steals = heatmap_df.sort_values("vorp", ascending=False).head(10)
-top_steals[['player_name', 'position', 'avg_points', 'vorp', 'overallPickNumber']].style.format({
-    'avg_points': '{:.2f}',
-    'vorp': '{:.2f}'
-}).set_caption("Top 10 Draft Steals by VORP")
-```
-
----
 
 ## Overdrafted Players
 
 These players were selected early but returned **below-replacement performance**. In other words, they cost more than they delivered.
-
-```{python}
-undervalues = heatmap_df.sort_values("vorp").head(10)
-undervalues[['player_name', 'position', 'avg_points', 'vorp', 'overallPickNumber']].style.format({
-    'avg_points': '{:.2f}',
-    'vorp': '{:.2f}'
-}).set_caption("Most Overdrafted Players by VORP")
-```
 
 ---
 

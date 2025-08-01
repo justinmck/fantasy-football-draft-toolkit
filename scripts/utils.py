@@ -33,6 +33,23 @@ def save_to_data_raw(df, filename):
 
 
 def get_league_data(year):
+    """
+    Initializes and returns an ESPN fantasy football League object for the given year.
+
+    This function loads environment variables from a `.env` file to authenticate the user:
+    - LEAGUE_ID: the unique identifier of the league
+    - ESPN_S2: session token (from cookies)
+    - SWID: unique identifier for the user
+
+    Raises:
+        EnvironmentError: If any of the required environment variables are missing.
+
+    Args:
+        year (int): The year of the fantasy football season.
+
+    Returns:
+        League: An instance of the League object from the espn-api package.
+    """
     load_dotenv()
 
     league_id = os.getenv("LEAGUE_ID")
@@ -50,7 +67,25 @@ def get_league_data(year):
     )
 
 def process_players(players, team_name=None,team_id=None):
-    """Takes a list of players (roster or free agents) and returns a DataFrame of their stats."""
+    """
+    Processes a list of fantasy football player objects and returns a flat DataFrame of their stats.
+
+    This function extracts and normalizes each player's:
+    - Core stats
+    - Actual and projected stat breakdowns
+    - Metadata (name, team, position, etc.)
+
+    If breakdown data is nested, it's flattened and prefixed for clarity.
+    Missing or null values are handled gracefully.
+
+    Args:
+        players (list): List of Player objects from a roster or free agents pool.
+        team_name (str, optional): Name of the fantasy team (used for context).
+        team_id (int, optional): ID of the fantasy team (used to link to owner/team).
+
+    Returns:
+        pd.DataFrame: A combined DataFrame of all player stats and metadata.
+    """
     all_stats = []
     for player in players:
         if not player.stats:
@@ -90,7 +125,21 @@ def process_players(players, team_name=None,team_id=None):
 
 
 def get_all_player_stats(league, num_fa=50):
-    """Gets stats for all rostered players and free agents, combined in one DataFrame."""
+    """
+    Collects and combines stats for all rostered players and free agents in a fantasy league.
+
+    This function:
+    - Iterates over each team in the league and extracts player stats via `process_players`
+    - Pulls a specified number of free agents and processes them as well
+    - Returns a unified DataFrame containing all player stats, enriched with team metadata
+
+    Args:
+        league (League): A `fantasy-football-league` object instance.
+        num_fa (int, optional): Number of free agents to retrieve and include. Defaults to 50.
+
+    Returns:
+        pd.DataFrame: A DataFrame of all rostered and free agent players with their stats and metadata.
+    """
     all_dfs = []
 
     # Rostered players
@@ -109,3 +158,5 @@ def get_all_player_stats(league, num_fa=50):
 
     # Combine all into one final DataFrame
     return pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame()
+
+

@@ -5,7 +5,15 @@
 
 Notes for now 
 
-"1What makes a player a good draft pick, and how can I draft better to win my league in the future?”
+"What makes a player a good draft pick, and how can I draft better to win my league in the future?” x 
+
+How much does drafting ACTUALLY matter x
+
+Who was the most valuable pick last year x
+
+What team drafted the best x 
+
+What positions are actually the most important x
 
 Things to focus on:
 
@@ -17,6 +25,8 @@ player_id, round, pick, ADP
 
 
 USE QUARTO FOR WEBSITE
+
+Streamlit
 
 schedule data:
 Simplify it to teamId → Strength of Schedule score (aggregate opponents’ defensive ranks).
@@ -58,6 +68,21 @@ df_draft columns needed:
     -   lineupSlotId
 
 "
+
+df_teams columns needed:
+    - team_id
+    - team_abbrv
+    - team_name
+    - division_name
+    - division_id
+    - wins
+    - losses
+    - ties
+    - points_for
+    - points_against
+    - draft_projected_rank
+    - final_standing
+
 
 
 Core Questions to Answer
