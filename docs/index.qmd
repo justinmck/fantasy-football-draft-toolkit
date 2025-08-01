@@ -6,7 +6,7 @@ format:
     self-contained: true
 ---
 
-# Who Was Worth the Pick?
+# What was the most valuable pick last year
 
 I wanted to find out which fantasy football players **delivered the most value** in last season’s draft. Using data from ESPN’s Fantasy API and draft results from my league, I analyzed who truly lived up to their draft slot – and who didn’t.
 
@@ -26,9 +26,11 @@ VORP was calculated by comparing each drafted player’s points to the **average
 ## Draft Value Heatmap
 
 The interactive plot below shows draft **round and pick number**, colored by the **VORP** of the player selected. **Hover over a cell** to view the player's name, position, average points, and draft position.
-
+::: {.cell-output-display}
+```{=html}
 <iframe src="charts/draft_value_chart.html" width="100%" height="700px" style="border:none;"></iframe>
-
+```
+:::
 ---
 
 ## Top Draft Steals
