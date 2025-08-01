@@ -1,5 +1,5 @@
 ---
-title: "How Important is Drafting In Fantasy Football"
+title: "How Important is Drafting in Fantasy Football?"
 format:
   html:
     theme: cyborg
@@ -10,89 +10,109 @@ format:
     page-layout: full
 ---
 
-# 🏈 How Important is Drafting
+# 🏈 How Important is Drafting?
 
-I wanted to find out how important the draft is in fantasy football and which players **delivered the most value** in last season’s draft. Using data from ESPN’s Fantasy API and draft results from my league, I analyzed who truly lived up to their draft slot – and who didn’t.
+I wanted to find out how much the draft impacts fantasy football success — and which players **delivered the most value** in last season’s draft. Using data from ESPN’s Fantasy API and draft results from my league, I analyzed who truly lived up to their draft slot – and who didn’t.
 
 ---
 
 ## 📊 How I Got the Data
 
-To figure this out, I pulled:
-- Full draft order
+To conduct this analysis, I pulled:
+- The full draft order
 - Fantasy points scored
 - Positional ranks
 
-From there, I calculated a custom **Value Over Replacement Player (VORP)** based on my league format:
+From there, I calculated a custom **Value Over Replacement Player (VORP)** metric based on my league format:
 
 - 14 teams
-- 2 RB, 2 WR, 1 TE, 1 Flex (WR/RB/TE), 1 QB, 1 K, 1 D/ST
+- 2 RB, 2 WR, 1 TE, 1 Flex (WR/RB/TE), 1 QB, 1 Kicker, 1 D/ST
 
-> VORP = Player Points − Avg. Starter at Position
+> **VORP = Player Points − Avg. Starter at Position**
 
 ---
+
 ## 📈 Correlation Between VORP and Final Standings
-The first step was to see if there was a correlation between the average VORP of a teams draft and their final standings. Based on this chart, clearly the draft matters. There is a strong correlation, an r value of -0.51, which indicates that the higher the average VORP of your players, the better they will do.
 
-![](charts/corr_vorp_standings.png)
+The first step was to measure whether average draft VORP correlates with league success. As shown in the chart below, there's a **strong negative correlation** (r = –0.51), meaning that the **higher your team’s average VORP, the better you tend to finish**.
 
+![Scatter plot of VORP vs Final Standings](charts/corr_vorp_standings.png)
+
+<!--
+<figure>
+  <img src="charts/corr_vorp_standings.png" width="90%" style="display:block; margin:auto;">
+  <figcaption style="text-align:center">Figure: Strong negative correlation (r = -0.51)</figcaption>
+</figure>
+-->
 
 ---
 
 ## 📊 Average VORP by Team
-TO 
 
-![](charts/avg_vorp.png)
+To further illustrate the relationship, I plotted the average VORP per team. Teams with higher average VORP clearly finished higher in the standings.
 
----
-
-## 📈 Correlation Between VORP and Final Standings
-
-![](charts/corr_vorp_standings.png)
+![Bar chart showing average VORP by team](charts/avg_vorp.png)
 
 ---
 
 ## 🎯 Draft Pick vs. VORP
 
-![](charts/draft_pick_vs_vorp.png)
+I also examined how value changed by draft pick. The chart shows that **early-round selections offer higher VORP**, but some late-round picks still returned huge value.
+
+![Bar chart of draft pick vs. VORP](charts/draft_pick_vs_vorp.png)
 
 ---
 
 ## 🔎 Reaches (Original)
 
-![](charts/reaches_og.png)
+This chart highlights picks that were selected far earlier than their final production justified. Many of these were **inefficient picks** that underperformed expectations.
+
+![Chart showing players drafted too early](charts/reaches_og.png)
 
 ---
 
 ## 🔎 Reaches (Paid Off)
 
-![](charts/reaches_paid_off.png)
+Some "reaches" paid off in a big way. This chart shows picks that were drafted earlier than consensus but **exceeded expectations**.
+
+![Chart of successful reach picks](charts/reaches_paid_off.png)
 
 ---
 
 ## 💰 Steals (Original)
 
-![](charts/steals_og.png)
+These players were **drafted late** but delivered starter-level performance. Steals like this can win you your league.
+
+![Chart of draft steals based on original expectations](charts/steals_og.png)
 
 ---
 
 ## 💰 Steals (Paid Off)
 
-![](charts/steals_paid_off.png)
+These were picks that **significantly outperformed their draft position**. Some of the best values in the draft.
+
+![Chart of paid-off late-round steals](charts/steals_paid_off.png)
 
 ---
 
 ## 📌 VORP by Position
 
-![](charts/vorp_by_pos.png)
+This visualization breaks down where the **most draft value** came by position. Certain positions, like WR and RB, tend to offer the most differential impact compared to replacement-level players.
+
+![Bar chart of total VORP by position](charts/vorp_by_pos.png)
 
 ---
 
 ## 🧾 Conclusion
 
-This analysis reveals that fantasy value isn’t just about total points.
+This analysis shows that the **draft is absolutely critical** to fantasy football success — especially in the first **7 rounds**, where the majority of value is concentrated.
 
-### Key Takeaways:
-- **Late-round picks** can win you the league.
-- **Overpaying for names** is risky—look for upside.
-- **VORP** helps you normalize across positions.
+### 🔑 Key Takeaways:
+- **Drafting well matters**: higher team VORP correlates with better final standings.
+- **Reaches can backfire**, but some bold picks pay off.
+- **Steals in late rounds** can be league-winners.
+- **Use VORP** to normalize cross-position value and build smarter draft boards.
+
+Whether you're a casual player or a competitive fantasy manager, integrating this kind of analysis into your draft strategy gives you a serious edge.
+
+---
