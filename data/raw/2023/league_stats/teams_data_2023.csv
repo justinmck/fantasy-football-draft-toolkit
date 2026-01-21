@@ -1,0 +1,13 @@
+team_id,team_name,abbrev,division_id,division_name,wins,losses,ties,points_for,points_against,draft_projected_rank,final_standing,year
+1,Stretchy Pups Elite,PUPS,0,McKendry Division,9,5,1,1164.0,1110.0,7,1,2023
+3,South Bay Starr Power,SBSP,1,McDowell Division,6,8,1,1114.0,1124.0,9,11,2023
+4,Mission Viejo Goat,PAUL,1,McDowell Division,9,6,0,1308.0,1213.0,1,2,2023
+6,Husky Express,KRIS,1,McDowell Division,9,5,1,1297.0,1009.0,6,3,2023
+8,Flying Eagles,EGL,1,McDowell Division,9,6,0,1136.0,1197.0,11,6,2023
+9,Team Sprawl n Brawl,ROWE,0,McKendry Division,5,10,0,1039.0,1286.0,4,12,2023
+10,Ambler Thighs,AMBL,0,McKendry Division,3,12,0,1037.0,1270.0,12,9,2023
+11,Gerald Pea's Football Team,PEA,0,McKendry Division,5,10,0,1072.0,1162.0,10,8,2023
+12,Jean Machine,TM12,1,McDowell Division,7,8,0,1077.0,1156.0,8,5,2023
+13,The Ralph Dudes,BRD,1,McDowell Division,8,6,1,1285.0,1161.0,2,7,2023
+14,Luke's Cool Guys,LUKE,0,McKendry Division,11,4,0,1285.0,1159.0,5,4,2023
+15,Mendes Army,ASTR,0,McKendry Division,7,8,0,1083.0,1050.0,3,10,2023

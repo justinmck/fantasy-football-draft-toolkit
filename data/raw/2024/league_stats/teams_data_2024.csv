@@ -1,0 +1,15 @@
+team_id,team_name,abbrev,division_id,division_name,wins,losses,ties,points_for,points_against,draft_projected_rank,final_standing,year
+1,Stretchy Pups Elite,PUPS,0,McKendry Division,10,4,0,1745.0,1459.0,12,4,2024
+3,South Bay Starr Power,SBSP,1,McDowell Division,5,9,0,1317.0,1439.0,9,8,2024
+4,Mission Viejo Goat,PAUL,1,McDowell Division,6,8,0,1512.0,1562.0,13,9,2024
+6,Husky Express,KRIS,1,McDowell Division,10,4,0,1721.0,1378.0,3,2,2024
+8,Flying Eagles,EGL,0,McKendry Division,6,6,2,1332.0,1417.0,5,5,2024
+9,Team Sprawl n Brawl,ROWE,0,McKendry Division,5,8,1,1424.0,1623.0,8,10,2024
+10,Ambler Thighs,AMBL,0,McKendry Division,5,9,0,1365.0,1559.0,10,12,2024
+11,B Mac,BB,0,McKendry Division,4,10,0,1331.0,1610.0,1,14,2024
+12,Jean Machine,TM12,1,McDowell Division,9,5,0,1724.0,1440.0,4,1,2024
+13,The Ralph Dudes,BRD,1,McDowell Division,6,7,1,1474.0,1496.0,2,7,2024
+14,Luke's Cool Guys,LUKE,0,McKendry Division,6,7,1,1475.0,1641.0,7,11,2024
+15,Mendes Army,ASTR,0,McKendry Division,10,3,1,1611.0,1371.0,6,3,2024
+16,Deb’s Debsters,DEB,1,McDowell Division,9,5,0,1341.0,1280.0,11,6,2024
+17,Joemomma,JFT,1,McDowell Division,4,10,0,1348.0,1445.0,14,13,2024

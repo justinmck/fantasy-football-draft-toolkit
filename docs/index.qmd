@@ -56,15 +56,20 @@ The first step was to measure whether average draft VORP correlates with league 
 
 ## 📊 Average VORP by Team
 
-To further illustrate the relationship, I plotted the average VORP per team. Teams with higher average VORP clearly finished higher in the standings.
+To further illustrate the relationship, I plotted the average VORP per team. Teams with higher average VORP clearly finished higher in the standings. There are some outliers like "The Ralph Dudes" who finished 7th but had the 3rd best draft according to VORP. The second worst draft which was by "Deb's Debsters" led the team to finishing 6th overall, above the average in this 14 team league.
 
 ![Bar chart showing average VORP by team](charts/avg_vorp.png)
 
 ---
+## 📌 VORP by Position
+
+I wanted to see which positions offered the most value. This chart shows the total VORP by position. This is a sum of all starting players at their position to see who adds the most value. Based on the graph, WR's add the most value followed by RB's and QB's. 
+
+![Bar chart of total VORP by position](charts/vorp_by_pos.png)
 
 ## 🎯 Draft Pick vs. VORP
 
-I also examined how value changed by draft pick. The chart shows that **early-round selections offer higher VORP**, but some late-round picks still returned huge value.
+There is at least some relationship between how well you draft and how well you perform, but all draft picks are not created equal. At a certain point, drafting becomes useless as you can typically get a player just as good off the waiver wire. To see where that point was I found the correlation between where a player was drafted and their VORP. At around round 8 pick 2, the VORP values become negative, meaning they are likely not going to be starters and easily replaceable. The first 7 rounds are what really matter. It doesn't make sense to draft a position with a negative VORP like a D/ST or K within those first 7 rounds, which follows typical conventions. Even TE's add little after the 7th round so if you want a solid option, your best bet is to choose it before then.
 
 ![Bar chart of draft pick vs. VORP](charts/draft_pick_vs_vorp.png)
 
@@ -72,17 +77,20 @@ I also examined how value changed by draft pick. The chart shows that **early-ro
 
 ## 🔎 Reaches (Original)
 
-This chart highlights picks that were selected far earlier than their final production justified. Many of these were **inefficient picks** that underperformed expectations.
+In the next step I wanted to see who were the reaches in this draft. To calculate this I found the difference between where they were drafted and their "market value" or adp. The top 10 are in this chart below.
 
 ![Chart showing players drafted too early](charts/reaches_og.png)
+
+<iframe src="tables/draft_reaches.html" width="100%" height="700px" style="border:none;"></iframe>
 
 ---
 
 ## 🔎 Reaches (Paid Off)
 
-Some "reaches" paid off in a big way. This chart shows picks that were drafted earlier than consensus but **exceeded expectations**.
+Some of these "reaches" did pay off. This chart shows picks that were drafted earlier than consensus but **exceeded expectations**, meaning they scored more then they were projected to. 
 
 ![Chart of successful reach picks](charts/reaches_paid_off.png)
+
 
 ---
 
@@ -99,14 +107,6 @@ These players were **drafted late** but delivered starter-level performance. Ste
 These were picks that **significantly outperformed their draft position**. Some of the best values in the draft.
 
 ![Chart of paid-off late-round steals](charts/steals_paid_off.png)
-
----
-
-## 📌 VORP by Position
-
-This visualization breaks down where the **most draft value** came by position. Certain positions, like WR and RB, tend to offer the most differential impact compared to replacement-level players.
-
-![Bar chart of total VORP by position](charts/vorp_by_pos.png)
 
 ---
 

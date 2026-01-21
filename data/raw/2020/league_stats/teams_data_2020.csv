@@ -1,0 +1,13 @@
+team_id,team_name,abbrev,division_id,division_name,wins,losses,ties,points_for,points_against,draft_projected_rank,final_standing,year
+1,Stretchy Pups,SPUP,0,McKendry Division,7,7,0,1133.0,1165.0,0,5,2020
+3,South Bay Starr Power,SBSP,1,McDowell Division,5,9,0,1167.0,1263.0,0,11,2020
+4,Mission Viejo Burritos,PAUL,1,McDowell Division,7,7,0,963.0,1030.0,0,9,2020
+6,Husky Express,KRIS,1,McDowell Division,6,8,0,976.0,1086.0,0,7,2020
+8,Flying Eagles,EGL,1,McDowell Division,9,5,0,1165.0,988.0,0,1,2020
+9,Team Sprawl n Brawl,ROWE,0,McKendry Division,8,6,0,1151.0,1126.0,0,8,2020
+10,Ambler Thighs,AMBL,0,McKendry Division,5,9,0,1035.0,1039.0,0,12,2020
+11,Gerald Pea's Football Team,PEA,0,McKendry Division,7,7,0,1051.0,1033.0,0,6,2020
+12,Jean Machine,TM12,1,McDowell Division,9,5,0,1170.0,1082.0,0,3,2020
+13,The Ralph Dudes,BRD,1,McDowell Division,5,9,0,1023.0,1289.0,0,10,2020
+14,Luke's Cool Guys,LUKE,0,McKendry Division,8,6,0,1157.0,1068.0,0,2,2020
+15,Mendes Army,ASTR,0,McKendry Division,8,6,0,1249.0,1071.0,0,4,2020

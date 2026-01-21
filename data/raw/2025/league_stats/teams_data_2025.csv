@@ -1,0 +1,15 @@
+team_id,team_name,abbrev,division_id,division_name,wins,losses,ties,points_for,points_against,draft_projected_rank,final_standing,year
+1,Stretchy Pups Elite,PUPS,0,McKendry Division,0,0,0,0.0,0.0,0,0,2025
+3,South Bay Starr Power,SBSP,1,McDowell Division,0,0,0,0.0,0.0,0,0,2025
+4,Mission Viejo Goat,PAUL,1,McDowell Division,0,0,0,0.0,0.0,0,0,2025
+6,Husky Express,KRIS,1,McDowell Division,0,0,0,0.0,0.0,0,0,2025
+8,Flying Eagles,EGL,0,McKendry Division,0,0,0,0.0,0.0,0,0,2025
+9,Team Sprawl n Brawl,ROWE,0,McKendry Division,0,0,0,0.0,0.0,0,0,2025
+10,Ambler Thighs,AMBL,0,McKendry Division,0,0,0,0.0,0.0,0,0,2025
+11,B Mac,BB,0,McKendry Division,0,0,0,0.0,0.0,0,0,2025
+12,Jean Machine,TM12,1,McDowell Division,0,0,0,0.0,0.0,0,0,2025
+13,The Ralph Dudes,BRD,1,McDowell Division,0,0,0,0.0,0.0,0,0,2025
+14,Luke's Cool Guys,LUKE,0,McKendry Division,0,0,0,0.0,0.0,0,0,2025
+15,Mendes Army,ASTR,0,McKendry Division,0,0,0,0.0,0.0,0,0,2025
+16,Deb’s Debsters,DEB,1,McDowell Division,0,0,0,0.0,0.0,0,0,2025
+17,Joemomma,JFT,1,McDowell Division,0,0,0,0.0,0.0,0,0,2025
