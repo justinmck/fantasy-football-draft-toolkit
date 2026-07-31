@@ -1,123 +1,183 @@
-# 🏈 Fantasy Football Draft Analysis (2024–2025)
+# Fantasy Football Draft Toolkit
 
-This project analyzes the draft efficiency and season performance of teams in a 14-team fantasy football league using ESPN's API. It calculates custom metrics such as Value Over Replacement Player (VORP), draft delta, and performance payoff.
+An end-to-end fantasy football analytics pipeline for a 14-team ESPN league: pull league history from the ESPN API, compute a consistent Value Over Replacement Player (VORP) metric, validate a regression model for next-season projections, and use both live during the draft through a React UI backed by a FastAPI recommendation service.
 
----
+The public write-up (results, charts, plain-language summary) is published via GitHub Pages: **https://justinmck.github.io/fantasy-football-draft-toolkit/**
 
-## 📦 Project Structure
-
-```
-
-├── notebooks/                # Jupyter notebooks for exploration
-│   └── NB01.ipynb  # Data Collection
-    └── NB02.ipynb  # Data Processing
-    └── NB03.ipynb  # Data Analysis
-│
-├── scripts/                  # Python scripts for automation and data handling
-│   └── utils.py              # Helper functions for data collection
-│
-├── data/                     # Data files
-│   ├── raw/                  # Raw API data
-│   └── fantasy_data.db           # Cleaned datasets
-│
-├── docs/                   
-│   └── charts/ # Project charts
-    └── tables/ # Project Tables
-    └── index.qmd/ # Creates the website
-Exported charts for visualization
-│
-├── README.md                 # Project overview
-└── requirements.txt          # Python dependencies
-```
-
+This README covers the engineering side: architecture, setup, and methodology.
 
 ---
 
-## 🛠️ Setup Instructions
+## Architecture
 
-### 1. Clone the Repository
-
-```bash
-git clone https://github.com/yourusername/fantasy-draft-analysis.git
-cd fantasy-draft-analysis
 ```
-### 2. Create and Activate a Virtual Enviornment
+ESPN API  →  notebooks/NB01  →  SQLite (data/fantasy_data.db)
+                                       │
+                    ┌──────────────────┼──────────────────┐
+                    │                  │                  │
+           notebooks/NB02      notebooks/NB03      notebooks/NB04
+           (data cleaning)     (retrospective       (next-season
+                                VORP + charts         regression +
+                                → docs/charts,         players.json
+                                  docs/tables)          export)
+                                       │                  │
+                                       │                  ▼
+                                       │         draft-board/public/players.json
+                                       │            (offline fallback)
+                                       ▼
+                              src/scoring.py  ◄── single VORP/baseline
+                                       │           implementation, shared
+                                       ▼           by NB03, NB04, and the
+                              src/recommender.py    live API
+                                       │
+                                       ▼
+                              src/api.py (FastAPI)
+                                       │
+                                       ▼
+                          draft-board/ (React + Vite + Tailwind)
+                                       │
+                                       ▼
+                              live draft UI in the browser
+```
+
+`docs/` is also rendered (via Quarto) into a static site published on GitHub Pages, separate from the live draft tool.
+
+### Why one scoring module
+
+Earlier versions of this project computed "how good is this player" four different ways: hardcoded SQL rank windows in the retrospective notebook, a second hardcoded SQL version feeding an unvalidated regression, a third dynamic version in the backend that the UI never actually called, and a fourth set of ad hoc weights hardcoded directly into the frontend. They disagreed with each other and, in the retrospective notebook's case, one of the SQL branches had a real bug (it returned the replacement player's raw points instead of `points - replacement`).
+
+`src/scoring.py` is now the single definition, used everywhere:
+
+- **Replacement baseline** = the Nth-best player at a position, where `N = teams × starters needed at that position` (plus a share of the FLEX slot for FLEX-eligible positions), read from `notebooks/config.py`'s `TEAMS`/`ROSTER_NEEDS` — not an arbitrary, hand-picked rank cutoff.
+- **VORP** = a player's value minus that baseline.
+- **Live draft utility** additionally weights VORP by unmet roster need and by how much draft-pick pressure there is to grab the player before your next turn (`adp_pressure` in `src/scoring.py`), plus a small term for recent performance.
+
+---
+
+## Setup
+
 ```bash
+git clone https://github.com/justinmck/fantasy-football-draft-toolkit.git
+cd fantasy-football-draft-toolkit
+
 python -m venv .venv
-source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+source .venv/bin/activate
+pip install -r requirements.txt
+
+cd draft-board
+npm install
+cd ..
 ```
 
-### 3. Install Dependencies
+### ESPN API access (for re-pulling data)
 
-Dependencies include:
+`notebooks/NB01-data-collection.ipynb` pulls league data via the [`espn-api`](https://github.com/cwendt94/espn-api) package, which requires:
 
-- pandas
-- requests
-- seaborn
-- matplotlib
-- sqlalchemy
-- ipykernel
-- plotly
+- Your league ID
+- Your `SWID` and `espn_s2` cookies (visible in your browser's dev tools → Application → Cookies, while logged into ESPN fantasy)
+
+Put these in a `.env` file (not committed) rather than hardcoding them:
+
+```
+LEAGUE_ID=...
+SWID=...
+ESPN_S2=...
+```
+
+### Running the notebooks
+
+Run in order — each depends on tables/files the previous one produces:
+
+1. `NB01-data-collection.ipynb` — pulls raw league/player/draft data from ESPN into `data/raw/` and `data/fantasy_data.db`.
+2. `NB02-data-processing.ipynb` — cleans and normalizes the raw data into the DB tables the rest of the project reads from.
+3. `NB03-analysis.ipynb` — retrospective VORP, draft-value charts and tables (exported to `docs/charts/`, `docs/tables/`).
+4. `NB04-draft-board.ipynb` — feature validation, model comparison, and the `players.json` export used as the draft board's offline fallback.
+
+### Running the live draft tool
+
+Two processes, run together on draft day:
+
+```bash
+# terminal 1 — backend
+source .venv/bin/activate
+uvicorn src.api:app --reload
+
+# terminal 2 — frontend
+cd draft-board
+npm run dev
+```
+
+Open the Vite dev server URL (default `http://localhost:5173`). The frontend talks to the backend at `VITE_API_URL` (`draft-board/.env.local`, defaults to `http://localhost:8000`). If the backend isn't reachable, the UI falls back to the static `players.json` snapshot exported by NB04 — read-only, but usable.
+
+### Tests
+
+```bash
+pytest tests/ -v
+```
+
+Covers the scoring/VORP functions (`tests/test_scoring.py`) and the FastAPI routes end-to-end against a fixture SQLite database (`tests/test_api.py`), including a regression test for a NaN-serialization bug (see below).
 
 ---
-## ESPN API Access
-To fetch data from ESPN's private league API, you'll need:
 
-Your League ID
+## Methodology
 
-Your SWID and espn_s2 cookies from your ESPN account
+### VORP (retrospective and projected)
 
-### How to Get Your Credentials:
-Go to your ESPN league in your browser.
+Replacement level is defined once, in `src/scoring.py`, as described above, and reused by:
 
-Open Developer Tools (Right-click → Inspect → Application → Cookies).
+- `NB03` — retrospective VORP against actual season points, feeding the draft-value charts (steals/reaches, VORP vs. final standing correlation, VORP by position).
+- `NB04` and `src/recommender.py` — the same baseline logic applied to next-season projected points, for the live draft tool.
 
-Copy the values of SWID and espn_s2.
+### Regression model (NB04)
 
-Then, update your .env file or pass these directly into your Python script where applicable:
+The question NB04 asks is: *given only information available before the season starts (projected points, projected VORP, last season's per-game average), how well can we predict a player's actual end-of-season VORP?* This is framed as a **feature-validation** exercise, not the thing that directly drives the live draft score — the live score is still `src/scoring.py`'s need/ADP-aware utility function, now informed by what the regression finds predictive.
 
-python
-Copy
-Edit
-from espn_api.football import League
+**Multicollinearity.** `projected_points` and `proj_vorp` are almost the same signal — VORP is arithmetically derived from projected points minus a baseline — so including both as independent regressors produces unstable, hard-to-interpret coefficients. We check this with variance inflation factors (VIF) rather than assuming it: on the current data, `projected_points` and `proj_vorp` both sit in the moderate range (VIF ≈ 4.3 and 3.9), not the extreme range that would demand dropping a feature outright, but high enough that the notebook documents the correlation explicitly and treats individual coefficients with caution rather than over-interpreting them (`avg_last_year`, by contrast, is largely independent at VIF ≈ 1.5).
 
-league = League(
-    league_id=12345678,
-    year=2024,
-    swid="{...}",
-    espn_s2="AEB...longtoken..."
-)
+**Validation.** Earlier versions fit a model and read its own training-set fit back as if that were a real evaluation — no held-out data at all. NB04 now does a walk-forward split: earlier seasons train, the most recent completed season (`CURRENT_SEASON`) is held out entirely for evaluation, and model selection during training uses `GroupKFold` grouped by year so no player-season ever leaks across a fold boundary within the training set.
 
-## 🚀 Reproducing the Analysis
+**Model comparison.** Linear Regression, Ridge, and a Random Forest are compared via cross-validated RMSE/MAE/R² on the training years. On this data the Random Forest wins narrowly (cross-validated RMSE ≈ 63.5 vs. ≈ 65.4 for Linear/Ridge) and is selected as the final model.
 
-Step-by-Step:
-Step	File	Description
-1️⃣	scripts/utils.py	Functions for fetching and processing raw league/player data
-2️⃣	notebooks/draft_analysis.ipynb	Main notebook NB03: VORP calc, draft delta, visualizations
-3️⃣	data/processed/	Stores cleaned and merged datasets
-4️⃣	images/charts/	Output images for your report or website
+**Holdout performance.** Evaluated once, on the untouched held-out season: RMSE ≈ 57.8, MAE ≈ 46.2, R² ≈ 0.54. In plain terms: the model explains a bit over half the variance in actual end-of-season VORP using only pre-draft information, with a typical miss of roughly 46-58 points — a meaningful signal, not a precise forecast.
 
-You can run the entire analysis by starting with the notebooks and following cell-by-cell execution.
+**Uncertainty.** Point predictions alone overstate confidence, especially with a small, single-league dataset. NB04 bootstraps the training data (300 resamples, refit each time) and reports a 90% interval (5th–95th percentile of predictions) alongside each player's point estimate, both in the notebook and in the exported `players.json`.
 
-🧠 Key Metrics
-VORP – Value Over Replacement Player, calculated per position
+### League-specific draft bias
 
-Draft Delta – Difference between Actual Pick and ADP
+`src/biases.py` fits a small correction for how *this* league's actual draft picks tend to deviate from national ADP (e.g., a league that reaches for QBs earlier than average), using every prior season on record. This is fit on a single 14-team league across a handful of seasons — a small, noisy sample — so it's applied as a mild, illustrative nudge on top of ADP rather than treated as a statistically robust model on its own.
 
-Boom/Bust – Difference between Actual and Projected points
+### Known limitations
 
-Paid Off – Whether the player outperformed replacement value
+- All of the above (regression, bias correction) is trained on one league's history. It won't generalize to other leagues' scoring settings or draft tendencies out of the box.
+- Sample size across seasons is small; the holdout evaluation is a single season, not a stable long-run estimate.
+- Rookies and other players with no prior-season stats fall back to `0` for the recency feature — a real gap, not an imputed estimate, and the model's confidence interval for those players is correspondingly wider on the low end but not adjusted specifically for "rookie" as its own category.
 
-## 👨‍💻 Author
+---
+
+## Testing notes
+
+`tests/test_api.py` includes a regression test for a real bug found via live smoke-testing: `/recommend` used to 500 with `ValueError: Out of range float values are not JSON compliant: nan` whenever a candidate player had no prior-season stats (rookies) or a null pro team — both are legitimate, common cases, not bad data. Fixed in `src/recommender.py` by filling those fields before the API response is built; the test fixture includes a synthetic rookie with exactly this shape of missing data to guard against a regression.
+
+---
+
+## Project structure
+
+```
+notebooks/        NB01–NB04 pipeline + shared config.py/utils.py
+src/               FastAPI backend: api.py, recommender.py, scoring.py,
+                   biases.py, state.py, schemas.py, settings.py, db.py
+draft-board/       React + Vite + Tailwind live draft UI
+data/              raw/ ESPN pulls + fantasy_data.db (SQLite)
+docs/              Quarto site source + rendered output (GitHub Pages)
+tests/             pytest suite for scoring and the API
+```
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+## Author
+
 Justin McKendry
-University of Maryland — Computer Science & Finance
-London School of Economics — Data Engineering (2025)
-
-## 📎 License
-MIT License (if you want this to be open source)
-
-## 🙋‍♂️ Questions?
-Reach out via [LinkedIn](https://linkedin.com/in/justinmckendry) or open an Issue in this repo.
-
-
----

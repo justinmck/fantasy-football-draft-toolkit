@@ -1,0 +1,15 @@
+pandas==2.3.1
+SQLAlchemy==2.0.42
+fastapi==0.116.1
+uvicorn==0.35.0
+scikit-learn==1.7.1
+scipy==1.16.1
+numpy==2.3.2
+espn-api==0.45.1
+plotly==6.2.0
+matplotlib==3.10.3
+seaborn==0.13.2
+jupyter==1.1.1
+python-dotenv==1.1.1
+pydantic==2.11.7
+pytest==9.1.1

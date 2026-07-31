@@ -3,3 +3,6 @@
 __pycache__/
 .env
 notes
+.DS_Store
+.claude/
+.pytest_cache/

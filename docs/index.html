@@ -49,15 +49,14 @@ ul.task-list li input[type="checkbox"] {
   <ul>
   <li><a href="#how-important-is-drafting" id="toc-how-important-is-drafting" class="nav-link active" data-scroll-target="#how-important-is-drafting">🏈 How Important is Drafting?</a>
   <ul class="collapse">
-  <li><a href="#how-i-got-the-data" id="toc-how-i-got-the-data" class="nav-link" data-scroll-target="#how-i-got-the-data">📊 How I Got the Data</a></li>
-  <li><a href="#correlation-between-vorp-and-final-standings" id="toc-correlation-between-vorp-and-final-standings" class="nav-link" data-scroll-target="#correlation-between-vorp-and-final-standings">📈 Correlation Between VORP and Final Standings</a></li>
-  <li><a href="#average-vorp-by-team" id="toc-average-vorp-by-team" class="nav-link" data-scroll-target="#average-vorp-by-team">📊 Average VORP by Team</a></li>
-  <li><a href="#draft-pick-vs.-vorp" id="toc-draft-pick-vs.-vorp" class="nav-link" data-scroll-target="#draft-pick-vs.-vorp">🎯 Draft Pick vs.&nbsp;VORP</a></li>
+  <li><a href="#correlation-between-draft-value-and-final-standings" id="toc-correlation-between-draft-value-and-final-standings" class="nav-link" data-scroll-target="#correlation-between-draft-value-and-final-standings">📈 Correlation Between Draft Value and Final Standings</a></li>
+  <li><a href="#average-value-by-team" id="toc-average-value-by-team" class="nav-link" data-scroll-target="#average-value-by-team">📊 Average Value by Team</a></li>
+  <li><a href="#value-by-position" id="toc-value-by-position" class="nav-link" data-scroll-target="#value-by-position">📌 Value by Position</a></li>
+  <li><a href="#draft-pick-vs.-value" id="toc-draft-pick-vs.-value" class="nav-link" data-scroll-target="#draft-pick-vs.-value">🎯 Draft Pick vs.&nbsp;Value</a></li>
   <li><a href="#reaches-original" id="toc-reaches-original" class="nav-link" data-scroll-target="#reaches-original">🔎 Reaches (Original)</a></li>
   <li><a href="#reaches-paid-off" id="toc-reaches-paid-off" class="nav-link" data-scroll-target="#reaches-paid-off">🔎 Reaches (Paid Off)</a></li>
   <li><a href="#steals-original" id="toc-steals-original" class="nav-link" data-scroll-target="#steals-original">💰 Steals (Original)</a></li>
   <li><a href="#steals-paid-off" id="toc-steals-paid-off" class="nav-link" data-scroll-target="#steals-paid-off">💰 Steals (Paid Off)</a></li>
-  <li><a href="#vorp-by-position" id="toc-vorp-by-position" class="nav-link" data-scroll-target="#vorp-by-position">📌 VORP by Position</a></li>
   <li><a href="#draft-value-heatmap" id="toc-draft-value-heatmap" class="nav-link" data-scroll-target="#draft-value-heatmap">🔥 Draft Value Heatmap</a></li>
   <li><a href="#conclusion" id="toc-conclusion" class="nav-link" data-scroll-target="#conclusion">🧾 Conclusion</a>
   <ul class="collapse">
@@ -90,74 +89,75 @@ ul.task-list li input[type="checkbox"] {
 
 <section id="how-important-is-drafting" class="level1">
 <h1>🏈 How Important is Drafting?</h1>
-<p>I wanted to find out how much the draft impacts fantasy football success — and which players <strong>delivered the most value</strong> in last season’s draft. Using data from ESPN’s Fantasy API and draft results from my league, I analyzed who truly lived up to their draft slot – and who didn’t.</p>
-<hr>
-<section id="how-i-got-the-data" class="level2">
-<h2 class="anchored" data-anchor-id="how-i-got-the-data">📊 How I Got the Data</h2>
-<p>To conduct this analysis, I pulled: - The full draft order - Fantasy points scored - Positional ranks</p>
-<p>From there, I calculated a custom <strong>Value Over Replacement Player (VORP)</strong> metric based on my league format:</p>
+<p>I wanted to find out how much the draft actually matters to a fantasy football season — and which players delivered the most value in my 14-team league’s draft last year. I used that analysis to build a live draft board for this season, wired up to real-time recommendations while I’m on the clock.</p>
+<p><strong>TL;DR:</strong></p>
 <ul>
-<li>14 teams</li>
-<li>2 RB, 2 WR, 1 TE, 1 Flex (WR/RB/TE), 1 QB, 1 Kicker, 1 D/ST</li>
+<li>Draft quality <strong>does</strong> correlate with how you finish — teams with higher average draft-value tend to place higher in the standings.</li>
+<li>Value is concentrated in the <strong>first ~7 rounds</strong>. After that, most picks are roughly replacement-level — you could find similar production on waivers.</li>
+<li>WRs added the most total value last season, followed by RBs and QBs.</li>
+<li>Some “reaches” paid off big, and some late-round “steals” were league-winners — the charts below show exactly who.</li>
+<li>This year’s draft board is live: <a href="https://github.com/justinmck/fantasy-football-draft-toolkit">github.com/justinmck/fantasy-football-draft-toolkit</a></li>
 </ul>
-<blockquote class="blockquote">
-<p><strong>VORP = Player Points − Avg. Starter at Position</strong></p>
-</blockquote>
 <hr>
-</section>
-<section id="correlation-between-vorp-and-final-standings" class="level2">
-<h2 class="anchored" data-anchor-id="correlation-between-vorp-and-final-standings">📈 Correlation Between VORP and Final Standings</h2>
-<p>The first step was to measure whether average draft VORP correlates with league success. As shown in the chart below, there’s a <strong>strong negative correlation</strong> (r = –0.51), meaning that the <strong>higher your team’s average VORP, the better you tend to finish</strong>.</p>
+<section id="correlation-between-draft-value-and-final-standings" class="level2">
+<h2 class="anchored" data-anchor-id="correlation-between-draft-value-and-final-standings">📈 Correlation Between Draft Value and Final Standings</h2>
+<p>The first question: does drafting well actually predict finishing well? Yes, moderately — there’s a <strong>negative correlation (r = –0.51)</strong> between a team’s average draft value and its final standing (lower standing number = better finish), meaning <strong>higher average value tends to mean a better finish</strong>.</p>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
 <p><img src="charts/corr_vorp_standings.png" class="img-fluid figure-img"></p>
-<figcaption>Scatter plot of VORP vs Final Standings</figcaption>
+<figcaption>Scatter plot of draft value vs Final Standings</figcaption>
 </figure>
 </div>
-<!--
-<figure>
-  <img src="charts/corr_vorp_standings.png" width="90%" style="display:block; margin:auto;">
-  <figcaption style="text-align:center">Figure: Strong negative correlation (r = -0.51)</figcaption>
-</figure>
--->
 <hr>
 </section>
-<section id="average-vorp-by-team" class="level2">
-<h2 class="anchored" data-anchor-id="average-vorp-by-team">📊 Average VORP by Team</h2>
-<p>To further illustrate the relationship, I plotted the average VORP per team. Teams with higher average VORP clearly finished higher in the standings.</p>
+<section id="average-value-by-team" class="level2">
+<h2 class="anchored" data-anchor-id="average-value-by-team">📊 Average Value by Team</h2>
+<p>Teams with a higher average value per pick clearly tended to finish higher in the standings — though not perfectly. “The Ralph Dudes” finished 7th despite having the 3rd-best draft by this measure, and “Deb’s Debsters” finished 6th (above league average) despite having the second-worst draft. Drafting well helps, but it isn’t the whole story.</p>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
 <p><img src="charts/avg_vorp.png" class="img-fluid figure-img"></p>
-<figcaption>Bar chart showing average VORP by team</figcaption>
+<figcaption>Bar chart showing average value by team</figcaption>
 </figure>
 </div>
 <hr>
 </section>
-<section id="draft-pick-vs.-vorp" class="level2">
-<h2 class="anchored" data-anchor-id="draft-pick-vs.-vorp">🎯 Draft Pick vs.&nbsp;VORP</h2>
-<p>I also examined how value changed by draft pick. The chart shows that <strong>early-round selections offer higher VORP</strong>, but some late-round picks still returned huge value.</p>
+<section id="value-by-position" class="level2">
+<h2 class="anchored" data-anchor-id="value-by-position">📌 Value by Position</h2>
+<p>Which positions add the most total value to a roster? This sums up value across all starting players at each position. WRs added the most, followed by RBs and QBs.</p>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="charts/vorp_by_pos.png" class="img-fluid figure-img"></p>
+<figcaption>Bar chart of total value by position</figcaption>
+</figure>
+</div>
+</section>
+<section id="draft-pick-vs.-value" class="level2">
+<h2 class="anchored" data-anchor-id="draft-pick-vs.-value">🎯 Draft Pick vs.&nbsp;Value</h2>
+<p>Not all draft picks are created equal, and at some point drafting stops mattering much — you could get an equally good player off the waiver wire instead. To find that point, I looked at the relationship between where a player was drafted and the value they delivered. Value turns negative around <strong>round 8, pick 2</strong> — past that point, picks are typically not startable and easily replaceable. The first 7 rounds are where the draft actually matters. It rarely makes sense to draft a low-value position like D/ST or K in those early rounds, and even TE value drops off fast after round 7 — if you want a reliable one, get it early.</p>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
 <p><img src="charts/draft_pick_vs_vorp.png" class="img-fluid figure-img"></p>
-<figcaption>Bar chart of draft pick vs.&nbsp;VORP</figcaption>
+<figcaption>Bar chart of draft pick vs.&nbsp;value</figcaption>
 </figure>
 </div>
 <hr>
 </section>
 <section id="reaches-original" class="level2">
 <h2 class="anchored" data-anchor-id="reaches-original">🔎 Reaches (Original)</h2>
-<p>This chart highlights picks that were selected far earlier than their final production justified. Many of these were <strong>inefficient picks</strong> that underperformed expectations.</p>
+<p>Who got drafted earliest relative to their market value (ADP)? The top 10 “reaches” from last year’s draft:</p>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
 <p><img src="charts/reaches_og.png" class="img-fluid figure-img"></p>
 <figcaption>Chart showing players drafted too early</figcaption>
 </figure>
 </div>
+<iframe src="tables/draft_reaches.html" width="100%" height="700px" style="border:none;">
+</iframe>
 <hr>
 </section>
 <section id="reaches-paid-off" class="level2">
 <h2 class="anchored" data-anchor-id="reaches-paid-off">🔎 Reaches (Paid Off)</h2>
-<p>Some “reaches” paid off in a big way. This chart shows picks that were drafted earlier than consensus but <strong>exceeded expectations</strong>.</p>
+<p>Some reaches paid off anyway — these were drafted earlier than consensus but outperformed their own preseason projection:</p>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
 <p><img src="charts/reaches_paid_off.png" class="img-fluid figure-img"></p>
@@ -168,7 +168,7 @@ ul.task-list li input[type="checkbox"] {
 </section>
 <section id="steals-original" class="level2">
 <h2 class="anchored" data-anchor-id="steals-original">💰 Steals (Original)</h2>
-<p>These players were <strong>drafted late</strong> but delivered starter-level performance. Steals like this can win you your league.</p>
+<p>These players were drafted late but delivered starter-level performance. Steals like this can win you your league.</p>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
 <p><img src="charts/steals_og.png" class="img-fluid figure-img"></p>
@@ -179,7 +179,7 @@ ul.task-list li input[type="checkbox"] {
 </section>
 <section id="steals-paid-off" class="level2">
 <h2 class="anchored" data-anchor-id="steals-paid-off">💰 Steals (Paid Off)</h2>
-<p>These were picks that <strong>significantly outperformed their draft position</strong>. Some of the best values in the draft.</p>
+<p>The picks that most outperformed where they were drafted — some of the best values of the draft.</p>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
 <p><img src="charts/steals_paid_off.png" class="img-fluid figure-img"></p>
@@ -188,37 +188,46 @@ ul.task-list li input[type="checkbox"] {
 </div>
 <hr>
 </section>
-<section id="vorp-by-position" class="level2">
-<h2 class="anchored" data-anchor-id="vorp-by-position">📌 VORP by Position</h2>
-<p>This visualization breaks down where the <strong>most draft value</strong> came by position. Certain positions, like WR and RB, tend to offer the most differential impact compared to replacement-level players.</p>
-<div class="quarto-figure quarto-figure-center">
-<figure class="figure">
-<p><img src="charts/vorp_by_pos.png" class="img-fluid figure-img"></p>
-<figcaption>Bar chart of total VORP by position</figcaption>
-</figure>
-</div>
-<hr>
-</section>
 <section id="draft-value-heatmap" class="level2">
 <h2 class="anchored" data-anchor-id="draft-value-heatmap">🔥 Draft Value Heatmap</h2>
-<p>This is a heatmap containing all the players drafted within our leagues draft based on their VORP.</p>
+<p>Every player drafted in the league last year, plotted by draft slot and value delivered.</p>
 <iframe src="charts/draft_value_chart.html" width="100%" height="700px" style="border:none;">
 </iframe>
 <hr>
 </section>
 <section id="conclusion" class="level2">
 <h2 class="anchored" data-anchor-id="conclusion">🧾 Conclusion</h2>
-<p>This analysis shows that the <strong>draft is absolutely critical</strong> to fantasy football success — especially in the first <strong>7 rounds</strong>, where the majority of value is concentrated.</p>
+<p>The draft is genuinely important to how your season goes — especially in the first <strong>7 rounds</strong>, where nearly all of the value is concentrated.</p>
 <section id="key-takeaways" class="level3">
 <h3 class="anchored" data-anchor-id="key-takeaways">🔑 Key Takeaways:</h3>
 <ul>
-<li><strong>Drafting well matters</strong>: higher team VORP correlates with better final standings.</li>
+<li><strong>Drafting well matters</strong>: higher average draft value correlates with a better final standing.</li>
 <li><strong>Reaches can backfire</strong>, but some bold picks pay off.</li>
-<li><strong>Steals in late rounds</strong> can be league-winners.</li>
-<li><strong>Use VORP</strong> to normalize cross-position value and build smarter draft boards.</li>
+<li><strong>Late-round steals</strong> can be league-winners.</li>
+<li>Past round 7-8, most of the board is close to replacement level — don’t overthink those picks.</li>
 </ul>
-<p>Whether you’re a casual player or a competitive fantasy manager, integrating this kind of analysis into your draft strategy gives you a serious edge.</p>
+<p>Whether you’re a casual player or a competitive manager, this kind of analysis gives you a real edge on draft day — which is exactly why I built a live version of it. Check out the <a href="https://github.com/justinmck/fantasy-football-draft-toolkit">draft board and full write-up on GitHub</a>.</p>
 <hr>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-1-contents" aria-controls="callout-1" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+🔧 Methodology details (for the curious)
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-1" class="callout-1-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p><strong>Data sources:</strong> the full draft order, fantasy points scored, and positional ranks came from ESPN’s private league API. Average draft position (ADP) — treated as “market value” — came from <a href="https://www.fantasypros.com/nfl/adp/overall.php">FantasyPros</a>, which blends ADP across multiple fantasy sites into one consensus number.</p>
+<p><strong>League format:</strong> 14 teams, 2 RB / 2 WR / 1 TE / 1 FLEX (RB/WR/TE) / 1 QB / 1 K / 1 D/ST.</p>
+<p><strong>“Value” here is VORP</strong> (Value Over Replacement Player): a player’s points minus the points scored by the last startable player at their position, given this league’s exact roster construction (14 teams × starters needed per position, including a share of the FLEX slot for flex-eligible positions) — not an arbitrary or hand-picked cutoff.</p>
+<p>This is the same VORP definition used everywhere in the underlying project — the retrospective charts above, the next-season regression model, and the live draft tool’s recommendation engine all share one implementation, so they can’t disagree with each other. The live tool also runs a validated regression (train/test split across seasons, model comparison, and uncertainty bounds on each projection) to estimate next season’s value ahead of the draft.</p>
+<p>Full technical write-up — architecture, the regression methodology, validation approach, and known limitations — is in the <a href="https://github.com/justinmck/fantasy-football-draft-toolkit#methodology">project README</a>.</p>
+</div>
+</div>
+</div>
 </section>
 </section>
 </section>

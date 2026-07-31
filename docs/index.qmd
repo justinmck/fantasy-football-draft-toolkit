@@ -12,72 +12,51 @@ format:
 
 # 🏈 How Important is Drafting?
 
-I wanted to find out how much the draft impacts fantasy football success — and which players **delivered the most value** in last season’s draft in order to build a draft board for this upcoming season. Using data from a Fantasy API built of ESPN's private API, draft results from my league, and average draft positions (adp) from Fantasy Pros, I analyzed if the draft really matters and who met or exceeded expectations.
+I wanted to find out how much the draft actually matters to a fantasy football season — and which players delivered the most value in my 14-team league's draft last year. I used that analysis to build a live draft board for this season, wired up to real-time recommendations while I'm on the clock.
+
+**TL;DR:**
+
+- Draft quality **does** correlate with how you finish — teams with higher average draft-value tend to place higher in the standings.
+- Value is concentrated in the **first ~7 rounds**. After that, most picks are roughly replacement-level — you could find similar production on waivers.
+- WRs added the most total value last season, followed by RBs and QBs.
+- Some "reaches" paid off big, and some late-round "steals" were league-winners — the charts below show exactly who.
+- This year's draft board is live: [github.com/justinmck/fantasy-football-draft-toolkit](https://github.com/justinmck/fantasy-football-draft-toolkit)
 
 ---
 
-## 📊 How I Got the Data
+## 📈 Correlation Between Draft Value and Final Standings
 
-To conduct this analysis, I pulled:
-- The full draft order
-- Fantasy points scored
-- Positional ranks
+The first question: does drafting well actually predict finishing well? Yes, moderately — there's a **negative correlation (r = –0.51)** between a team's average draft value and its final standing (lower standing number = better finish), meaning **higher average value tends to mean a better finish**.
 
-I also pulled average draft position(adp) from the website fantasy pros at this URL:
-https://www.fantasypros.com/nfl/adp/overall.php
-
-This data combines adp from different fantasy sites, creating one number we can can treat as their "market value".
-
-From there, I calculated a custom **Value Over Replacement Player (VORP)** metric based on my league format:
-
-- 14 teams
-- 2 RB, 2 WR, 1 TE, 1 Flex (WR/RB/TE), 1 QB, 1 Kicker, 1 D/ST
-
-> **VORP = Player Points − Avg. Starter at Position**
-
-This was usually calculated by getting the next 3-4 players at each position who are treated as the waiver wire/bench players. 
+![Scatter plot of draft value vs Final Standings](charts/corr_vorp_standings.png)
 
 ---
 
-## 📈 Correlation Between VORP and Final Standings
+## 📊 Average Value by Team
 
-The first step was to measure whether average draft VORP correlates with league success. As shown in the chart below, there's a **moderate negative correlation** (r = –0.51), meaning that the **higher your team’s average VORP, the better you tend to finish**. 
+Teams with a higher average value per pick clearly tended to finish higher in the standings — though not perfectly. "The Ralph Dudes" finished 7th despite having the 3rd-best draft by this measure, and "Deb's Debsters" finished 6th (above league average) despite having the second-worst draft. Drafting well helps, but it isn't the whole story.
 
-![Scatter plot of VORP vs Final Standings](charts/corr_vorp_standings.png)
-
-<!--
-<figure>
-  <img src="charts/corr_vorp_standings.png" width="90%" style="display:block; margin:auto;">
-  <figcaption style="text-align:center">Figure: Strong negative correlation (r = -0.51)</figcaption>
-</figure>
--->
+![Bar chart showing average value by team](charts/avg_vorp.png)
 
 ---
 
-## 📊 Average VORP by Team
+## 📌 Value by Position
 
-To further illustrate the relationship, I plotted the average VORP per team. Teams with higher average VORP clearly finished higher in the standings. There are some outliers like "The Ralph Dudes" who finished 7th but had the 3rd best draft according to VORP. The second worst draft which was by "Deb's Debsters" led the team to finishing 6th overall, above the average in this 14 team league.
+Which positions add the most total value to a roster? This sums up value across all starting players at each position. WRs added the most, followed by RBs and QBs.
 
-![Bar chart showing average VORP by team](charts/avg_vorp.png)
+![Bar chart of total value by position](charts/vorp_by_pos.png)
 
----
-## 📌 VORP by Position
+## 🎯 Draft Pick vs. Value
 
-I wanted to see which positions offered the most value. This chart shows the total VORP by position. This is a sum of all starting players at their position to see who adds the most value. Based on the graph, WR's add the most value followed by RB's and QB's. 
+Not all draft picks are created equal, and at some point drafting stops mattering much — you could get an equally good player off the waiver wire instead. To find that point, I looked at the relationship between where a player was drafted and the value they delivered. Value turns negative around **round 8, pick 2** — past that point, picks are typically not startable and easily replaceable. The first 7 rounds are where the draft actually matters. It rarely makes sense to draft a low-value position like D/ST or K in those early rounds, and even TE value drops off fast after round 7 — if you want a reliable one, get it early.
 
-![Bar chart of total VORP by position](charts/vorp_by_pos.png)
-
-## 🎯 Draft Pick vs. VORP
-
-There is at least some relationship between how well you draft and how well you perform, but all draft picks are not created equal. At a certain point, drafting becomes useless as you can typically get a player just as good off the waiver wire. To see where that point was I found the correlation between where a player was drafted and their VORP. At around round 8 pick 2, the VORP values become negative, meaning they are likely not going to be starters and easily replaceable. The first 7 rounds are what really matter. It doesn't make sense to draft a position with a negative VORP like a D/ST or K within those first 7 rounds, which follows typical conventions. Even TE's add little after the 7th round so if you want a solid option, your best bet is to choose it before then.
-
-![Bar chart of draft pick vs. VORP](charts/draft_pick_vs_vorp.png)
+![Bar chart of draft pick vs. value](charts/draft_pick_vs_vorp.png)
 
 ---
 
 ## 🔎 Reaches (Original)
 
-In the next step I wanted to see who were the reaches in this draft. To calculate this I found the difference between where they were drafted and their "market value" or adp. The top 10 are in this chart below.
+Who got drafted earliest relative to their market value (ADP)? The top 10 "reaches" from last year's draft:
 
 ![Chart showing players drafted too early](charts/reaches_og.png)
 
@@ -87,16 +66,15 @@ In the next step I wanted to see who were the reaches in this draft. To calculat
 
 ## 🔎 Reaches (Paid Off)
 
-Some of these "reaches" did pay off. This chart shows picks that were drafted earlier than consensus but **exceeded expectations**, meaning they scored more then they were projected to. 
+Some reaches paid off anyway — these were drafted earlier than consensus but outperformed their own preseason projection:
 
 ![Chart of successful reach picks](charts/reaches_paid_off.png)
-
 
 ---
 
 ## 💰 Steals (Original)
 
-These players were **drafted late** but delivered starter-level performance. Steals like this can win you your league.
+These players were drafted late but delivered starter-level performance. Steals like this can win you your league.
 
 ![Chart of draft steals based on original expectations](charts/steals_og.png)
 
@@ -104,7 +82,7 @@ These players were **drafted late** but delivered starter-level performance. Ste
 
 ## 💰 Steals (Paid Off)
 
-These were picks that **significantly outperformed their draft position**. Some of the best values in the draft.
+The picks that most outperformed where they were drafted — some of the best values of the draft.
 
 ![Chart of paid-off late-round steals](charts/steals_paid_off.png)
 
@@ -112,7 +90,7 @@ These were picks that **significantly outperformed their draft position**. Some 
 
 ## 🔥 Draft Value Heatmap
 
-This is a heatmap containing all the players drafted within our leagues draft based on their VORP.
+Every player drafted in the league last year, plotted by draft slot and value delivered.
 
 <iframe src="charts/draft_value_chart.html" width="100%" height="700px" style="border:none;"></iframe>
 
@@ -120,14 +98,29 @@ This is a heatmap containing all the players drafted within our leagues draft ba
 
 ## 🧾 Conclusion
 
-This analysis shows that the **draft is absolutely critical** to fantasy football success — especially in the first **7 rounds**, where the majority of value is concentrated.
+The draft is genuinely important to how your season goes — especially in the first **7 rounds**, where nearly all of the value is concentrated.
 
 ### 🔑 Key Takeaways:
-- **Drafting well matters**: higher team VORP correlates with better final standings.
-- **Reaches can backfire**, but some bold picks pay off.
-- **Steals in late rounds** can be league-winners.
-- **Use VORP** to normalize cross-position value and build smarter draft boards.
 
-Whether you're a casual player or a competitive fantasy manager, integrating this kind of analysis into your draft strategy gives you a serious edge.
+- **Drafting well matters**: higher average draft value correlates with a better final standing.
+- **Reaches can backfire**, but some bold picks pay off.
+- **Late-round steals** can be league-winners.
+- Past round 7-8, most of the board is close to replacement level — don't overthink those picks.
+
+Whether you're a casual player or a competitive manager, this kind of analysis gives you a real edge on draft day — which is exactly why I built a live version of it. Check out the [draft board and full write-up on GitHub](https://github.com/justinmck/fantasy-football-draft-toolkit).
 
 ---
+
+::: {.callout-note collapse="true"}
+## 🔧 Methodology details (for the curious)
+
+**Data sources:** the full draft order, fantasy points scored, and positional ranks came from ESPN's private league API. Average draft position (ADP) — treated as "market value" — came from [FantasyPros](https://www.fantasypros.com/nfl/adp/overall.php), which blends ADP across multiple fantasy sites into one consensus number.
+
+**League format:** 14 teams, 2 RB / 2 WR / 1 TE / 1 FLEX (RB/WR/TE) / 1 QB / 1 K / 1 D/ST.
+
+**"Value" here is VORP** (Value Over Replacement Player): a player's points minus the points scored by the last startable player at their position, given this league's exact roster construction (14 teams × starters needed per position, including a share of the FLEX slot for flex-eligible positions) — not an arbitrary or hand-picked cutoff.
+
+This is the same VORP definition used everywhere in the underlying project — the retrospective charts above, the next-season regression model, and the live draft tool's recommendation engine all share one implementation, so they can't disagree with each other. The live tool also runs a validated regression (train/test split across seasons, model comparison, and uncertainty bounds on each projection) to estimate next season's value ahead of the draft.
+
+Full technical write-up — architecture, the regression methodology, validation approach, and known limitations — is in the [project README](https://github.com/justinmck/fantasy-football-draft-toolkit#methodology).
+:::
