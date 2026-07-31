@@ -6,12 +6,12 @@ from config import POSITIONS
 import pandas as pd
 import time
 import re
-from config import CURRENT_SEASON
+from config import CURRENT_SEASON, TEAMS, ROSTER_NEEDS
 from espn_api.requests.espn_requests import ESPNInvalidLeague
 from espn_api.football import League
 import unicodedata
 from sqlalchemy import text
-from src.scoring import normalize_position
+from src.scoring import add_vorp, compute_baselines, normalize_position
 
 
 def load_season_stats(engine, year):
@@ -98,6 +98,30 @@ def load_projection_actuals(engine, year):
     df["position"] = df["position"].map(normalize_position)
     df["year"] = year
     return df
+
+
+def add_projection_and_actual_vorp(df, teams=TEAMS, roster_needs=None):
+    """Add `proj_vorp`/`actual_vorp` to a single-season projection-vs-actual
+    dataframe (one row per player, `projected_points` and `actual_points`
+    columns) - i.e. answer "how good was the *VORP* number", not just "how
+    close were the raw points".
+
+    Each column gets its own replacement-level baseline, computed from that
+    column's own distribution for this season, using the same
+    compute_baselines()/add_vorp() definition src/scoring.py uses everywhere
+    else. `proj_vorp` is what the live draft tool would have shown that
+    player on draft day; `actual_vorp` is what they were actually worth once
+    the season played out - the gap between the two is the real error that
+    matters for drafting, since a raw-points miss on a player who still
+    finishes above/below the same replacement line barely changes the
+    draft-day call.
+    """
+    roster_needs = roster_needs or ROSTER_NEEDS
+    proj_baselines = compute_baselines(df, teams=teams, roster_needs=roster_needs, value_col="projected_points")
+    out = add_vorp(df, proj_baselines, value_col="projected_points", out_col="proj_vorp")
+    actual_baselines = compute_baselines(out, teams=teams, roster_needs=roster_needs, value_col="actual_points")
+    out = add_vorp(out, actual_baselines, value_col="actual_points", out_col="actual_vorp")
+    return out.drop(columns="baseline")
 
 
 def save_to_data_raw(df, filename, year):
