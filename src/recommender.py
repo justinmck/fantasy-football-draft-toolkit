@@ -2,7 +2,7 @@ import pandas as pd
 from sqlalchemy import text
 
 from src.biases import apply_league_bias
-from src.scoring import add_vorp, compute_baselines, normalize_position, score
+from src.scoring import add_vorp, add_vorp_z, compute_baselines, normalize_position, score
 
 
 def load_candidates(engine, year, drafted_ids):
@@ -30,7 +30,12 @@ def recommend(engine, year, session, current_pick, next_pick, bias, topn=10):
     pool = load_candidates(engine, year, drafted_ids=session.drafted_ids)
     baselines = compute_baselines(pool, teams=session.teams)
     pool = add_vorp(pool, baselines)
+    # vorp_z dampens positions with a steep replacement-level cliff (e.g. QB)
+    # so ranking isn't skewed by raw-points scale differences across
+    # positions - see src/scoring.py's add_vorp_z docstring. Raw `vorp` is
+    # still returned below, unchanged, so old vs. new can be compared.
+    pool = add_vorp_z(pool, teams=session.teams)
     pool = apply_league_bias(pool, bias) if bias else pool.assign(league_pick_est=pool.adp)
     ranked = score(pool, session.roster_state, current_pick, next_pick)
     return ranked[["player_id", "player_name", "position", "pro_team",
-                    "projected_points", "vorp", "adp", "league_pick_est", "utility"]].head(topn)
+                    "projected_points", "vorp", "vorp_z", "adp", "league_pick_est", "utility"]].head(topn)

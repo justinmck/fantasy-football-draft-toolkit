@@ -86,6 +86,80 @@ def add_vorp(
     return out
 
 
+def position_spread(
+    df: pd.DataFrame,
+    teams: int = TEAMS,
+    roster_needs: dict | None = None,
+    vorp_col: str = "vorp",
+) -> pd.Series:
+    """Standard deviation of VORP among the startable pool at each position
+    (the top `starters_needed` players by VORP, i.e. the players who'd
+    actually start given this league's roster slots).
+
+    Positions with a steep replacement-level "cliff" (most notably QB, where
+    only 1 starts per team but the gap between QB1 and the QB baseline is
+    huge) end up with a much wider spread here than positions like RB/WR
+    that have several startable slots. That's the raw-VORP scale mismatch
+    add_vorp_z() corrects for - not a sign that compute_baselines() itself
+    is wrong.
+    """
+    spreads = {}
+    for pos in df["position"].dropna().unique():
+        n = max(starters_needed(pos, teams, roster_needs), 1)
+        pool = df[df.position == pos].sort_values(vorp_col, ascending=False).head(n)
+        spreads[pos] = float(pool[vorp_col].std(ddof=0)) if len(pool) > 1 else 0.0
+    return pd.Series(spreads)
+
+
+def _reference_spread(spreads: pd.Series) -> float:
+    """Anchor scale = average spread across the FLEX-eligible positions
+    (RB/WR/TE), since those positions compete for the same roster slots
+    (2 RB/WR/TE starters + FLEX) and are the fairest common yardstick -
+    unlike QB/K/DST, which only ever compare against themselves for a
+    single slot.
+    """
+    ref = spreads.reindex([p for p in FLEX_ELIGIBLE if p in spreads.index]).dropna()
+    if len(ref) == 0:
+        return float(spreads.mean()) if len(spreads) else 1.0
+    return float(ref.mean())
+
+
+def add_vorp_z(
+    df: pd.DataFrame,
+    teams: int = TEAMS,
+    roster_needs: dict | None = None,
+    vorp_col: str = "vorp",
+    out_col: str = "vorp_z",
+) -> pd.DataFrame:
+    """Rescale VORP by position spread relative to the FLEX-eligible
+    reference spread, so positions aren't ranked purely by how steep their
+    raw-points replacement cliff happens to be.
+
+    scale = min(reference_spread / this_position's_spread, 1.0)
+
+    Capping the multiplier at 1.0 means reference positions (RB/WR/TE) are
+    left essentially unchanged, and only high-spread positions (like QB) get
+    dampened - a plain z-score would instead shrink every position's VORP to
+    a similarly tiny scale and let minor terms (e.g. the small
+    projected_points bonus in score()) swamp the ranking instead.
+
+    This is purely additive: `vorp` (the old, undampened calculation) is
+    left untouched on the input df so old and new can be compared directly.
+    """
+    out = df.copy()
+    spreads = position_spread(out, teams, roster_needs, vorp_col=vorp_col)
+    ref = _reference_spread(spreads)
+
+    def scale(pos):
+        s = spreads.get(pos)
+        if not s or s <= 0:
+            return 1.0
+        return min(ref / s, 1.0)
+
+    out[out_col] = out[vorp_col] * out["position"].map(scale)
+    return out
+
+
 def need_weights(roster_state: dict) -> dict:
     """Players at a position the drafter still needs get weighted up."""
     return {pos: 1.0 + 0.5 * max(v["need"] - v["have"], 0) for pos, v in roster_state.items()}
@@ -117,14 +191,25 @@ def score(
     current_pick: int,
     next_pick: int,
     recency_col: str = "avg_last_year",
+    vorp_col: str = "vorp_z",
 ) -> pd.DataFrame:
+    """Rank candidates by draft-pick utility.
+
+    Ranks on `vorp_z` (position-spread-dampened VORP, see add_vorp_z) rather
+    than raw `vorp` by default, so a position with a steep replacement cliff
+    (e.g. QB) doesn't dominate purely because of its raw-points scale - see
+    README's "Why doesn't the highest-VORP player always look right?"
+    section for a worked example. Falls back to raw `vorp` if the caller
+    hasn't run add_vorp_z() on `df` yet, so this still works standalone.
+    """
     w = need_weights(roster_state)
     out = df.copy()
     out["pos_weight"] = out["position"].map(lambda p: w.get(p, 1.0))
     out["adp_mult"] = out["league_pick_est"].apply(lambda x: adp_pressure(x, current_pick, next_pick))
     recency = out[recency_col] if recency_col in out.columns else 0.0
+    value_col = vorp_col if vorp_col in out.columns else "vorp"
     out["utility"] = (
-        out["vorp"].clip(lower=0) * out["pos_weight"] * out["adp_mult"]
+        out[value_col].clip(lower=0) * out["pos_weight"] * out["adp_mult"]
         + 0.02 * out["projected_points"]
         + RECENCY_WEIGHT * recency
     )

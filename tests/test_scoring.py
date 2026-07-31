@@ -3,10 +3,12 @@ import pytest
 
 from src.scoring import (
     add_vorp,
+    add_vorp_z,
     adp_pressure,
     compute_baselines,
     need_weights,
     normalize_position,
+    position_spread,
     score,
     starters_needed,
 )
@@ -93,6 +95,7 @@ def test_score_ranks_higher_vorp_and_need_first():
         "position": ["QB", "RB"],
         "projected_points": [300, 250],
         "vorp": [50, 100],
+        "vorp_z": [50, 100],
         "league_pick_est": [999, 999],
         "avg_last_year": [10, 10],
     })
@@ -110,6 +113,7 @@ def test_score_clips_negative_vorp_contribution():
         "position": ["QB"],
         "projected_points": [50],
         "vorp": [-30],
+        "vorp_z": [-30],
         "league_pick_est": [999],
         "avg_last_year": [0],
     })
@@ -117,3 +121,84 @@ def test_score_clips_negative_vorp_contribution():
     ranked = score(df, roster_state, current_pick=1, next_pick=14)
     # negative vorp shouldn't push utility below the small baseline terms
     assert ranked.iloc[0]["utility"] >= 0.02 * 50
+
+
+def test_score_falls_back_to_raw_vorp_when_vorp_z_missing():
+    # Callers that haven't run add_vorp_z() yet (or don't need dampening)
+    # should still get sane rankings off the raw `vorp` column.
+    df = pd.DataFrame({
+        "position": ["QB", "RB"],
+        "projected_points": [300, 250],
+        "vorp": [50, 100],
+        "league_pick_est": [999, 999],
+        "avg_last_year": [10, 10],
+    })
+    roster_state = {
+        "QB": {"have": 0, "need": 1},
+        "RB": {"have": 0, "need": 1},
+    }
+    ranked = score(df, roster_state, current_pick=1, next_pick=14)
+    assert ranked.iloc[0]["position"] == "RB"
+
+
+def test_score_prefers_vorp_z_over_raw_vorp_when_both_present():
+    df = pd.DataFrame({
+        "position": ["QB", "RB"],
+        "projected_points": [300, 250],
+        "vorp": [500, 10],   # raw vorp would favor QB heavily
+        "vorp_z": [5, 10],   # dampened vorp_z favors RB instead
+        "league_pick_est": [999, 999],
+        "avg_last_year": [10, 10],
+    })
+    roster_state = {
+        "QB": {"have": 0, "need": 1},
+        "RB": {"have": 0, "need": 1},
+    }
+    ranked = score(df, roster_state, current_pick=1, next_pick=14)
+    assert ranked.iloc[0]["position"] == "RB"
+
+
+def test_position_spread_uses_startable_pool():
+    df = pd.DataFrame({
+        "position": ["QB", "QB", "QB"],
+        "vorp": [100, 80, 10],
+    })
+    # starters_needed = 2 teams x 1 QB slot = 2 -> pool is top 2 by vorp: [100, 80]
+    spreads = position_spread(df, teams=2, roster_needs={"QB": 1})
+    assert spreads["QB"] == pytest.approx(10.0)
+
+
+def test_position_spread_handles_small_pool():
+    # Fewer players at a position than starters needed shouldn't error out.
+    df = pd.DataFrame({
+        "position": ["QB"],
+        "vorp": [50],
+    })
+    spreads = position_spread(df, teams=2, roster_needs={"QB": 1})
+    assert spreads["QB"] == 0.0
+
+
+def test_add_vorp_z_dampens_high_spread_position():
+    df = pd.DataFrame({
+        "position": ["QB", "QB"] + ["RB"] * 6,
+        "vorp": [300, 5, 50, 48, 46, 44, 42, 40],
+    })
+    roster_needs = {"QB": 1, "RB": 2, "FLEX": 1}
+    out = add_vorp_z(df, teams=2, roster_needs=roster_needs)
+
+    qb_rows = out[out.position == "QB"]
+    rb_rows = out[out.position == "RB"]
+
+    # RB anchors the FLEX-eligible reference spread -> left ~unchanged
+    assert rb_rows["vorp_z"].tolist() == pytest.approx(rb_rows["vorp"].tolist(), rel=1e-6)
+
+    # QB has a much wider spread -> dampened well below its raw vorp
+    assert qb_rows["vorp_z"].max() < qb_rows["vorp"].max()
+
+    # Raw vorp ranks the QB first; the dampened vorp_z should not, since the
+    # gap is purely an artifact of QB's steep replacement cliff.
+    assert out.sort_values("vorp", ascending=False).iloc[0]["position"] == "QB"
+    assert out.sort_values("vorp_z", ascending=False).iloc[0]["position"] == "RB"
+
+    # The old raw calculation is untouched, not overwritten.
+    assert list(out["vorp"]) == [300, 5, 50, 48, 46, 44, 42, 40]

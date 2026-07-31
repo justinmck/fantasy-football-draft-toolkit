@@ -128,6 +128,35 @@ Replacement level is defined once, in `src/scoring.py`, as described above, and 
 - `NB03` — retrospective VORP against actual season points, feeding the draft-value charts (steals/reaches, VORP vs. final standing correlation, VORP by position).
 - `NB04` and `src/recommender.py` — the same baseline logic applied to next-season projected points, for the live draft tool.
 
+### Why doesn't the highest-VORP player always look right?
+
+Raw VORP is points above replacement, and that scale isn't comparable across positions, because
+replacement level "falls off a cliff" much more steeply for some positions than others. Take the
+2026 projections: QB1 projects at 370.5 points against a QB baseline (QB14, the last startable
+QB in a 14-team league) of just 1.9 — a 99.5% drop-off. RB1 projects at 265.8 against an RB33
+baseline of 21.5 (a 91.9% drop). WR1 is 300.4 against a WR33 baseline of 69.4 (76.9% drop). Only
+one QB starts per team, same as any single starting slot, but because the QB points distribution
+is so much steeper, QB1's *raw* VORP comes out enormous relative to RB1 or WR1's — enough that a
+purely VORP-ranked board puts the top QB at #1 overall almost every year, independent of how the
+league's roster is actually built.
+
+`add_vorp_z()` in `src/scoring.py` corrects for this by rescaling each position's VORP relative
+to a reference spread taken from the FLEX-eligible positions (RB/WR/TE) — the positions that
+actually compete for the same roster slots (2 RB/WR/TE starters + 1 FLEX), which makes them the
+fairest common yardstick. Concretely: `vorp_z = vorp * min(reference_spread / this_position's_spread, 1.0)`.
+The `min(..., 1.0)` cap means RB/WR/TE (the reference group) are left essentially unchanged, and
+only high-spread positions like QB get dampened — a plain z-score would instead shrink *every*
+position down to a similarly tiny scale and let minor terms in the utility formula (like the
+small `projected_points` bonus) swamp the ranking instead.
+
+This is additive, not a replacement: `vorp` (the old, undampened calculation) is still computed
+and returned everywhere `vorp_z` is — the API response, `players.json`, and the NB04 export all
+carry both columns side by side, and NB04 includes an old-vs-new top-15 comparison table so you
+can see exactly how much the ranking changes. `score()` (and the live draft tool / offline
+fallback board) rank on `vorp_z` by default; `NB03`'s retrospective analysis deliberately keeps
+using raw `vorp`, since it's measuring *actual delivered value* by position, not producing a
+live-draft ranking, so the two are not meant to agree.
+
 ### Regression model (NB04)
 
 The question NB04 asks is: *given only information available before the season starts (projected points, projected VORP, last season's per-game average), how well can we predict a player's actual end-of-season VORP?* This is framed as a **feature-validation** exercise, not the thing that directly drives the live draft score — the live score is still `src/scoring.py`'s need/ADP-aware utility function, now informed by what the regression finds predictive.

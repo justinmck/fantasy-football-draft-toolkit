@@ -3,13 +3,102 @@ from espn_api.requests import EspnFantasyRequests
 import os, sys
 from dotenv import load_dotenv
 from config import POSITIONS
-import pandas as pd 
+import pandas as pd
 import time
 import re
 from config import CURRENT_SEASON
 from espn_api.requests.espn_requests import ESPNInvalidLeague
 from espn_api.football import League
 import unicodedata
+from sqlalchemy import text
+from src.scoring import normalize_position
+
+
+def load_season_stats(engine, year):
+    """One row per drafted player for `year`: actual season stats, draft
+    slot, team, and ADP. No VORP here - that's computed afterward via
+    src/scoring.py so retrospective and live-draft VORP share one
+    replacement-baseline definition instead of each having their own.
+
+    Shared here (rather than defined inline in a single notebook) because
+    both NB03 (retrospective draft-value analysis) and NB05 (projection
+    accuracy) need the same per-player/per-season row shape and shouldn't
+    duplicate this SQL.
+    """
+    query = """
+    SELECT
+        d.player_id,
+        p.player_name,
+        s.posRank,
+        s.points,
+        s.games_played,
+        t.team_name,
+        a.position,
+        s.avg_points,
+        s.projected_points,
+        (s.points - s.projected_points) AS boom_bust,
+        d.lineupSlotId,
+        d.roundPickNumber,
+        d.overallPickNumber,
+        s.pro_team,
+        a.avg,
+        t.final_standing,
+        t.draft_projected_rank,
+        (d.overallPickNumber - a.avg) AS draft_delta,
+        d.roundId
+    FROM drafts d
+    JOIN players p ON d.player_id = p.player_id
+    JOIN players_stats s
+         ON d.player_id = s.player_id
+        AND d.year = s.year
+    JOIN teams t
+         ON d.team_id = t.team_id
+        AND d.year = t.year
+    JOIN average_draft_position a
+         ON d.player_id = a.player_id
+        AND d.year = a.year
+    WHERE s.points IS NOT NULL
+      AND d.year = :year
+    """
+    df = pd.read_sql(text(query), engine, params={"year": year})
+    df["position"] = df["position"].map(normalize_position)
+    return df
+
+
+def load_projection_actuals(engine, year):
+    """One row per player with a recorded preseason projection and actual
+    season outcome for `year` - every player ESPN tracked stats for, not
+    just players drafted in this specific league.
+
+    Unlike load_season_stats(), this doesn't join through
+    average_draft_position (only on record from 2022 onward), so it covers
+    the full 2020-2025 history and is the dataset used for projection
+    accuracy analysis (NB05), where the goal is "how good were the
+    projections overall" rather than "how did my league's draft go".
+
+    `projected_points = 0` is excluded as a missing-data sentinel, not a
+    legitimate zero projection: year 2023 has an extraction gap where nearly
+    every player's projected_points was recorded as 0.0 (verified against
+    the raw source - e.g. Patrick Mahomes 2023 shows points=267.0 but
+    projected_points=0.0), which otherwise swamps that year's error metrics
+    with the entire actual-points total as "error". Other years have only a
+    handful of isolated zero rows, which this same filter also correctly
+    drops.
+    """
+    query = """
+    SELECT player_id, player_name, position, pro_team,
+           projected_points, points AS actual_points
+    FROM players_stats
+    WHERE year = :year
+      AND projected_points IS NOT NULL
+      AND projected_points != 0
+      AND points IS NOT NULL
+    """
+    df = pd.read_sql(text(query), engine, params={"year": year})
+    df["position"] = df["position"].map(normalize_position)
+    df["year"] = year
+    return df
+
 
 def save_to_data_raw(df, filename, year):
     """

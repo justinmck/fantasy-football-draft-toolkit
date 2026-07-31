@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw, Search, UserPlus, XCircle, WifiOff, Trophy } from "lucide-react";
+import { RefreshCw, Search, UserPlus, XCircle, WifiOff, Trophy, Info } from "lucide-react";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const POSITIONS = ["ALL", "QB", "RB", "WR", "TE", "K", "DST"];
@@ -116,6 +116,7 @@ export default function DraftBoard() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
+  const [showLegend, setShowLegend] = useState(false);
 
   const picksMade = draftLog.length;
   const currentPick = picksMade + 1;
@@ -157,8 +158,11 @@ export default function DraftBoard() {
             pro_team: r.pro_team,
             projected_points: Number(r.projected_points ?? 0),
             vorp: Number(r.proj_vorp ?? 0),
+            // Sort/rank by the position-dampened proj_vorp_z, matching the
+            // live-backend path (src/scoring.py score()), not raw proj_vorp -
+            // otherwise offline mode would silently rank differently than live.
             adp: Number(r.adp ?? 999),
-            utility: Number(r.proj_vorp ?? 0),
+            utility: Number(r.proj_vorp_z ?? r.proj_vorp ?? 0),
           }))
           .sort((a, b) => b.utility - a.utility)
       );
@@ -253,11 +257,46 @@ export default function DraftBoard() {
             )}
             {loading && <span className="text-xs text-slate-500">Updating…</span>}
             {err && <span className="text-xs text-red-600">Error: {err}</span>}
+            <IconBtn onClick={() => setShowLegend((v) => !v)} title="What do VORP / Score / ADP mean?">
+              <Info size={12} /> Explain
+            </IconBtn>
             <IconBtn onClick={resetBoard} title="Reset board">
               <RefreshCw size={12} /> Reset
             </IconBtn>
           </div>
         </div>
+
+        {showLegend && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">
+            <dl className="space-y-2">
+              <div>
+                <dt className="font-semibold text-slate-800">VORP (Value Over Replacement Player)</dt>
+                <dd>
+                  Projected points above the last startable player at that position, given your
+                  league's roster slots — i.e. how much better this player is than the replacement
+                  you could get for free.
+                </dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-slate-800">Score</dt>
+                <dd>
+                  The ranking number. It starts from VORP, but with a twist: some positions (QB
+                  especially) have a much steeper points drop-off from the best player to the
+                  replacement level than others, which inflates their raw VORP even though only
+                  one starts per team. Score dampens that so positions aren't ranked purely by
+                  scale — this is why a player with huge VORP can still show a lower Score than
+                  someone at a shallower position. Score also factors in your remaining roster
+                  needs and ADP pressure (how likely the player is to be gone before your next
+                  pick).
+                </dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-slate-800">ADP</dt>
+                <dd>Average draft position — where the market typically takes this player.</dd>
+              </div>
+            </dl>
+          </div>
+        )}
 
         {mode === "live" && (
           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
