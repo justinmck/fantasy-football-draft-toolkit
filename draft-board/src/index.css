@@ -1,3 +1,57 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* The board commits to a single dark theme rather than following the OS.
+   Previously it used light-theme utilities (white cards, slate-800 text) with
+   no background set at all, so on a dark OS theme the browser's default dark
+   canvas showed through behind dark text - unreadable, and the main reason the
+   UI looked washed out. Setting the surface explicitly means it renders the
+   same way for everyone. */
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-slate-950 text-slate-100 antialiased;
+  }
+
+  /* Numbers sit in columns that get scanned vertically during a draft, so they
+     need to line up regardless of digit width. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-white/10 bg-slate-900/60 shadow-lg shadow-black/20;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ring-1 ring-inset;
+  }
+
+  .label {
+    @apply text-[11px] font-medium uppercase tracking-widest text-slate-500;
+  }
+}
+
+/* Keep the board and draft-log scrollbars from looking like a different app. */
+@layer utilities {
+  .scroll-slim {
+    scrollbar-width: thin;
+    scrollbar-color: rgb(51 65 85) transparent;
+  }
+  .scroll-slim::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-slim::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-slate-700;
+  }
+  .scroll-slim::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}

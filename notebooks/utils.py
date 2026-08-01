@@ -1,7 +1,19 @@
 from espn_api.football import League
 from espn_api.requests import EspnFantasyRequests
+import ast
+import json
 import os, sys
 from dotenv import load_dotenv
+
+# Notebooks run with `notebooks/` as the working directory, so the repo root
+# isn't importable by default and `from src.scoring import ...` below would
+# fail on a cold kernel. Individual notebooks used to each append the root
+# themselves, which meant importing utils before that line blew up; doing it
+# here makes utils safe to import first.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
 from config import POSITIONS
 import pandas as pd
 import time
@@ -12,6 +24,60 @@ from espn_api.football import League
 import unicodedata
 from sqlalchemy import text
 from src.scoring import add_vorp, compute_baselines, normalize_position
+
+
+# Singular position slots, in the order we prefer them when a player is
+# eligible at more than one. Combined slots ("RB/WR", "WR/TE", "RB/WR/TE",
+# "OP") are deliberately NOT listed - matching is exact, so a WR whose slots
+# are ["RB/WR", "WR", "WR/TE", "RB/WR/TE"] resolves to WR rather than RB.
+_SINGULAR_POSITION_SLOTS = ("QB", "RB", "WR", "TE", "K")
+
+
+def position_from_eligible_slots(slots):
+    """Derive a player's real position from ESPN's `eligibleSlots` list.
+
+    ESPN's player objects expose `lineupSlot` (where the player sat in a
+    roster *this* week - "BE" for bench, "RB/WR/TE" for a flex start, or a
+    raw slot id) and `eligibleSlots` (every roster slot the player is
+    *allowed* to fill, which is a property of the player, not of any given
+    week). Only the latter identifies position.
+
+    This project originally recorded `lineupSlot` into the `position` column,
+    which meant ~76% of every season's rows landed in `players_stats` labelled
+    "0" or "BE" and were then silently dropped by every downstream
+    `position.isin(POSITIONS)` filter. Deriving from `eligibleSlots` instead
+    recovers 99.97% of rows and agrees with the existing labels on 100% of
+    the rows that were already correct.
+
+    Accepts a list, a JSON string (as stored in the DB), or a Python-repr
+    string (as stored in the raw CSVs). Returns None when no fantasy position
+    is present - e.g. punters, whose only eligible slot is "P".
+    """
+    if slots is None:
+        return None
+    if isinstance(slots, str):
+        text_value = slots.strip()
+        if not text_value:
+            return None
+        try:
+            slots = json.loads(text_value)
+        except (ValueError, TypeError):
+            try:
+                slots = ast.literal_eval(text_value)
+            except (ValueError, SyntaxError):
+                return None
+    if not isinstance(slots, (list, tuple, set)):
+        return None
+
+    available = {str(s).strip() for s in slots}
+    for position in _SINGULAR_POSITION_SLOTS:
+        if position in available:
+            return position
+    # Defense is the one position ESPN spells differently from our POSITIONS
+    # constant, so normalize it here rather than leaving it to callers.
+    if "D/ST" in available or "DST" in available:
+        return "DST"
+    return None
 
 
 def load_season_stats(engine, year):
@@ -276,9 +342,14 @@ def process_players(players, team_name=None,team_id=None):
         df_flat['player_id'] = getattr(player, 'playerId', None)
         df_flat['team_id'] = team_id
         df_flat['team_name'] = team_name if team_id is not None else 'FA'
-        df_flat['position'] = getattr(player, 'lineupSlot', None)
+        # `position` must come from eligibleSlots, not lineupSlot: lineupSlot
+        # is where the player sat that week ("BE", "RB/WR/TE", or a raw slot
+        # id), which is a roster decision, not the player's position. The
+        # lineupSlot value is still preserved separately below.
+        eligible_slots = getattr(player, 'eligibleSlots', []) or []
+        df_flat['position'] = position_from_eligible_slots(eligible_slots)
         df_flat['schedule'] = [getattr(player, 'schedule', None)]
-        df_flat['eligible_slots'] = [getattr(player, 'eligibleSlots', [])]
+        df_flat['eligible_slots'] = [eligible_slots]
         df_flat['lineup_slot'] = player.lineupSlot
     
         all_stats.append(df_flat)
@@ -430,18 +501,52 @@ def clean_name(name):
 
     return name
 
+# FantasyPros changed their export format for 2026: instead of separate
+# Player / Team / Bye columns, the three are merged into one
+# "Player (Bye)" column, e.g.
+#
+#   "Jahmyr Gibbs   DET (6)"        -> Jahmyr Gibbs,     DET, bye 6
+#   "Houston Texans DST   (8)"      -> Houston Texans,   DST, bye 8
+#   "Stefon Diggs"                  -> Stefon Diggs,     no team (free agent)
+#
+# The team token is the last all-caps run before the parenthesised bye week.
+# Defenses carry the literal team code "DST", which matches how earlier years
+# recorded them (Player="Denver Broncos", Team="DST") - so splitting this way
+# keeps team_name_to_dst() working unchanged across every season.
+_COMBINED_PLAYER_RE = re.compile(r"^(?P<name>.+?)\s+(?P<team>[A-Z/]{2,4})\s*\((?P<bye>\d+)\)\s*$")
+
+
+def _split_combined_player_column(df):
+    """Normalise FantasyPros' 2026+ "Player (Bye)" column into the
+    player_name / team_name / bye columns every earlier season already has."""
+    combined = df["Player (Bye)"].astype(str).str.strip()
+    parts = combined.str.extract(_COMBINED_PLAYER_RE)
+    # Rows with no team/bye (free agents) still have a usable name - fall back
+    # to the raw string rather than dropping the player entirely.
+    df["player_name"] = parts["name"].fillna(combined)
+    df["team_name"] = parts["team"]
+    df["bye"] = pd.to_numeric(parts["bye"], errors="coerce")
+    return df.drop(columns="Player (Bye)")
+
+
 def clean_adp(csv):
     try:
         df = pd.read_csv(csv, quotechar='"', escapechar='\\', on_bad_lines='skip')
     except FileNotFoundError:
         print(f"File not found. {csv}")
-        df = pd.DataFrame() 
+        df = pd.DataFrame()
     except pd.errors.EmptyDataError:
         print("CSV is empty.")
         df = pd.DataFrame()
     except pd.errors.ParserError:
         print("CSV is malformed.")
         df = pd.DataFrame()
+
+    if df.empty:
+        return df
+
+    if "Player (Bye)" in df.columns:
+        df = _split_combined_player_column(df)
 
     ## Rename the columns to match conventions
     df = df.rename(columns={
@@ -451,6 +556,15 @@ def clean_adp(csv):
     "Rank": "rank",
     "Bye": "bye"
     })
+
+    # Per-source pick columns use an em dash for "this source didn't rank them".
+    # Left as text they'd poison the column dtype and land in the database as
+    # strings, so coerce every numeric column explicitly.
+    for col in ("rank", "avg", "bye", "ESPN", "Sleeper", "NFL", "RTSports",
+                "FFC", "CBS", "Fantrax", "Real-Time"):
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
     # Seperate position and rank
     df["position"] = df["POS"].str.extract(r'([A-Za-z]+)')
     df["pos_rank"] = df["POS"].str.extract(r'(\d+)').astype(float)
