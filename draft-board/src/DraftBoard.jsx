@@ -7,6 +7,7 @@ import {
   ChevronDown,
   Info,
   LayoutList,
+  Radio,
   Maximize2,
   RefreshCw,
   Search,
@@ -64,6 +65,13 @@ function SetupScreen({ onStart, starting, error }) {
   const [teams, setTeams] = useState(14);
   const [mySlot, setMySlot] = useState(1);
   const [rounds, setRounds] = useState(DEFAULT_ROUNDS);
+  // ESPN is the primary path; the manual form is revealed on request.
+  //
+  // The teams/slot inputs are deliberately absent from the ESPN path rather
+  // than pre-filled: a hand-entered slot that disagrees with the league
+  // silently poisons `next_pick`, and that drives the whole availability term.
+  // Better to ask the league than to ask the user and hope.
+  const [manual, setManual] = useState(false);
 
   const field =
     "mt-1.5 h-10 w-full rounded-lg border border-white/10 bg-slate-900 px-3 text-sm text-slate-100 " +
@@ -81,6 +89,35 @@ function SetupScreen({ onStart, starting, error }) {
           last, and how much the projection can be trusted.
         </p>
 
+        {!manual && (
+          <>
+            <button
+              onClick={() => onStart({ espn: true })}
+              disabled={starting}
+              className="h-11 w-full rounded-lg bg-emerald-500 text-sm font-semibold text-slate-950
+                transition hover:bg-emerald-400 disabled:opacity-50"
+            >
+              {starting ? "Connecting…" : "Connect to ESPN"}
+            </button>
+            <p className="mt-3 text-xs leading-relaxed text-slate-500">
+              Reads your league's draft directly: picks appear as they happen, yours fill your
+              roster automatically, and you can see what every other team has taken.
+            </p>
+            {error && (
+              <div className="mt-4 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+                {error}
+              </div>
+            )}
+            <button
+              onClick={() => setManual(true)}
+              className="mt-5 w-full text-xs text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
+            >
+              Set up manually instead
+            </button>
+          </>
+        )}
+
+        {manual && (
         <div className="space-y-4">
           <label className="block text-sm text-slate-300">
             Number of teams
@@ -110,7 +147,6 @@ function SetupScreen({ onStart, starting, error }) {
               Lets the board push harder on unfilled starting slots as your picks run out
             </span>
           </label>
-        </div>
 
         {error && (
           <div className="mt-4 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
@@ -126,6 +162,14 @@ function SetupScreen({ onStart, starting, error }) {
         >
           {starting ? "Starting…" : "Start draft"}
         </button>
+        <button
+          onClick={() => setManual(false)}
+          className="mt-4 w-full text-xs text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
+        >
+          Connect to ESPN instead
+        </button>
+        </div>
+        )}
 
         <p className="mt-4 text-xs leading-relaxed text-slate-500">
           If the backend at <code className="text-slate-400">{API_URL}</code> isn't reachable, this
@@ -136,26 +180,22 @@ function SetupScreen({ onStart, starting, error }) {
   );
 }
 
-// ---- Player card ----
-// Used both for the top recommendation and, when a row is expanded, inline
-// beneath that row - the same player deserves the same presentation whether
-// the board happens to rank them first or twentieth.
-function PlayerCard({ player, nextPick, eyebrow, onDraft, onTaken, onOpenFull, readOnly, inline }) {
+// ---- Expanded row ----
+// The detail shown inline when a row is clicked open. Named for what it is
+// rather than "PlayerCard", which was confusable with PlayerDetail (the full
+// side panel). It used to double as a hero card above the board; that is gone,
+// because a recommendation displayed outside the list it heads can't show you
+// where in the ranking it actually sits.
+function ExpandedPlayer({ player, nextPick, onDraft, onTaken, onOpenFull, readOnly }) {
   if (!player) return null;
   const urgency = urgencyBand(player.availability);
   const conf = confidenceBand(player.confidence);
   const isRookie = Number(player.is_rookie) === 1;
 
   return (
-    <div className={inline ? "relative px-4 py-5" : "card relative overflow-hidden p-5"}>
-      {!inline && (
-        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-400/60 to-transparent" />
-      )}
+    <div className="relative px-4 py-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          {eyebrow && (
-            <div className="label mb-2 flex items-center gap-1.5 text-emerald-400/80">{eyebrow}</div>
-          )}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {/* Not truncated: the player's name is the single most important
                 thing on this card, and "Malik Na…" is useless at a glance. */}
@@ -256,7 +296,7 @@ const MeterRow = ({ icon, label, value, meter, tone, caption }) => (
 // shared across rows and take the player as an argument, so this component
 // supplies its own identity when calling them.
 const PlayerRow = React.memo(function PlayerRow({
-  player, rank, nextPick, onDraft, onTaken, onToggle, onOpenFull, expanded, readOnly,
+  player, rank, nextPick, onDraft, onTaken, onToggle, onOpenFull, expanded, readOnly, highlight,
 }) {
   const urgency = urgencyBand(player.availability);
   const conf = confidenceBand(player.confidence);
@@ -268,15 +308,20 @@ const PlayerRow = React.memo(function PlayerRow({
   return (
     <>
     <tr
+      id={`row-${player.player_id}`}
       onClick={() => onToggle(player.player_id)}
       className={`group cursor-pointer border-t border-white/5 transition-colors hover:bg-white/[0.03]
-        ${expanded ? "bg-white/[0.04]" : ""}`}
+        ${expanded ? "bg-white/[0.04]" : ""}
+        ${highlight ? "border-l-2 border-l-emerald-400/70 bg-emerald-500/[0.04]" : ""}`}
     >
       <td className="py-2.5 pl-4 pr-2 text-right">
         <span className="tabular text-xs text-slate-600">{rank}</span>
       </td>
       <td className="py-2.5 pr-3">
         <div className="flex items-center gap-2">
+          {highlight && (
+            <Trophy size={11} className="shrink-0 text-emerald-400" aria-label="Board's top pick" />
+          )}
           <span className="truncate font-medium text-slate-100">{player.player_name}</span>
           <span className="shrink-0 text-xs text-slate-600">{player.pro_team}</span>
           {isRookie && (
@@ -342,14 +387,13 @@ const PlayerRow = React.memo(function PlayerRow({
     {expanded && (
       <tr>
         <td colSpan={9} className="border-t border-white/5 bg-slate-950/40 p-0">
-          <PlayerCard
+          <ExpandedPlayer
             player={player}
             nextPick={nextPick}
             readOnly={readOnly}
             onOpenFull={() => onOpenFull(player.player_id)}
             onDraft={() => onDraft(player)}
             onTaken={() => onTaken(player)}
-            inline
           />
         </td>
       </tr>
@@ -357,6 +401,197 @@ const PlayerRow = React.memo(function PlayerRow({
     </>
   );
 });
+
+// ---- Top strips ----
+
+/** Where the draft is, what you still need, and whether ESPN is talking to us. */
+function DraftStatusStrip({ mode, pickCtx, rosterState, picksRemaining, sync, onDisconnect }) {
+  const offline = mode === "offline";
+  const open = Object.entries(rosterState || {})
+    .filter(([, v]) => v.need - v.have > 0)
+    .map(([pos]) => pos);
+  const round = pickCtx?.currentPick ? Math.ceil(pickCtx.currentPick / (pickCtx.teams || 14)) : null;
+
+  return (
+    <div
+      className={`card flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 text-xs ${
+        pickCtx?.isMyTurn ? "border-l-2 border-l-emerald-400" : ""
+      }`}
+    >
+      {offline ? (
+        <Badge tone="warn" title="The backend isn't running, so need and timing can't be applied.">
+          <WifiOff size={11} /> Offline — value only
+        </Badge>
+      ) : (
+        <>
+          <span className="flex items-center gap-1.5">
+            <span className="text-slate-500">Pick</span>
+            <span className="tabular font-semibold text-slate-100">
+              {pickCtx?.currentPick ?? "—"}
+            </span>
+            {round && <span className="text-slate-600">· Rd {round}</span>}
+          </span>
+
+          {pickCtx?.isMyTurn ? (
+            <Badge tone="calm">You're on the clock</Badge>
+          ) : (
+            <span className="text-slate-400">
+              You're up at{" "}
+              <span className="tabular font-semibold text-slate-200">
+                {pickCtx?.thisTurn ?? "—"}
+              </span>
+              {pickCtx?.picksUntilMyTurn != null && (
+                <span className="text-slate-600">
+                  {" "}· {pickCtx.picksUntilMyTurn} away
+                </span>
+              )}
+            </span>
+          )}
+
+          {open.length > 0 && (
+            <span className="flex items-center gap-1.5 text-slate-500">
+              Still need
+              <span className="text-slate-300">{open.join(" · ")}</span>
+            </span>
+          )}
+          {picksRemaining != null && (
+            <span className="tabular text-slate-600">{picksRemaining} picks left</span>
+          )}
+        </>
+      )}
+
+      <div className="ml-auto flex items-center gap-2">
+        <SyncChip sync={sync} onDisconnect={onDisconnect} />
+      </div>
+    </div>
+  );
+}
+
+/** Four states, because "is it still connected?" is the question you'd ask. */
+function SyncChip({ sync, onDisconnect }) {
+  if (!sync?.connected) {
+    return <span className="rounded-md bg-white/5 px-2 py-0.5 text-slate-500">Manual</span>;
+  }
+  if (sync.status === "auth") {
+    return (
+      <span className="flex items-center gap-2">
+        <span className="rounded-md bg-rose-500/15 px-2 py-0.5 text-rose-300">
+          ESPN sign-in expired
+        </span>
+        <button
+          onClick={onDisconnect}
+          className="rounded-md bg-white/10 px-2 py-0.5 font-medium text-slate-200 hover:bg-white/15"
+        >
+          Draft manually
+        </button>
+      </span>
+    );
+  }
+  if (sync.status === "stale") {
+    return (
+      <span className="rounded-md bg-amber-500/15 px-2 py-0.5 text-amber-300">
+        Last synced {Math.round(sync.ageSeconds ?? 0)}s ago
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center gap-1.5 rounded-md bg-emerald-500/15 px-2 py-0.5 text-emerald-300">
+      <Radio size={10} /> ESPN live
+      {sync.ageSeconds != null && (
+        <span className="text-emerald-400/60">· {Math.round(sync.ageSeconds)}s</span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * The board's own top three, as one line.
+ *
+ * Always ranked by score, never by the table's current sort - sorting by ADP
+ * must not relabel the earliest-drafted player as "best available for you",
+ * which is the claim this tool exists to argue against. It does respect the
+ * position filter and search, because those are the user narrowing the
+ * question rather than reordering the answer.
+ */
+function TopPicksStrip({ players, nextPick, readOnly, customSort, onOpen, onDraft, onTaken }) {
+  if (!players?.length) return null;
+  return (
+    <div className="card flex flex-wrap items-center gap-2 px-4 py-2.5">
+      <span
+        className="label shrink-0 text-emerald-400/80"
+        title={customSort ? "Unaffected by the table's current sort." : undefined}
+      >
+        Board ranking
+      </span>
+      {players.map((p, i) => (
+        <div
+          key={p.player_id}
+          className={`flex items-center gap-2 rounded-lg px-2.5 py-1 text-xs ${
+            i === 0 ? "bg-emerald-500/10 ring-1 ring-emerald-400/25" : "bg-white/[0.04]"
+          }`}
+        >
+          <span className="tabular text-slate-600">{i + 1}</span>
+          <button
+            onClick={() => onOpen(p.player_id)}
+            className="font-medium text-slate-100 transition hover:text-emerald-300"
+            title="Show this player in the list"
+          >
+            {p.player_name}
+          </button>
+          <PositionChip position={p.position} />
+          <span className="tabular font-semibold text-emerald-400">{fmt(p.utility, 0)}</span>
+          {/* One chip, so even the compact form explains rather than asserts. */}
+          <ReasonChips player={p} nextPick={nextPick} max={1} />
+          {i === 0 && !readOnly && (
+            <span className="flex gap-1">
+              <Button onClick={() => onDraft(p)} tone="primary" title="Draft to my team">
+                <UserPlus size={12} /> Me
+              </Button>
+              <Button onClick={() => onTaken(p)} tone="danger" title="Someone else took them">
+                <XCircle size={12} /> Taken
+              </Button>
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** What just happened, league-wide. Newest first, never wraps. */
+function RecentPicksTicker({ draftLog }) {
+  const recent = [...draftLog].slice(-8).reverse();
+  if (!recent.length) return null;
+  return (
+    <div className="card flex items-center gap-2 px-4 py-2">
+      <span className="label shrink-0">Just went</span>
+      <div className="scroll-slim flex flex-1 gap-1.5 overflow-x-auto whitespace-nowrap">
+        {recent.map((p) => (
+          <span
+            key={p.pick_number}
+            className={`flex shrink-0 items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] ${
+              p.is_my_pick
+                ? "bg-emerald-500/10 text-emerald-200 ring-1 ring-emerald-400/25"
+                : p.resolved === false
+                ? "bg-rose-500/10 text-rose-200 ring-1 ring-rose-400/25"
+                : "bg-white/[0.04] text-slate-300"
+            }`}
+            title={
+              p.resolved === false
+                ? "This player wasn't in the projection pool, so their position is unknown and no roster slot was filled."
+                : undefined
+            }
+          >
+            <span className="tabular text-slate-600">#{p.overall_pick ?? p.pick_number}</span>
+            <span>{p.player_name || "Unknown"}</span>
+            {p.position && <span className="text-slate-500">{p.position}</span>}
+            {p.resolved === false && <span className="text-rose-300">?</span>}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // ---- Sorting ----
 // The board's own ranking is the default and the point of the tool, but a
@@ -580,12 +815,12 @@ function RosterPanel({ rosterState, depth, picksRemaining, benchSlots, benchFill
 // ---- Draft log ----
 const DraftLog = ({ draftLog }) => (
   <div className="card p-4">
-    <h2 className="mb-3 text-sm font-semibold text-slate-200">Draft log</h2>
+    <h2 className="mb-3 text-sm font-semibold text-slate-200">Full draft log</h2>
     {draftLog.length === 0 ? (
       <div className="text-xs text-slate-500">No picks yet.</div>
     ) : (
-      <ul className="scroll-slim max-h-80 space-y-0.5 overflow-y-auto pr-1">
-        {[...draftLog].reverse().map((p) => (
+      <ul className="scroll-slim max-h-64 space-y-0.5 overflow-y-auto pr-1">
+        {[...draftLog].slice(-40).reverse().map((p) => (
           <li
             key={p.pick_number}
             className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-xs
@@ -642,21 +877,41 @@ export default function DraftBoard() {
   const [selectedId, setSelectedId] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
   const [tab, setTab] = useState("board"); // "board" | "analysis"
+  // Live ESPN state. `connected` gates whether pick numbers come from the
+  // league or from local snake math.
+  const [sync, setSync] = useState({ connected: false, status: null, ageSeconds: null,
+                                     version: -1, team: null });
+  const [syncCtx, setSyncCtx] = useState(null);
   const [sort, setSort] = useState({ key: "utility", dir: "desc" });
   const [adpYear, setAdpYear] = useState(null);
 
-  const picksMade = draftLog.length;
-  const currentPick = picksMade + 1;
-  const isMyTurn = slotForPick(currentPick, teams) === mySlot;
-
-  // The pick-timing question is always "grab them now, or will they last until
-  // I'm back?" - so the reference point must be the turn AFTER the one being
-  // decided. Passing the current pick when it's your turn (as this used to)
-  // made the comparison degenerate exactly when it mattered most.
-  const nextPick = useMemo(() => {
+  // Where the draft is. Two implementations, deliberately:
+  //
+  // When connected, this comes from ESPN's real pick order, which survives
+  // traded picks, keepers and any draft that isn't a pure snake - none of
+  // which the arithmetic below can express. The local version is a *guess*,
+  // used only when there's no league to ask, and it is never consulted in
+  // live mode.
+  //
+  // `nextPick` is the turn AFTER the one being decided, because the timing
+  // question is always "grab them now, or will they last until I'm back?".
+  const localCtx = useMemo(() => {
+    const currentPick = draftLog.length + 1;
     const thisTurn = nextMyPick(currentPick, mySlot, teams);
-    return nextMyPick(thisTurn + 1, mySlot, teams);
-  }, [currentPick, mySlot, teams]);
+    return {
+      currentPick,
+      thisTurn,
+      nextPick: nextMyPick(thisTurn + 1, mySlot, teams),
+      isMyTurn: slotForPick(currentPick, teams) === mySlot,
+      picksUntilMyTurn: Math.max(thisTurn - currentPick, 0),
+      teams,
+    };
+  }, [draftLog.length, mySlot, teams]);
+
+  const pickCtx = sync.connected && syncCtx ? syncCtx : localCtx;
+  const currentPick = pickCtx.currentPick;
+  const nextPick = pickCtx.nextPick;
+  const isMyTurn = pickCtx.isMyTurn;
 
   const refreshRecommendations = useCallback(
     async (sid, cp, np, risk) => {
@@ -743,34 +998,143 @@ export default function DraftBoard() {
     }
   }, []);
 
+  // --- live ESPN sync ---
+  // Applies a payload from /espn/connect or /espn/sync. The server sends the
+  // full authoritative state, not a delta, so everything is replaced wholesale
+  // - which is what makes a missed poll or a page refresh self-healing.
+  const absorbSync = useCallback((data) => {
+    setSync({
+      connected: data.connected !== false,
+      status: data.status ?? "ok",
+      message: data.message ?? null,
+      ageSeconds: data.age_seconds ?? null,
+      version: data.version ?? 0,
+      team: data.team ?? null,
+      complete: !!data.complete,
+    });
+    setSyncCtx({
+      currentPick: data.current_pick,
+      thisTurn: data.this_turn,
+      nextPick: data.next_pick,
+      isMyTurn: !!data.is_my_turn,
+      picksUntilMyTurn: data.picks_until_my_turn,
+      teams: data.teams ?? teams,
+    });
+    if (data.draft_log) setDraftLog(data.draft_log);
+    if (data.roster_state) setRosterState(data.roster_state);
+    if (data.depth) setDepth(data.depth);
+    if (data.picks_remaining !== undefined) setPicksRemaining(data.picks_remaining);
+    if (data.bench_slots !== undefined) setBenchSlots(data.bench_slots);
+    if (data.bench_filled !== undefined) setBenchFilled(data.bench_filled);
+  }, [teams]);
+
+  const connectEspn = useCallback(async (sid) => {
+    const data = await apiPost("/espn/connect", { session_id: sid });
+    absorbSync(data);
+    if (data.teams) setTeams(data.teams);
+    if (data.rounds) setRounds(data.rounds);
+    return data;
+  }, [absorbSync]);
+
+  const disconnectEspn = useCallback(async () => {
+    if (sessionId) {
+      try {
+        await apiPost("/espn/disconnect", { session_id: sessionId });
+      } catch { /* the escape hatch must work even if the call fails */ }
+    }
+    setSync((s) => ({ ...s, connected: false, status: null }));
+    setSyncCtx(null);
+  }, [sessionId]);
+
+  // Poll while connected. Stops when the tab is hidden (state fully recovers on
+  // the next poll), when the draft finishes, and after an auth failure -
+  // retrying with dead cookies accomplishes nothing and risks rate limiting.
+  useEffect(() => {
+    if (!sync.connected || !sessionId) return;
+    if (sync.status === "auth" || sync.complete) return;
+    let cancelled = false;
+
+    const tick = async () => {
+      if (document.hidden) return;
+      try {
+        const res = await fetch(`${API_URL}/espn/sync/${sessionId}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (cancelled) return;
+        const changed = data.version !== sync.version;
+        absorbSync(data);
+        // Only re-rank when something actually happened. Most polls are a
+        // passthrough of an unchanged snapshot.
+        if (changed && data.current_pick != null) {
+          refreshRecommendations(sessionId, data.current_pick, data.next_pick, riskAversion);
+        }
+      } catch {
+        if (!cancelled) setSync((s) => ({ ...s, status: "stale" }));
+      }
+    };
+
+    const id = setInterval(tick, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [sync.connected, sync.status, sync.complete, sync.version, sessionId,
+      absorbSync, refreshRecommendations, riskAversion]);
+
   const handleStart = useCallback(
-    async ({ teams: t, mySlot: s, rounds: r }) => {
+    async ({ espn, teams: t = 14, mySlot: s = 1, rounds: r = DEFAULT_ROUNDS }) => {
       setStarting(true);
       setSetupError(null);
       setTeams(t);
       setMySlot(s);
       setRounds(r);
+      let session_id;
       try {
-        const { session_id } = await apiPost("/session", {
+        ({ session_id } = await apiPost("/session", {
           teams: t,
           roster_need: DEFAULT_ROSTER_NEED,
           rounds: r,
-        });
-        setSessionId(session_id);
-        setDraftLog([]);
-        setPicksRemaining(r);
-        setRosterState(
-          Object.fromEntries(Object.entries(DEFAULT_ROSTER_NEED).map(([k, v]) => [k, { have: 0, need: v }]))
-        );
-        setMode("live");
-        setStarting(false);
-        const thisTurn = nextMyPick(1, s, t);
-        await refreshRecommendations(session_id, 1, nextMyPick(thisTurn + 1, s, t), riskAversion);
-      } catch (e) {
+        }));
+      } catch {
+        // No backend at all - the read-only snapshot is the only option.
         await loadOfflineFallback();
+        return;
       }
+
+      setSessionId(session_id);
+      setDraftLog([]);
+      setPicksRemaining(r);
+      setRosterState(
+        Object.fromEntries(Object.entries(DEFAULT_ROSTER_NEED).map(([k, v]) => [k, { have: 0, need: v }]))
+      );
+
+      if (espn) {
+        try {
+          // Connect *before* showing the board: it supplies the real team
+          // count, round count and pick order, and starting on guessed values
+          // would mean the first recommendation used the wrong next_pick.
+          const data = await connectEspn(session_id);
+          setMode("live");
+          setStarting(false);
+          await refreshRecommendations(
+            session_id, data.current_pick ?? 1, data.next_pick ?? 2, riskAversion
+          );
+          return;
+        } catch (e) {
+          // Stay on the setup screen with the manual path still available.
+          setSetupError(
+            String(e).includes("502") || String(e).includes("503")
+              ? "Couldn't reach your ESPN league. Check SWID and ESPN_S2 in .env, or set up manually."
+              : String(e)
+          );
+          setStarting(false);
+          return;
+        }
+      }
+
+      setMode("live");
+      setStarting(false);
+      const thisTurn = nextMyPick(1, s, t);
+      await refreshRecommendations(session_id, 1, nextMyPick(thisTurn + 1, s, t), riskAversion);
     },
-    [refreshRecommendations, loadOfflineFallback, riskAversion]
+    [refreshRecommendations, loadOfflineFallback, connectEspn, riskAversion]
   );
 
   const submitPick = useCallback(
@@ -863,20 +1227,29 @@ export default function DraftBoard() {
     return [...rows].sort(cmp);
   }, [pool, posFilter, query, sort]);
 
-  // The headline card is always the board's own verdict, never just whatever
-  // floated to row 1 of the current sort - otherwise sorting by ADP would
-  // relabel the earliest-drafted player as "best available for you", which is
-  // precisely the claim the tool exists to argue against.
-  const topPick = useMemo(
-    () => filtered.reduce((best, p) => (!best || (p.utility ?? 0) > (best.utility ?? 0) ? p : best), null),
+  // The board's own verdict, independent of how the table happens to be
+  // sorted: sorting by ADP must never relabel the earliest-drafted player as
+  // "best available for you", which is precisely the claim the tool exists to
+  // argue against. The list below shows every player including these.
+  const topThree = useMemo(
+    () => [...filtered].sort((a, b) => (b.utility ?? 0) - (a.utility ?? 0)).slice(0, 3),
     [filtered]
   );
-  const rest = useMemo(
-    () => filtered.filter((p) => p.player_id !== topPick?.player_id),
-    [filtered, topPick]
-  );
+  const topId = topThree[0]?.player_id ?? null;
   const customSort = sort.key !== "utility" || sort.dir !== "desc";
-  const readOnly = mode === "offline";
+
+  // Open a player's row and bring it into view. Used by the top-three pills,
+  // which are pointers into the list rather than a separate surface.
+  const focusPlayer = useCallback((id) => {
+    setExpandedId(id);
+    requestAnimationFrame(() => {
+      document.getElementById(`row-${id}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+  }, []);
+  // Read-only offline, and while ESPN is driving: manual clicks would be
+  // silently reverted by the next sync, so the buttons say so by going away.
+  // Disconnecting brings them straight back.
+  const readOnly = mode === "offline" || (sync.connected && sync.status !== "auth");
   // Resolved from the live pool each render, so an open panel picks up new
   // availability/score numbers when the board re-ranks behind it.
   const selectedPlayer = useMemo(
@@ -917,24 +1290,9 @@ export default function DraftBoard() {
             ))}
           </div>
 
-          {tab === "board" && mode === "live" && (
-            <div className="flex items-center gap-2 text-xs">
-              <span className="rounded-lg bg-white/5 px-2.5 py-1 text-slate-400">
-                Pick <span className="tabular font-semibold text-slate-200">{currentPick}</span>
-              </span>
-              {isMyTurn ? (
-                <Badge tone="calm">You're on the clock</Badge>
-              ) : (
-                <span className="rounded-lg bg-white/5 px-2.5 py-1 text-slate-400">
-                  You pick at{" "}
-                  <span className="tabular font-semibold text-slate-200">
-                    {nextMyPick(currentPick, mySlot, teams)}
-                  </span>
-                </span>
-              )}
-            </div>
-          )}
-
+          {/* Pick and turn live in DraftStatusStrip now, which says the same
+              things plus the round and how many picks away you are - and reads
+              them from the league rather than from local snake math. */}
           {tab === "board" && mode === "offline" && (
             <Badge tone="warn" title="The backend isn't running, so need and timing can't be applied.">
               <WifiOff size={11} /> Offline — value only
@@ -997,15 +1355,32 @@ export default function DraftBoard() {
             </div>
           )}
 
-          <PlayerCard
-            player={topPick}
+          {/* Three one-line strips instead of a hero card. The board is the
+              point of this screen, so the chrome above it has to earn its
+              height - together these take less room than the single card did
+              and say considerably more. */}
+          <DraftStatusStrip
+            mode={mode}
+            pickCtx={pickCtx}
+            rosterState={rosterState}
+            picksRemaining={picksRemaining}
+            sync={sync}
+            onDisconnect={disconnectEspn}
+          />
+
+          <TopPicksStrip
+            players={topThree}
             nextPick={nextPick}
             readOnly={readOnly}
-            eyebrow={<><Trophy size={12} /> Best available for you</>}
-            onOpenFull={() => setSelectedId(topPick.player_id)}
-            onDraft={() => submitPick(topPick, true)}
-            onTaken={() => submitPick(topPick, false)}
+            customSort={customSort}
+            onOpen={focusPlayer}
+            onDraft={handleDraft}
+            onTaken={handleTaken}
           />
+
+          {mode === "live" && draftLog.length > 0 && (
+            <RecentPicksTicker draftLog={draftLog} />
+          )}
 
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative min-w-[200px] flex-1 sm:max-w-xs">
@@ -1037,10 +1412,6 @@ export default function DraftBoard() {
             </div>
 
           </div>
-
-          {mode === "live" && (
-            <RiskControl value={riskAversion} onChange={setRiskAversion} pool={pool} />
-          )}
 
           {/* When a custom sort is active the table is no longer the board's
               ranking, and silently letting it look like one would undo the
@@ -1083,11 +1454,15 @@ export default function DraftBoard() {
                   {/* Handlers are stable across renders (see the useCallbacks
                       above) so React.memo on PlayerRow can actually skip work.
                       Passing fresh arrows here would defeat it entirely. */}
-                  {rest.map((p, i) => (
+                  {filtered.map((p, i) => (
                     <PlayerRow
                       key={p.player_id}
                       player={p}
-                      rank={i + 2}
+                      rank={i + 1}
+                      // Marks the board's pick wherever it lands in the current
+                      // sort - which the old hero card couldn't do, because it
+                      // sat outside the list entirely.
+                      highlight={p.player_id === topId}
                       nextPick={nextPick}
                       readOnly={readOnly}
                       expanded={expandedId === p.player_id}
@@ -1110,7 +1485,10 @@ export default function DraftBoard() {
           </div>
         </div>
 
-        <aside className="space-y-4 lg:sticky lg:top-[68px] lg:self-start">
+        <aside className="space-y-4 lg:sticky lg:top-[60px] lg:self-start">
+          {mode === "live" && (
+            <RiskControl value={riskAversion} onChange={setRiskAversion} pool={pool} />
+          )}
           <RosterPanel
             rosterState={rosterState}
             depth={depth}
