@@ -182,6 +182,91 @@ def add_vorp_z(
 
 NEED_WEIGHT = 0.5  # value inflation per open starting slot at a position
 
+# Bench depth is worth less than an unfilled starting slot, and deliberately so:
+# an empty starting slot is a guaranteed zero every week, while a bench player
+# only pays off in the weeks your starter is out. Capped below NEED_WEIGHT so a
+# backup can never outrank filling a hole in the lineup.
+BENCH_WEIGHT = 0.25
+
+# How often a *startable* player at each position actually missed games, measured
+# over 2020-2025 on the top `starters_needed(pos)` players by season points - the
+# same replacement-level tier the VORP baseline uses. This is the honest driver
+# of how much a bench spot at a position is worth: you only ever need a backup in
+# the weeks your starter isn't playing.
+#
+#   RB 0.102   TE 0.086   WR 0.076   QB 0.043   K 0.023   DST 0.012
+#
+# The ordering is the whole point. Kickers and defenses essentially never miss
+# time, so a second one is a wasted roster spot - which is exactly what the board
+# used to get wrong, treating a backup K identically to a third RB once the
+# starting lineup was full. Recomputed by `notebooks/compute_availability.py`
+# into the `position_availability` table; these defaults keep the live tool
+# working on a database where that hasn't been run.
+DEFAULT_MISSED_GAME_RATE = {
+    "RB": 0.102, "TE": 0.086, "WR": 0.076, "QB": 0.043, "K": 0.023, "DST": 0.012,
+}
+
+
+def depth_needs(
+    teams: int = TEAMS,
+    roster_needs: dict | None = None,
+    missed_game_rate: dict | None = None,
+) -> dict:
+    """Relative value of a *bench* spot at each position, normalised to [0, 1].
+
+    Two things decide how much depth a position is worth, and both are read from
+    data rather than picked:
+
+    - **How often its starters miss time** (`missed_game_rate`), i.e. how likely
+      you are to need the backup at all.
+    - **How many of them you start.** Starting two RBs plus a share of FLEX means
+      roughly 2.4x the injury exposure of a single QB, so the same per-player
+      miss rate implies far more depth need.
+
+    Multiplying the two and normalising so the highest position sits at 1.0
+    gives, for a standard 14-team roster: RB 1.00, WR 0.74, TE 0.49, QB 0.18,
+    K 0.10, DST 0.05. A backup RB is worth roughly twenty times a backup DST,
+    which matches how drafts are actually played.
+    """
+    roster_needs = roster_needs or ROSTER_NEEDS
+    rates = missed_game_rate or DEFAULT_MISSED_GAME_RATE
+    raw = {}
+    for pos in rates:
+        # starters_needed() already folds in this position's share of FLEX.
+        exposure = starters_needed(pos, teams=teams, roster_needs=roster_needs) / max(teams, 1)
+        raw[pos] = exposure * rates[pos]
+    peak = max(raw.values(), default=0.0)
+    if peak <= 0:
+        return {pos: 0.0 for pos in raw}
+    return {pos: v / peak for pos, v in raw.items()}
+
+
+def bench_weights(
+    depth: dict | None,
+    bench_remaining: int | None,
+    teams: int = TEAMS,
+    roster_needs: dict | None = None,
+    missed_game_rate: dict | None = None,
+) -> dict:
+    """Multiplier contribution from bench spots, per position.
+
+    Applies only once there's actually bench room left: `bench_remaining <= 0`
+    returns nothing, so a drafter with no spare picks is never told to take a
+    backup over a starter.
+
+    Diminishing per extra body at a position (`1 / (1 + already_held)`) because
+    the first backup RB covers most of the injury risk and the fourth covers
+    very little - without it the board would happily stack six running backs.
+    """
+    if not bench_remaining or bench_remaining <= 0:
+        return {}
+    depth = depth or {}
+    needs = depth_needs(teams=teams, roster_needs=roster_needs, missed_game_rate=missed_game_rate)
+    return {
+        pos: BENCH_WEIGHT * need / (1.0 + depth.get(pos, 0))
+        for pos, need in needs.items()
+    }
+
 
 def open_slots(roster_state: dict, flex_eligible=FLEX_ELIGIBLE) -> dict:
     """Open starting slots per position, including a share of any unfilled
@@ -231,18 +316,38 @@ def roster_urgency(roster_state: dict, picks_remaining: int | None) -> float:
     return 1.0 + min(max(ratio, 0.0), 1.0)
 
 
-def need_weights(roster_state: dict, picks_remaining: int | None = None) -> dict:
+def need_weights(
+    roster_state: dict,
+    picks_remaining: int | None = None,
+    depth: dict | None = None,
+    bench_remaining: int | None = None,
+    teams: int = TEAMS,
+    missed_game_rate: dict | None = None,
+) -> dict:
     """Multiplier per position for how badly the drafter still needs it.
 
-    weight = 1 + NEED_WEIGHT * open_slots * urgency
+    weight = 1 + NEED_WEIGHT * open_starting_slots * urgency
+               + BENCH_WEIGHT * depth_need / (1 + already_held)
 
-    With `picks_remaining=None` and no FLEX slot this is exactly the original
-    `1 + 0.5 * unmet_need`; FLEX credit and urgency scaling are additions on
-    top, both of which collapse to the old behaviour when they don't apply.
+    The second term is the bench. Without it every position collapsed to exactly
+    1.0 the moment the starting lineup was full, so with (say) seven picks still
+    to make the board stopped distinguishing between a backup RB and a second
+    kicker - it rated them identically, which is badly wrong in a 16-round
+    draft where over a third of the picks are bench.
+
+    Leaving `depth`/`bench_remaining` unset omits the bench term entirely, which
+    reproduces the previous starters-only behaviour exactly.
     """
     urgency = roster_urgency(roster_state, picks_remaining)
     opens = open_slots(roster_state)
-    return {pos: 1.0 + NEED_WEIGHT * n * urgency for pos, n in opens.items()}
+    bench = bench_weights(
+        depth, bench_remaining, teams=teams, missed_game_rate=missed_game_rate
+    )
+    positions = set(opens) | set(bench)
+    return {
+        pos: 1.0 + NEED_WEIGHT * opens.get(pos, 0.0) * urgency + bench.get(pos, 0.0)
+        for pos in positions
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -469,6 +574,10 @@ def score(
     picks_remaining: int | None = None,
     pressure_fn=availability_pressure,
     risk_aversion: float = RISK_AVERSION,
+    depth: dict | None = None,
+    bench_remaining: int | None = None,
+    teams: int = TEAMS,
+    missed_game_rate: dict | None = None,
 ) -> pd.DataFrame:
     """Rank candidates by draft-pick utility.
 
@@ -481,7 +590,8 @@ def score(
       so a steep replacement cliff (QB) doesn't dominate on raw scale alone.
       Falls back to raw `vorp` if the caller hasn't run `add_vorp_z()` yet.
     - **need** - which starting slots you still have open, escalating as
-      `picks_remaining` runs out (see `need_weights`).
+      `picks_remaining` runs out, plus what a bench spot at that position is
+      worth once the lineup is full (see `need_weights` and `depth_needs`).
     - **timing** - the probability the player is gone before your next turn
       (see `availability_pressure`).
     - **confidence** - how much of the projection survives NB04's bootstrap
@@ -494,8 +604,30 @@ def score(
     """
     out = df.copy()
 
-    w = need_weights(roster_state, picks_remaining=picks_remaining)
+    w = need_weights(
+        roster_state,
+        picks_remaining=picks_remaining,
+        depth=depth,
+        bench_remaining=bench_remaining,
+        teams=teams,
+        missed_game_rate=missed_game_rate,
+    )
     out["pos_weight"] = out["position"].map(lambda p: w.get(p, 1.0))
+
+    # The need multiplier is two different claims added together - an unfilled
+    # starting slot and a useful bench spot - and they mean opposite things to a
+    # drafter. Returned separately so the UI can say "you still need a starting
+    # TE" rather than "1.31x", and so a valuable backup RB is never described
+    # with the same words as a wasted second kicker.
+    starters = open_slots(roster_state)
+    urgency = roster_urgency(roster_state, picks_remaining)
+    bench = bench_weights(
+        depth, bench_remaining, teams=teams, missed_game_rate=missed_game_rate
+    )
+    out["start_weight"] = out["position"].map(
+        lambda p: NEED_WEIGHT * starters.get(p, 0.0) * urgency
+    )
+    out["bench_weight"] = out["position"].map(lambda p: bench.get(p, 0.0))
     out["adp_mult"] = out["league_pick_est"].apply(
         lambda x: pressure_fn(x, current_pick, next_pick)
     )

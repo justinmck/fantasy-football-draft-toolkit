@@ -72,6 +72,42 @@ class DraftSession:
             return None
         return max(self.rounds - self.my_picks_made, 0)
 
+    @property
+    def starting_slots(self) -> int:
+        return sum(v["need"] for v in self.roster_state.values())
+
+    def bench_slots(self) -> int | None:
+        """Total bench spots: draft length minus the starting lineup.
+
+        A 16-round draft with 9 starters is 7 bench picks - not a rounding
+        detail but over a third of the draft, and previously invisible to the
+        board, which stopped differentiating positions entirely once the
+        starting lineup was full.
+        """
+        if not self.rounds:
+            return None
+        return max(self.rounds - self.starting_slots, 0)
+
+    def bench_remaining(self) -> int | None:
+        """Bench spots still to fill.
+
+        Counted as "picks left after every open starting slot is accounted
+        for", so an unfilled starter always claims a pick before the bench
+        does - the board should never suggest a backup while a hole remains
+        that it can't otherwise fill.
+        """
+        left = self.picks_remaining()
+        if left is None:
+            return None
+        open_starters = sum(
+            max(v["need"] - v["have"], 0) for v in self.roster_state.values()
+        )
+        return max(left - open_starters, 0)
+
+    @property
+    def bench_filled(self) -> int:
+        return sum(self.depth.values())
+
 
 SESSIONS = {}
 

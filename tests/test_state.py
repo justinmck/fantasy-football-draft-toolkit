@@ -93,3 +93,50 @@ def test_picks_remaining_never_goes_negative():
     for i in range(5):
         s.pick(i, "RB", mine=True)
     assert s.picks_remaining() == 0
+
+
+# ---------------------------------------------------------------------------
+# Bench accounting
+# ---------------------------------------------------------------------------
+
+def test_bench_slots_is_rounds_minus_starting_lineup():
+    s = make_session(rounds=16)
+    assert s.starting_slots == 9
+    assert s.bench_slots() == 7
+
+
+def test_bench_slots_unknown_without_a_draft_length():
+    assert make_session().bench_slots() is None
+
+
+def test_bench_remaining_reserves_picks_for_open_starters():
+    """With 16 picks and 9 starting slots unfilled, only 7 are truly spare.
+
+    The board must not suggest a backup while a starting hole remains that it
+    would otherwise have no pick left to fill.
+    """
+    s = make_session(rounds=16)
+    assert s.bench_remaining() == 7
+
+
+def test_bench_remaining_grows_as_starters_get_filled():
+    s = make_session(rounds=16)
+    before = s.bench_remaining()
+    s.pick(1, "RB", mine=True)          # fills a starting slot, not the bench
+    assert s.bench_remaining() == before  # one fewer pick, one fewer open slot
+    assert s.bench_filled == 0
+
+
+def test_surplus_players_count_against_the_bench():
+    s = make_session(rounds=16)
+    for pid in range(1, 5):             # 2 starting RB + FLEX, then depth
+        s.pick(pid, "RB", mine=True)
+    assert s.bench_filled == 1
+    assert s.depth["RB"] == 1
+
+
+def test_other_teams_picks_do_not_touch_my_bench():
+    s = make_session(rounds=16)
+    s.pick(99, "RB", mine=False)
+    assert s.bench_filled == 0
+    assert s.bench_remaining() == 7

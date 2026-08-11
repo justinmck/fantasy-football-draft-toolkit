@@ -1,6 +1,7 @@
 import pandas as pd
 import pytest
 
+from src import scoring
 from src.scoring import (
     DEFAULT_ROOKIE_RELIABILITY_FACTOR,
     add_vorp,
@@ -521,3 +522,82 @@ def test_rookie_status_lowers_score_only_through_confidence():
 
     on = score(df, roster_state, current_pick=1, next_pick=14)
     assert on.iloc[0]["is_rookie"] == 0  # veteran ranks first once risk is on
+
+
+# ---------------------------------------------------------------------------
+# Bench depth
+# ---------------------------------------------------------------------------
+#
+# A 16-round draft with 9 starting slots is 7 bench picks - over a third of the
+# draft. Before these, `need_weights` returned exactly 1.0 for every position
+# the moment the starting lineup was full, so the board rated a backup RB and a
+# second kicker identically for that whole stretch.
+
+FULL_ROSTER = {
+    "QB": {"have": 1, "need": 1}, "RB": {"have": 2, "need": 2},
+    "WR": {"have": 2, "need": 2}, "TE": {"have": 1, "need": 1},
+    "FLEX": {"have": 1, "need": 1}, "K": {"have": 1, "need": 1},
+    "DST": {"have": 1, "need": 1},
+}
+EMPTY_ROSTER = {k: {"have": 0, "need": v["need"]} for k, v in FULL_ROSTER.items()}
+
+
+class TestDepthNeeds:
+    def test_ordered_by_injury_exposure(self):
+        d = scoring.depth_needs()
+        assert d["RB"] > d["WR"] > d["TE"] > d["QB"] > d["K"] > d["DST"]
+
+    def test_normalised_to_one_at_the_peak(self):
+        assert scoring.depth_needs()["RB"] == pytest.approx(1.0)
+
+    def test_kicker_and_defense_depth_is_near_worthless(self):
+        # The concrete thing this exists to prevent: a second K/DST reading as
+        # comparable to a third RB.
+        d = scoring.depth_needs()
+        assert d["DST"] < 0.1 and d["K"] < 0.15
+
+    def test_starting_more_of_a_position_raises_its_depth_need(self):
+        one_rb = scoring.depth_needs(roster_needs={"RB": 1, "WR": 2, "FLEX": 0})
+        two_rb = scoring.depth_needs(roster_needs={"RB": 2, "WR": 2, "FLEX": 0})
+        assert two_rb["RB"] / two_rb["WR"] > one_rb["RB"] / one_rb["WR"]
+
+
+class TestBenchWeights:
+    def test_no_bench_room_means_no_bench_credit(self):
+        assert scoring.bench_weights({}, bench_remaining=0) == {}
+        assert scoring.bench_weights({}, bench_remaining=None) == {}
+
+    def test_diminishing_returns_per_extra_body(self):
+        first = scoring.bench_weights({}, bench_remaining=5)["RB"]
+        third = scoring.bench_weights({"RB": 2}, bench_remaining=5)["RB"]
+        assert third == pytest.approx(first / 3)
+
+    def test_capped_below_a_starting_slot(self):
+        # A backup must never outrank filling a hole in the lineup.
+        assert max(scoring.bench_weights({}, bench_remaining=7).values()) < scoring.NEED_WEIGHT
+
+
+class TestNeedWeightsWithBench:
+    def test_full_roster_still_differentiates_positions(self):
+        w = need_weights(FULL_ROSTER, picks_remaining=7, depth={}, bench_remaining=7)
+        assert w["RB"] > w["WR"] > w["QB"] > w["DST"]
+        assert w["DST"] == pytest.approx(1.0, abs=0.05)
+
+    def test_stacking_a_position_hands_priority_to_the_next_one(self):
+        w = need_weights(FULL_ROSTER, picks_remaining=5, depth={"RB": 2}, bench_remaining=5)
+        assert w["WR"] > w["RB"]
+
+    def test_open_starting_slot_always_beats_any_bench_need(self):
+        w = need_weights(EMPTY_ROSTER, picks_remaining=16, depth={}, bench_remaining=7)
+        # Even DST, the least valuable depth, outranks a full roster's best bench.
+        full = need_weights(FULL_ROSTER, picks_remaining=7, depth={}, bench_remaining=7)
+        assert w["DST"] > full["RB"]
+
+    def test_omitting_bench_args_reproduces_previous_behaviour(self):
+        assert need_weights(FULL_ROSTER, picks_remaining=7) == {
+            p: 1.0 for p in ("QB", "RB", "WR", "TE", "K", "DST")
+        }
+
+    def test_bench_exhausted_collapses_to_flat(self):
+        w = need_weights(FULL_ROSTER, picks_remaining=0, depth={}, bench_remaining=0)
+        assert set(w.values()) == {1.0}
