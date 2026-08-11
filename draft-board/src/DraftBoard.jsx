@@ -1,7 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  BarChart3,
   ChevronDown,
   Info,
+  LayoutList,
+  Maximize2,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -13,10 +19,14 @@ import {
   XCircle,
 } from "lucide-react";
 
+// The Analysis tab is the largest source file in the app and the board always
+// opens first, so it's split out of the initial chunk rather than shipped to
+// every user who never clicks it.
+const Analysis = lazy(() => import("./components/Analysis"));
 import { LEGEND, RangeText, ReasonChips } from "./components/explain";
 import PlayerDetail from "./components/PlayerDetail";
 import { Badge, Button, Meter, PositionChip, SlotPips } from "./components/primitives";
-import { confidenceBand, fmt, fmtAdp, pct, urgencyBand } from "./theme";
+import { confidenceBand, fmt, fmtAdp, NO_ADP, pct, urgencyBand } from "./theme";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const POSITIONS = ["ALL", "QB", "RB", "WR", "TE", "K", "DST"];
@@ -64,7 +74,7 @@ function SetupScreen({ onStart, starting, error }) {
       <div className="card w-full max-w-md p-7">
         <div className="mb-1 flex items-center gap-2">
           <Trophy className="text-emerald-400" size={20} />
-          <h1 className="text-xl font-semibold tracking-tight">Draft Assistant</h1>
+          <h1 className="text-xl font-semibold tracking-tight">Justin's Draft Assistant</h1>
         </div>
         <p className="mb-6 text-sm leading-relaxed text-slate-400">
           Live recommendations that account for your open roster slots, how long a player will
@@ -126,32 +136,32 @@ function SetupScreen({ onStart, starting, error }) {
   );
 }
 
-// ---- Top recommendation ----
-function TopPickCard({ player, nextPick, onDraft, onTaken, onOpen, readOnly }) {
+// ---- Player card ----
+// Used both for the top recommendation and, when a row is expanded, inline
+// beneath that row - the same player deserves the same presentation whether
+// the board happens to rank them first or twentieth.
+function PlayerCard({ player, nextPick, eyebrow, onDraft, onTaken, onOpenFull, readOnly, inline }) {
   if (!player) return null;
   const urgency = urgencyBand(player.availability);
   const conf = confidenceBand(player.confidence);
   const isRookie = Number(player.is_rookie) === 1;
 
   return (
-    <div className="card relative overflow-hidden p-5">
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-400/60 to-transparent" />
+    <div className={inline ? "relative px-4 py-5" : "card relative overflow-hidden p-5"}>
+      {!inline && (
+        <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-400/60 to-transparent" />
+      )}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <div className="label mb-2 flex items-center gap-1.5 text-emerald-400/80">
-            <Trophy size={12} /> Best available for you
-          </div>
+          {eyebrow && (
+            <div className="label mb-2 flex items-center gap-1.5 text-emerald-400/80">{eyebrow}</div>
+          )}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {/* Not truncated: the player's name is the single most important
                 thing on this card, and "Malik Na…" is useless at a glance. */}
-            <button
-              onClick={onOpen}
-              className="text-left text-2xl font-semibold leading-tight tracking-tight
-                transition hover:text-emerald-300"
-              title="See full player detail"
-            >
+            <span className="text-2xl font-semibold leading-tight tracking-tight">
               {player.player_name}
-            </button>
+            </span>
             <PositionChip position={player.position} />
             <span className="text-sm text-slate-500">{player.pro_team}</span>
             {isRookie && (
@@ -166,16 +176,21 @@ function TopPickCard({ player, nextPick, onDraft, onTaken, onOpen, readOnly }) {
           </div>
         </div>
 
-        {!readOnly && (
-          <div className="flex gap-2">
-            <Button onClick={onDraft} tone="solid" size="md" title="Draft to my team">
-              <UserPlus size={14} /> Draft
-            </Button>
-            <Button onClick={onTaken} tone="danger" size="md" title="Someone else took them">
-              <XCircle size={14} /> Taken
-            </Button>
-          </div>
-        )}
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={onOpenFull} size="md" title="Full breakdown: last season, range, scoring">
+            <Maximize2 size={14} /> Full details
+          </Button>
+          {!readOnly && (
+            <>
+              <Button onClick={onDraft} tone="solid" size="md" title="Draft to my team">
+                <UserPlus size={14} /> Draft
+              </Button>
+              <Button onClick={onTaken} tone="danger" size="md" title="Someone else took them">
+                <XCircle size={14} /> Taken
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-white/5 pt-4 sm:grid-cols-4">
@@ -236,18 +251,26 @@ const MeterRow = ({ icon, label, value, meter, tone, caption }) => (
 );
 
 // ---- Board row ----
-function PlayerRow({ player, rank, nextPick, onDraft, onTaken, onOpen, readOnly }) {
+// Memoised: up to ~300 of these render at once, and typing, sorting, filtering
+// and expanding a row all used to re-render every one of them. The handlers are
+// shared across rows and take the player as an argument, so this component
+// supplies its own identity when calling them.
+const PlayerRow = React.memo(function PlayerRow({
+  player, rank, nextPick, onDraft, onTaken, onToggle, onOpenFull, expanded, readOnly,
+}) {
   const urgency = urgencyBand(player.availability);
   const conf = confidenceBand(player.confidence);
   const isRookie = Number(player.is_rookie) === 1;
 
-  // The whole row opens the detail panel, but the Draft/Taken buttons live
-  // inside it - stopPropagation on the actions cell keeps a draft click from
-  // also popping the panel open.
+  // The whole row expands inline, but the Draft/Taken buttons live inside it -
+  // stopPropagation on the actions cell keeps a draft click from also toggling
+  // the row open.
   return (
+    <>
     <tr
-      onClick={onOpen}
-      className="group cursor-pointer border-t border-white/5 transition-colors hover:bg-white/[0.03]"
+      onClick={() => onToggle(player.player_id)}
+      className={`group cursor-pointer border-t border-white/5 transition-colors hover:bg-white/[0.03]
+        ${expanded ? "bg-white/[0.04]" : ""}`}
     >
       <td className="py-2.5 pl-4 pr-2 text-right">
         <span className="tabular text-xs text-slate-600">{rank}</span>
@@ -296,26 +319,181 @@ function PlayerRow({ player, rank, nextPick, onDraft, onTaken, onOpen, readOnly 
         {fmt(player.utility, 0)}
       </td>
       <td className="py-2.5 pl-2 pr-4" onClick={(e) => e.stopPropagation()}>
-        {!readOnly && (
-          <div className="flex justify-end gap-1 opacity-60 transition-opacity group-hover:opacity-100">
-            <Button onClick={onDraft} tone="primary" title="Draft to my team">
-              <UserPlus size={12} /> Me
-            </Button>
-            <Button onClick={onTaken} tone="danger" title="Someone else took them">
-              <XCircle size={12} /> Taken
-            </Button>
-          </div>
-        )}
+        <div className="flex items-center justify-end gap-1">
+          {!readOnly && (
+            <div className="flex gap-1 opacity-60 transition-opacity group-hover:opacity-100">
+              <Button onClick={() => onDraft(player)} tone="primary" title="Draft to my team">
+                <UserPlus size={12} /> Me
+              </Button>
+              <Button onClick={() => onTaken(player)} tone="danger" title="Someone else took them">
+                <XCircle size={12} /> Taken
+              </Button>
+            </div>
+          )}
+          <ChevronDown
+            size={14}
+            onClick={() => onToggle(player.player_id)}
+            className={`shrink-0 cursor-pointer text-slate-600 transition-transform
+              ${expanded ? "rotate-180 text-slate-300" : ""}`}
+          />
+        </div>
       </td>
     </tr>
+    {expanded && (
+      <tr>
+        <td colSpan={9} className="border-t border-white/5 bg-slate-950/40 p-0">
+          <PlayerCard
+            player={player}
+            nextPick={nextPick}
+            readOnly={readOnly}
+            onOpenFull={() => onOpenFull(player.player_id)}
+            onDraft={() => onDraft(player)}
+            onTaken={() => onTaken(player)}
+            inline
+          />
+        </td>
+      </tr>
+    )}
+    </>
+  );
+});
+
+// ---- Sorting ----
+// The board's own ranking is the default and the point of the tool, but a
+// drafter often wants to interrogate it - "who's actually about to be gone",
+// "who's the safest pick left" - which means sorting by the inputs rather than
+// the verdict. `dir` is each column's *first* click direction: descending for
+// quantities where bigger is better, ascending for ADP (pick 1 is best) and
+// for names.
+const SORT_COLUMNS = [
+  { key: "player_name", label: "Player", align: "left", dir: "asc", cls: "" },
+  { key: "position", label: "Pos", align: "left", dir: "asc", cls: "" },
+  { key: "vorp", label: "VORP", align: "right", dir: "desc", cls: "hidden md:table-cell" },
+  { key: "adp", label: "ADP", align: "right", dir: "asc", cls: "hidden md:table-cell" },
+  { key: "availability", label: "Available", align: "right", dir: "desc", cls: "hidden sm:table-cell" },
+  { key: "confidence", label: "Confidence", align: "right", dir: "desc", cls: "hidden sm:table-cell" },
+  { key: "utility", label: "Score", align: "right", dir: "desc", cls: "" },
+];
+
+function SortHeader({ column, sort, onSort }) {
+  const active = sort.key === column.key;
+  const next = active
+    ? { key: column.key, dir: sort.dir === "asc" ? "desc" : "asc" }
+    : { key: column.key, dir: column.dir };
+
+  return (
+    <th
+      className={`py-2.5 pr-3 text-[11px] font-medium uppercase tracking-wider ${
+        column.align === "right" ? "text-right" : "text-left"
+      } ${column.cls}`}
+    >
+      <button
+        onClick={() => onSort(next)}
+        title={`Sort by ${column.label}`}
+        className={`inline-flex items-center gap-1 transition-colors hover:text-slate-300 ${
+          active ? "text-slate-200" : ""
+        }`}
+      >
+        {column.align === "right" && active && <SortArrow dir={sort.dir} />}
+        {column.label}
+        {column.align === "left" && active && <SortArrow dir={sort.dir} />}
+      </button>
+    </th>
+  );
+}
+
+const SortArrow = ({ dir }) =>
+  dir === "asc" ? (
+    <ArrowUp size={11} className="text-emerald-400" />
+  ) : (
+    <ArrowDown size={11} className="text-emerald-400" />
+  );
+
+// ---- Risk dial ----
+/**
+ * The "Play it safe" slider, with its actual effect spelled out.
+ *
+ * On its own the control is invisible in its consequences: it scales value by
+ * `(1 - aversion) + aversion x confidence`, and since most confidence values
+ * sit in a narrow band the resulting multipliers differ by only a few percent
+ * between skill-position players. The one place it bites hard is K and DST,
+ * whose projections have historically explained ~none of the variance in what
+ * those players delivered.
+ *
+ * So rather than leaving the user to infer that from a bare percentage, this
+ * reads the per-player `risk_mult` the backend already returns and names the
+ * positions currently being discounted most. A control whose effect can't be
+ * seen may as well not exist.
+ */
+function RiskControl({ value, onChange, pool }) {
+  const effect = useMemo(() => {
+    const byPos = new Map();
+    for (const p of pool) {
+      const m = Number(p.risk_mult);
+      if (!Number.isFinite(m) || !p.position) continue;
+      const cur = byPos.get(p.position) || { sum: 0, n: 0 };
+      byPos.set(p.position, { sum: cur.sum + (1 - m), n: cur.n + 1 });
+    }
+    return [...byPos.entries()]
+      .map(([position, { sum, n }]) => ({ position, discount: sum / n }))
+      .sort((a, b) => b.discount - a.discount);
+  }, [pool]);
+
+  const hardest = effect.filter((e) => e.discount > 0.005).slice(0, 3);
+  const spread = effect.length ? effect[0].discount - effect[effect.length - 1].discount : 0;
+
+  return (
+    <div className="card px-4 py-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="flex items-center gap-1.5 text-sm font-medium text-slate-300">
+          <ShieldCheck size={14} className="text-slate-500" /> Play it safe
+        </span>
+        <input
+          type="range" min={0} max={0.5} step={0.05}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="h-1 w-40 cursor-pointer accent-emerald-400"
+        />
+        <span className="tabular w-9 text-xs font-semibold text-slate-300">
+          {Math.round(value * 100)}%
+        </span>
+        <span className="text-xs text-slate-500">
+          {value === 0
+            ? "Off — ranking on value, need and timing only."
+            : `Cuts up to ${Math.round(value * 100)}% off players whose projections historically miss most.`}
+        </span>
+      </div>
+
+      {value > 0 && hardest.length > 0 && (
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-white/5 pt-2.5">
+          <span className="label">Currently discounting</span>
+          {hardest.map((e) => (
+            <span
+              key={e.position}
+              className="flex items-center gap-1 rounded-md bg-white/[0.04] px-2 py-0.5 text-xs"
+              title={`Average value discount applied to ${e.position} right now.`}
+            >
+              <PositionChip position={e.position} />
+              <span className="tabular text-rose-300">−{Math.round(e.discount * 100)}%</span>
+            </span>
+          ))}
+          {spread < 0.03 && (
+            <span className="text-[11px] text-slate-500">
+              — spread is under 3%, so this is only breaking near-ties right now.
+            </span>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
 // ---- Roster panel ----
-function RosterPanel({ rosterState, depth, picksRemaining }) {
+function RosterPanel({ rosterState, depth, picksRemaining, benchSlots, benchFilled }) {
   const entries = Object.entries(rosterState);
   const openCount = entries.reduce((n, [, v]) => n + Math.max(v.need - v.have, 0), 0);
   const tight = picksRemaining != null && openCount > 0 && picksRemaining <= openCount;
+  const benchOpen = benchSlots != null ? Math.max(benchSlots - (benchFilled || 0), 0) : null;
 
   return (
     <div className="card p-4">
@@ -350,6 +528,42 @@ function RosterPanel({ rosterState, depth, picksRemaining }) {
             );
           })}
         </ul>
+      )}
+
+      {/* Bench is a third of a 16-round draft. Showing it as real capacity
+          keeps those picks from reading as unaccounted-for. */}
+      {benchSlots != null && benchSlots > 0 && (
+        <div className="mt-3 border-t border-white/5 pt-3">
+          <div className="flex items-center justify-between text-xs">
+            <span className="flex items-center gap-2">
+              <span className="font-semibold text-slate-300">Bench</span>
+              <span
+                className="text-[10px] text-slate-600"
+                title="Once your starting lineup is full, the board values depth by how often each position actually misses games — so a backup RB outranks a second kicker."
+              >
+                depth picks
+              </span>
+            </span>
+            <span className="tabular text-slate-500">
+              {benchFilled || 0}/{benchSlots}
+            </span>
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {Array.from({ length: benchSlots }).map((_, i) => (
+              <span
+                key={i}
+                className={`h-2 w-2 rounded-full ${
+                  i < (benchFilled || 0) ? "bg-slate-400" : "bg-white/15"
+                }`}
+              />
+            ))}
+          </div>
+          {benchOpen === 0 && (
+            <div className="mt-2 text-[11px] leading-relaxed text-slate-500">
+              Bench is full — every remaining pick has to upgrade a starter.
+            </div>
+          )}
+        </div>
       )}
 
       {tight && (
@@ -405,17 +619,30 @@ export default function DraftBoard() {
   const [rosterState, setRosterState] = useState({});
   const [depth, setDepth] = useState({});
   const [picksRemaining, setPicksRemaining] = useState(null);
+  const [benchSlots, setBenchSlots] = useState(null);
+  const [benchFilled, setBenchFilled] = useState(0);
   const [draftLog, setDraftLog] = useState([]);
 
   const [posFilter, setPosFilter] = useState("ALL");
+  // Split so typing stays instant: the input is bound to `queryInput`, while
+  // the filter+sort over ~1,000 players runs off the debounced `query`. Shorter
+  // than the risk slider's 250ms because that one guards a network round-trip
+  // and this guards local work - a quarter second of lag on a search box during
+  // a live draft is very noticeable.
+  const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
+  const [analysisSeen, setAnalysisSeen] = useState(false);
   const [riskAversion, setRiskAversion] = useState(DEFAULT_RISK_AVERSION);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
   const [showLegend, setShowLegend] = useState(false);
-  // Stored as an id, not the player object, so the panel keeps showing fresh
-  // numbers after a re-rank instead of a stale snapshot.
+  // Both stored as ids, not player objects, so they keep showing fresh numbers
+  // after a re-rank instead of a stale snapshot. `expandedId` is the inline
+  // row; `selectedId` is the full side panel.
   const [selectedId, setSelectedId] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
+  const [tab, setTab] = useState("board"); // "board" | "analysis"
+  const [sort, setSort] = useState({ key: "utility", dir: "desc" });
   const [adpYear, setAdpYear] = useState(null);
 
   const picksMade = draftLog.length;
@@ -446,6 +673,9 @@ export default function DraftBoard() {
         setPool(data.results || []);
         if (data.roster_state) setRosterState(data.roster_state);
         if (data.picks_remaining !== undefined) setPicksRemaining(data.picks_remaining);
+        if (data.depth) setDepth(data.depth);
+        if (data.bench_slots !== undefined) setBenchSlots(data.bench_slots);
+        if (data.bench_filled !== undefined) setBenchFilled(data.bench_filled);
         if (data.adp_year !== undefined) setAdpYear(data.adp_year);
       } catch (e) {
         setErr(String(e));
@@ -489,6 +719,14 @@ export default function DraftBoard() {
               adp: Number(r.adp ?? 999),
               confidence: conf,
               availability: null, // needs a live session's pick numbers
+              // League timing is a live-only signal for the same reason: the
+              // offline banner already says pick timing isn't applied, and a
+              // shifted pick estimate with no availability to shift would be
+              // stating a conclusion the fallback can't actually reach.
+              bias_shift: null,
+              bias_pos_shift: null,
+              bias_team_shift: null,
+              bias_reason: null,
               // Ranked on the position-dampened VORP, matching the live
               // backend's value term - offline can't apply need or timing,
               // which is exactly what the banner warns about.
@@ -537,8 +775,9 @@ export default function DraftBoard() {
 
   const submitPick = useCallback(
     async (player, isMyPick) => {
-      // The player is leaving the board either way, so close their panel.
+      // The player is leaving the board either way, so close their panel/row.
       setSelectedId((id) => (id === player.player_id ? null : id));
+      setExpandedId((id) => (id === player.player_id ? null : id));
       if (mode === "offline") {
         setPool((list) => list.filter((p) => p.player_id !== player.player_id));
         return;
@@ -555,6 +794,8 @@ export default function DraftBoard() {
         setRosterState(data.roster_state);
         setDepth(data.depth || {});
         setPicksRemaining(data.picks_remaining);
+        setBenchSlots(data.bench_slots ?? null);
+        setBenchFilled(data.bench_filled ?? 0);
         setDraftLog(data.draft_log);
         const cp = data.draft_log.length + 1;
         const thisTurn = nextMyPick(cp, mySlot, teams);
@@ -577,15 +818,64 @@ export default function DraftBoard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [riskAversion]);
 
+  useEffect(() => {
+    const t = setTimeout(() => setQuery(queryInput), 150);
+    return () => clearTimeout(t);
+  }, [queryInput]);
+
+  // Identity-stable row handlers. They take the player (or id) as an argument
+  // rather than closing over it, which is what lets one function serve every
+  // row and lets memoised rows skip re-rendering when an unrelated one changes.
+  const handleToggle = useCallback(
+    (id) => setExpandedId((cur) => (cur === id ? null : id)),
+    []
+  );
+  const handleOpenFull = useCallback((id) => setSelectedId(id), []);
+  const handleDraft = useCallback((p) => submitPick(p, true), [submitPick]);
+  const handleTaken = useCallback((p) => submitPick(p, false), [submitPick]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return pool
+    const rows = pool
       .filter((p) => (posFilter === "ALL" ? true : p.position === posFilter))
       .filter((p) => !q || (p.player_name || "").toLowerCase().includes(q));
-  }, [pool, posFilter, query]);
 
-  const topPick = filtered[0];
-  const rest = filtered.slice(1);
+    const { key, dir } = sort;
+    const sign = dir === "asc" ? 1 : -1;
+    // Missing values always sort last regardless of direction - a player with
+    // no ADP isn't "the earliest pick", and a null availability isn't "least
+    // likely to last". Sorting them to the bottom keeps the top of the board
+    // meaningful whichever column is active.
+    const cmp = (a, b) => {
+      const av = key === "vorp" ? (a.vorp_z ?? a.vorp) : a[key];
+      const bv = key === "vorp" ? (b.vorp_z ?? b.vorp) : b[key];
+      const aMissing = av == null || (key === "adp" && Number(av) >= NO_ADP);
+      const bMissing = bv == null || (key === "adp" && Number(bv) >= NO_ADP);
+      if (aMissing || bMissing) return aMissing - bMissing;
+      if (typeof av === "string" || typeof bv === "string") {
+        return sign * String(av).localeCompare(String(bv));
+      }
+      const d = Number(av) - Number(bv);
+      // Score breaks every tie, so equal-VORP or equal-position rows still
+      // come back in the board's own order rather than an arbitrary one.
+      return d !== 0 ? sign * d : (b.utility ?? 0) - (a.utility ?? 0);
+    };
+    return [...rows].sort(cmp);
+  }, [pool, posFilter, query, sort]);
+
+  // The headline card is always the board's own verdict, never just whatever
+  // floated to row 1 of the current sort - otherwise sorting by ADP would
+  // relabel the earliest-drafted player as "best available for you", which is
+  // precisely the claim the tool exists to argue against.
+  const topPick = useMemo(
+    () => filtered.reduce((best, p) => (!best || (p.utility ?? 0) > (best.utility ?? 0) ? p : best), null),
+    [filtered]
+  );
+  const rest = useMemo(
+    () => filtered.filter((p) => p.player_id !== topPick?.player_id),
+    [filtered, topPick]
+  );
+  const customSort = sort.key !== "utility" || sort.dir !== "desc";
   const readOnly = mode === "offline";
   // Resolved from the live pool each render, so an open panel picks up new
   // availability/score numbers when the board re-ranks behind it.
@@ -604,10 +894,30 @@ export default function DraftBoard() {
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3">
           <div className="flex items-center gap-2">
             <Trophy className="text-emerald-400" size={18} />
-            <span className="font-semibold tracking-tight">Draft Assistant</span>
+            <span className="font-semibold tracking-tight">Justin's Draft Assistant</span>
           </div>
 
-          {mode === "live" && (
+          <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-slate-900 p-1">
+            {[
+              { id: "board", label: "Draft board", icon: <LayoutList size={12} /> },
+              { id: "analysis", label: "Analysis", icon: <BarChart3 size={12} /> },
+            ].map((t) => (
+              <button
+                key={t.id}
+                onClick={() => {
+                  if (t.id === "analysis") setAnalysisSeen(true);
+                  setTab(t.id);
+                }}
+                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                  tab === t.id ? "bg-white/10 text-white" : "text-slate-500 hover:text-slate-300"
+                }`}
+              >
+                {t.icon} {t.label}
+              </button>
+            ))}
+          </div>
+
+          {tab === "board" && mode === "live" && (
             <div className="flex items-center gap-2 text-xs">
               <span className="rounded-lg bg-white/5 px-2.5 py-1 text-slate-400">
                 Pick <span className="tabular font-semibold text-slate-200">{currentPick}</span>
@@ -625,22 +935,28 @@ export default function DraftBoard() {
             </div>
           )}
 
-          {mode === "offline" && (
+          {tab === "board" && mode === "offline" && (
             <Badge tone="warn" title="The backend isn't running, so need and timing can't be applied.">
               <WifiOff size={11} /> Offline — value only
             </Badge>
           )}
 
           <div className="ml-auto flex items-center gap-2">
-            {loading && <span className="text-xs text-slate-500">Updating…</span>}
-            {err && <span className="max-w-[16rem] truncate text-xs text-rose-400">{err}</span>}
-            <Button onClick={() => setShowLegend((v) => !v)} title="What do these columns mean?">
-              <Info size={12} /> Explain
-              <ChevronDown size={12} className={showLegend ? "rotate-180 transition" : "transition"} />
-            </Button>
-            <Button onClick={() => window.location.reload()} title="Reset board">
-              <RefreshCw size={12} /> Reset
-            </Button>
+            {tab === "board" && loading && <span className="text-xs text-slate-500">Updating…</span>}
+            {tab === "board" && err && (
+              <span className="max-w-[16rem] truncate text-xs text-rose-400">{err}</span>
+            )}
+            {tab === "board" && (
+              <>
+                <Button onClick={() => setShowLegend((v) => !v)} title="What do these columns mean?">
+                  <Info size={12} /> Explain
+                  <ChevronDown size={12} className={showLegend ? "rotate-180 transition" : "transition"} />
+                </Button>
+                <Button onClick={() => window.location.reload()} title="Reset board">
+                  <RefreshCw size={12} /> Reset
+                </Button>
+              </>
+            )}
           </div>
         </div>
 
@@ -658,6 +974,19 @@ export default function DraftBoard() {
         )}
       </header>
 
+      {/* Mounted on first visit and kept mounted thereafter, hidden rather than
+          unmounted. Unmounting threw away the fetched payload, so every switch
+          back paid the full request again. `hidden` is enough here because the
+          wrapper carries no display utility class that would override it. */}
+      {analysisSeen && (
+        <div hidden={tab !== "analysis"}>
+          <Suspense fallback={<div className="mx-auto max-w-5xl p-8 text-sm text-slate-500">Loading analysis…</div>}>
+            <Analysis apiUrl={API_URL} />
+          </Suspense>
+        </div>
+      )}
+
+      {tab === "board" && (
       <main className="mx-auto grid max-w-7xl grid-cols-1 gap-5 p-4 lg:grid-cols-[minmax(0,1fr)_300px]">
         <div className="min-w-0 space-y-4">
           {mode === "offline" && (
@@ -668,11 +997,12 @@ export default function DraftBoard() {
             </div>
           )}
 
-          <TopPickCard
+          <PlayerCard
             player={topPick}
             nextPick={nextPick}
             readOnly={readOnly}
-            onOpen={() => setSelectedId(topPick.player_id)}
+            eyebrow={<><Trophy size={12} /> Best available for you</>}
+            onOpenFull={() => setSelectedId(topPick.player_id)}
             onDraft={() => submitPick(topPick, true)}
             onTaken={() => submitPick(topPick, false)}
           />
@@ -681,8 +1011,8 @@ export default function DraftBoard() {
             <div className="relative min-w-[200px] flex-1 sm:max-w-xs">
               <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" size={14} />
               <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                value={queryInput}
+                onChange={(e) => setQueryInput(e.target.value)}
                 placeholder="Search player…"
                 className="h-9 w-full rounded-lg border border-white/10 bg-slate-900 pl-9 pr-3 text-sm
                   text-slate-100 outline-none transition placeholder:text-slate-600
@@ -706,27 +1036,31 @@ export default function DraftBoard() {
               ))}
             </div>
 
-            {mode === "live" && (
-              <label className="ml-auto flex items-center gap-2.5 rounded-lg border border-white/10 bg-slate-900 px-3 py-1.5">
-                <ShieldCheck size={13} className="text-slate-500" />
-                <span
-                  className="text-xs text-slate-400"
-                  title="How much an uncertain projection is discounted. At 0 the board ranks purely on value, need and timing; higher values increasingly prefer the safer player when two are close."
-                >
-                  Play it safe
-                </span>
-                <input
-                  type="range" min={0} max={0.5} step={0.05}
-                  value={riskAversion}
-                  onChange={(e) => setRiskAversion(Number(e.target.value))}
-                  className="h-1 w-24 cursor-pointer accent-emerald-400"
-                />
-                <span className="tabular w-7 text-right text-xs text-slate-500">
-                  {Math.round(riskAversion * 100)}%
-                </span>
-              </label>
-            )}
           </div>
+
+          {mode === "live" && (
+            <RiskControl value={riskAversion} onChange={setRiskAversion} pool={pool} />
+          )}
+
+          {/* When a custom sort is active the table is no longer the board's
+              ranking, and silently letting it look like one would undo the
+              whole point of the score column. */}
+          {customSort && (
+            <div className="flex items-center gap-2 rounded-lg border border-sky-400/20 bg-sky-500/5 px-3 py-2 text-xs text-sky-200/90">
+              <ArrowUpDown size={13} className="shrink-0 text-sky-400" />
+              <span>
+                Sorted by{" "}
+                <strong>{SORT_COLUMNS.find((c) => c.key === sort.key)?.label ?? sort.key}</strong> —
+                this isn't the board's recommended order.
+              </span>
+              <button
+                onClick={() => setSort({ key: "utility", dir: "desc" })}
+                className="ml-auto shrink-0 rounded-md bg-white/10 px-2 py-0.5 font-medium text-sky-100 transition hover:bg-white/15"
+              >
+                Back to ranking
+              </button>
+            </div>
+          )}
 
           <div className="card overflow-hidden">
             <div className="overflow-x-auto">
@@ -734,17 +1068,21 @@ export default function DraftBoard() {
                 <thead>
                   <tr className="bg-white/[0.03] text-slate-500">
                     <th className="w-10 py-2.5 pl-4 pr-2 text-right text-[11px] font-medium uppercase tracking-wider">#</th>
-                    <th className="py-2.5 pr-3 text-left text-[11px] font-medium uppercase tracking-wider">Player</th>
-                    <th className="py-2.5 pr-3 text-left text-[11px] font-medium uppercase tracking-wider">Pos</th>
-                    <th className="hidden py-2.5 pr-3 text-right text-[11px] font-medium uppercase tracking-wider md:table-cell">VORP</th>
-                    <th className="hidden py-2.5 pr-3 text-right text-[11px] font-medium uppercase tracking-wider md:table-cell">ADP</th>
-                    <th className="hidden py-2.5 pr-3 text-right text-[11px] font-medium uppercase tracking-wider sm:table-cell">Available</th>
-                    <th className="hidden py-2.5 pr-3 text-right text-[11px] font-medium uppercase tracking-wider sm:table-cell">Confidence</th>
-                    <th className="py-2.5 pr-3 text-right text-[11px] font-medium uppercase tracking-wider">Score</th>
+                    {SORT_COLUMNS.map((c) => (
+                      <SortHeader
+                        key={c.key}
+                        column={c}
+                        sort={sort}
+                        onSort={setSort}
+                      />
+                    ))}
                     <th className="py-2.5 pl-2 pr-4" />
                   </tr>
                 </thead>
                 <tbody>
+                  {/* Handlers are stable across renders (see the useCallbacks
+                      above) so React.memo on PlayerRow can actually skip work.
+                      Passing fresh arrows here would defeat it entirely. */}
                   {rest.map((p, i) => (
                     <PlayerRow
                       key={p.player_id}
@@ -752,9 +1090,11 @@ export default function DraftBoard() {
                       rank={i + 2}
                       nextPick={nextPick}
                       readOnly={readOnly}
-                      onOpen={() => setSelectedId(p.player_id)}
-                      onDraft={() => submitPick(p, true)}
-                      onTaken={() => submitPick(p, false)}
+                      expanded={expandedId === p.player_id}
+                      onToggle={handleToggle}
+                      onOpenFull={handleOpenFull}
+                      onDraft={handleDraft}
+                      onTaken={handleTaken}
                     />
                   ))}
                   {!loading && filtered.length === 0 && (
@@ -771,10 +1111,17 @@ export default function DraftBoard() {
         </div>
 
         <aside className="space-y-4 lg:sticky lg:top-[68px] lg:self-start">
-          <RosterPanel rosterState={rosterState} depth={depth} picksRemaining={picksRemaining} />
+          <RosterPanel
+            rosterState={rosterState}
+            depth={depth}
+            picksRemaining={picksRemaining}
+            benchSlots={benchSlots}
+            benchFilled={benchFilled}
+          />
           <DraftLog draftLog={draftLog} />
         </aside>
       </main>
+      )}
 
       <PlayerDetail
         player={selectedPlayer}

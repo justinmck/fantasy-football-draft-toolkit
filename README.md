@@ -31,8 +31,10 @@ ESPN API  →  notebooks/NB01  →  SQLite (data/fantasy_data.db)
                              │           implementation, shared
                              ▼           by NB03, NB04, NB05, and
                     src/recommender.py    the live API
-                                       │
-                                       ▼
+                             │         └── src/analysis.py
+                             │             (retrospective league
+                             │              analysis → Analysis tab)
+                             ▼
                               src/api.py (FastAPI)
                                        │
                                        ▼
@@ -58,10 +60,27 @@ Earlier versions of this project computed "how good is this player" four differe
 
 NB04's ablation and NB05's ADP benchmark both concluded the same thing: the projection is at its ceiling, and a better forecast isn't available. So the live tool's job isn't to out-predict ESPN — it's to apply the three things a projection contains **no information about at all**. Each is a separate multiplier in `score()`, and each is returned to the UI as its own column so a recommendation can be explained rather than just asserted.
 
-**Roster need** (`need_weights`, `open_slots`, `roster_urgency`). Weight rises with the number of open *starting* slots at a position, and escalates as your remaining picks run out — an open slot with twelve picks left is barely a constraint; with two picks left it's the whole decision. Two fixes here matter:
+**Roster need** (`need_weights`, `open_slots`, `roster_urgency`, `depth_needs`). Two separate claims, added: an unfilled *starting* slot, and a *bench* spot worth having.
+
+The starting-slot term rises with the number of open slots at a position and escalates as your remaining picks run out — an open slot with twelve picks left is barely a constraint; with two picks left it's the whole decision. Two fixes here matter:
 
 - The FLEX slot used to be invisible, because no player's `position` is literally `"FLEX"`. It's now split evenly across the FLEX-eligible positions, and `src/state.py` allocates a drafted player to their own slot first, then FLEX, then bench depth. Previously a third RB kept reading as though a starting slot were still open.
 - `have` can no longer exceed `need`; surplus players are tracked separately as depth.
+
+The bench term exists because a 16-round draft with 9 starting slots is **7 bench picks — over a third of the draft**, and the need multiplier used to collapse to exactly 1.0 for every position the moment the starting lineup was full. For that entire stretch the board rated a backup RB and a second kicker identically, which is badly wrong: you draft RB depth on purpose and you never draft a second kicker.
+
+How much a bench spot is worth is derived rather than guessed, from two things:
+
+| | |
+|---|---|
+| **How often the position's starters miss games** | Measured over 2020–2025 on the top `starters_needed(pos)` players by season points — the same replacement-level tier the VORP baseline uses. RB 10.2%, TE 8.6%, WR 7.6%, QB 4.3%, K 2.3%, DST 1.2%. |
+| **How many of them you start** | Starting two RBs plus a share of FLEX is ~2.4× the injury exposure of a single QB, so the same per-player miss rate implies far more depth need. |
+
+Multiplied and normalised, that gives **RB 1.00, WR 0.75, TE 0.49, QB 0.18, K 0.10, DST 0.05** — a backup RB is worth about twenty times a backup DST. Three guards keep it honest: the term is capped below `NEED_WEIGHT` so a backup can never outrank filling a hole in the lineup; it decays as `1 / (1 + already_held)` so the board won't stack six running backs; and it's zero when there's no bench room left. `bench_remaining()` also reserves a pick for every still-open starting slot before counting anything as spare.
+
+Rates are recomputed by `notebooks/compute_availability.py` into the `position_availability` table, read behind an existence check with measured defaults in `src/scoring.py` — so this is an optional refinement, not a required pipeline step.
+
+`score()` returns `start_weight` and `bench_weight` separately, not just their sum, because they mean opposite things to a drafter. The UI uses the split to say "Fills a big need" vs. "Useful depth" vs. "Weak bench spot" rather than describing a valuable third RB and a wasted second kicker with the same words.
 
 **Pick timing** (`availability`, `availability_pressure`). The question is always "grab them now, or will they last until I'm back?", so the tool estimates the probability a player survives to your next turn, treating their actual draft slot as `Normal(league_pick_est, σ)` with σ widening deeper into the draft (pick 8 is far more predictable than pick 140). Urgency scales smoothly with `1 − P(available)`.
 
@@ -125,11 +144,24 @@ SWID=...
 ESPN_S2=...
 ```
 
+### Refreshing next-season projections
+
+```bash
+python notebooks/pull_projections.py --year 2026     # ESPN → data/raw/2026/…
+python notebooks/rebuild_projections.py --year 2026  # → next_season_projections
+```
+
+Run these each August, before the draft. `pull_projections.py` unions free agents with every team's roster; `rebuild_projections.py` is NB02's projection step on its own, so refreshing projections doesn't require re-running the whole notebook (whose ADP insert is explicitly not safe to repeat). Re-run `NB04` afterwards to regenerate prediction intervals and the offline `players.json`.
+
+**Why this isn't a notebook cell.** NB01 used to pull projections with `league.free_agents(size=500)`, which is correct *only* while the league sits in its pre-draft state. Run at any other time, `free_agents()` structurally excludes every rostered player — precisely the elite tier. The 2025 pull was made mid-season, so the resulting file contained **none of the top 50 players by ADP**: the draft board recommended Malik Nabers (ADP 37) first overall because Gibbs, Bijan, Chase, Nacua and 44 others were never in the candidate pool at all. Nothing about the scoring was wrong; it was ranking the wrong set of players. Unioning rosters in makes the pull correct whenever it runs.
+
+The rebuild also recovers position from ESPN's `eligible_slots` when a player has no ADP or prior-season history, instead of dropping them. The notebook dropped those rows — which silently excluded incoming rookies, the exact players the "Unproven" flag exists to surface.
+
 ### Running the notebooks
 
 Run in order — each depends on tables/files the previous one produces:
 
-1. `NB01-data-collection.ipynb` — pulls raw league/player/draft data from ESPN into `data/raw/` and `data/fantasy_data.db`.
+1. `NB01-data-collection.ipynb` — pulls raw league/player/draft data from ESPN into `data/raw/` and `data/fantasy_data.db`. (Projections are pulled by `pull_projections.py` above, not by this notebook — see why, there.)
 2. `NB02-data-processing.ipynb` — cleans and normalizes the raw data into the DB tables the rest of the project reads from.
 3. `NB03-analysis.ipynb` — retrospective VORP, draft-value charts and tables (exported to `docs/charts/`, `docs/tables/`).
 4. `NB04-draft-board.ipynb` — feature validation, model comparison, feature ablation, and the `players.json` export used as the draft board's offline fallback.
@@ -153,9 +185,64 @@ Open the Vite dev server URL (default `http://localhost:5173`). The frontend tal
 
 The board shows, per player: **VORP** and **ADP** (the inputs), **Available** and **Confidence** (the two signals the projection doesn't carry), and **Score** (the ranking). Each row also carries short reason chips — "Fills a big need", "Now or never", "Depth only", "Unproven" — derived from the individual scoring multipliers, so you can see *which* factor is driving a recommendation and disagree with it. The "Play it safe" slider adjusts how much uncertainty discounts a player, live.
 
-**Click any player** for a detail panel: last season's actual production (points, games, targets/carries/attempts), the projection's plausible range, why their confidence is what it is, and a line-by-line breakdown of how their score was built from the four multipliers. It stays in sync as the board re-ranks behind it.
+**Click any player** to expand them in place, rendered the same way as the top recommendation — name, reason chips, the four headline numbers, and the availability/confidence meters — so a player reads identically whether the board happens to rank them first or fortieth. **Full details** on that card opens the side panel with the rest: last season's actual production (points, games, targets/carries/attempts), the projection's plausible range, why their confidence is what it is, and a line-by-line breakdown of how their score was built from the four multipliers. Both stay in sync as the board re-ranks behind them.
+
+The **"Play it safe" slider** names the positions it's currently discounting and by how much, rather than showing a bare percentage. Its effect is genuinely uneven — K and DST get cut hard because their projections have historically explained none of the variance in what those players delivered, while skill positions sit within a few percent of each other — and a control whose consequences can't be seen may as well not exist. When the spread is too small to reorder anything, it says so.
 
 If the backend isn't reachable, the UI falls back to the static `players.json` snapshot exported by NB04. That fallback is **value only** — roster need, pick timing, and the position-reliability half of confidence all require a live session, and the UI says so rather than presenting a partial ranking as the real one.
+
+### Sorting the board
+
+Column headers are sortable — click to sort, click again to reverse. First click is descending for quantities where bigger is better and ascending for ADP (pick 1 is best) and names. Two details that matter:
+
+- **The top card never re-sorts.** It always shows the board's own verdict, not whatever floated to row 1 — otherwise sorting by ADP would relabel the earliest-drafted player as "best available for you", which is precisely the claim the tool exists to argue against.
+- **A custom sort announces itself.** A banner says the table is no longer the recommended order, with a one-click way back. Letting a sorted table silently look like a ranking would undo the point of the score column.
+
+Missing values always sort last regardless of direction: a player with no ADP isn't "the earliest pick".
+
+### The Analysis tab
+
+The second tab is the entire analytical case behind the board — all five notebooks in one page, with the methodology alongside the numbers. Served from `GET /analysis` (`src/analysis.py`).
+
+**Nothing on it is hardcoded.** Figures are either computed at request time or read from a table the notebooks persist. That's deliberate: the notebooks rewrite those tables whenever the data is refreshed, and a number typed into the frontend would silently drift away from what the board is actually doing — which is the exact failure the page exists to prevent. Twelve sections:
+
+1. **The data** — row counts and season coverage per table, plus the two data problems worth knowing about (the `position`-was-really-`lineupSlot` bug that was dropping 76% of every season, and why 2023 is excluded outright).
+2. **Replacement level** — what VORP is actually measured *over*, per position, derived from league settings rather than hand-picked rank cutoffs.
+3. **Did drafting well matter?** — team draft VORP against final standing, with the correlation and its sample size. The premise the whole tool rests on.
+4. **Draft capital** — average VORP and hit rate by round.
+5. **Steals and reaches** — where the market was most wrong, both directions.
+6. **Projection accuracy** — R², RMSE and signed bias, overall and per season, in VORP terms.
+7. **Reliability by position** — why kickers and defenses are treated as coin flips.
+8. **Unproven players** — less predictable, but they *out-deliver* their projections.
+9. **Beating the market** — Spearman against ADP across three scopes, with the finding that the edge narrows to near-nothing at the top of the board.
+10. **The model** — walk-forward split, model comparison, holdout evaluation, the feature ablation showing extra features add nothing, and the VIF diagnostic behind the feature set.
+11. **Bench depth** — missed-game rates and what a bench spot at each position is worth.
+12. **The live score** — how the four multipliers combine, and why each is surfaced separately.
+
+NB04 persists its model comparison, ablation and VIF numbers to `model_report` / `model_ablation` / `feature_vif` for this page (rather than the frontend restating them), the same way NB05 already persisted its reliability tables. Every read is guarded by table *and column* existence checks, so a partially built database renders "not available" rather than 500ing.
+
+### Performance
+
+The database was built entirely by `to_sql`, which creates **no indexes**, and the Analysis tab rebuilt everything from scratch on every tab switch. Measured before and after:
+
+| | Before | After |
+|---|---|---|
+| `/analysis` first load | 2.8 s | **0.35 s** |
+| `/analysis` repeat | ~500 ms | **~22 ms** |
+| `/analysis` over the wire | 113 KB | **22 KB** |
+| `/recommend` payload | 276 KB | **48 KB** |
+| Initial JS bundle | 293 KB | **241 KB** |
+
+What actually mattered, in order:
+
+- **`src/indexes.py`.** One expression index on `average_draft_position(year, CAST(player_id AS INTEGER))` took the hottest join from 57 ms to 1.4 ms. It's created from NB02's **final** cell, `notebooks/create_indexes.py`, and API startup — never the schema cell, because `to_sql(if_exists="replace")` drops each table *along with its indexes*. The CAST must be spelled identically at both query sites or SQLite silently stops using it; both carry a comment saying so.
+- **A request-scoped `_Ctx` in `src/analysis.py`.** `load_draft_season` was running four times per request and `_projection_actuals` twice, returning identical frames, plus 35 separate connections just to ask whether a table exists. Deliberately request-scoped rather than process-scoped: the notebooks drop and recreate these tables, so a longer-lived cache would serve numbers from a database that no longer exists.
+- **An `/analysis` response cache keyed on the database file's mtime and size.** The endpoint previously carried a comment explaining why it refused to cache; that reasoning was right, so the key satisfies it rather than overriding it — the moment a notebook writes, the key changes and the entry is dropped. Fails open (no caching) for non-file database URLs.
+- **`GZipMiddleware`.** `/recommend` ships up to 300 players × 34 columns of highly repetitive JSON on every pick; it compresses about 6:1.
+- **scipy imported at module level.** The lazy import inside `_pearson` cost 1.2 s on the first request and bought nothing — scipy is a hard dependency that scikit-learn pulls in anyway. It stays a dependency rather than being hand-rolled: only `pearsonr` is used, and while `r` is a numpy one-liner, the p-value needs an incomplete beta at `df = n−2`, and `draft_performance` correlates over 14 teams — exactly where a normal approximation is wrong.
+- **Frontend:** the Analysis tab is `React.lazy`-loaded into its own chunk and kept mounted once visited (unmounting threw away the payload, so every switch back refetched); `PlayerRow` is memoised with identity-stable handlers; the search box is debounced 150 ms, splitting the bound input from the value the filter reads.
+
+Deliberately **not** done: virtualising the player table. 300 memoised rows is fine, and every library for it breaks `<table>` semantics, the sticky header, and the expand-in-place row.
 
 ### Tests
 
@@ -163,12 +250,14 @@ If the backend isn't reachable, the UI falls back to the static `players.json` s
 pytest tests/ -v
 ```
 
-88 tests covering:
+157 tests covering:
 
-- `tests/test_scoring.py` — VORP/baselines, cross-position dampening, and the three live-tool multipliers (roster need incl. FLEX and urgency, availability/pick timing, confidence and its three sources incl. the unproven-player factor)
-- `tests/test_state.py` — draft session slot allocation: own slot → FLEX → bench depth, and picks-remaining accounting
+- `tests/test_scoring.py` — VORP/baselines, cross-position dampening, and the three live-tool multipliers (roster need incl. FLEX, urgency and bench depth, availability/pick timing, confidence and its three sources incl. the unproven-player factor)
+- `tests/test_state.py` — draft session slot allocation: own slot → FLEX → bench depth, and picks-remaining/bench accounting
 - `tests/test_utils.py` — position recovery from `eligible_slots`, and both ADP file formats
 - `tests/test_api.py` — FastAPI routes end-to-end against a fixture SQLite database, including a regression test for a NaN-serialization bug (see below) and the ADP-year fallback
+- `tests/test_biases.py` — league draft bias: additive shifts, junk/unknown NFL teams, the no-market sentinel staying unshifted, `bias_reason` being `None` rather than NaN, empirical-Bayes shrinkage edge cases, and a regression test pinning that the fit reads position from ADP rather than from the draft lineup slot
+- `tests/test_analysis.py` — the retrospective analysis endpoint: correlation edge cases (too few points, zero variance, NaN pairs), JSON-safety of the payload, and the degradation path when the draft-history tables aren't present
 
 ---
 
@@ -289,11 +378,42 @@ NB05 grades projected VORP against delivered VORP across 2020–2025 (2023 exclu
 
 ### League-specific draft bias
 
-`src/biases.py` fits a small correction for how *this* league's actual draft picks tend to deviate from national ADP (e.g., a league that reaches for QBs earlier than average), using every prior season on record. This is fit on a single 14-team league across a handful of seasons — a small, noisy sample — so it's applied as a mild, illustrative nudge on top of ADP rather than treated as a statistically robust model on its own.
+Every player carries a national ADP, but a league drafts to its own habits. `src/biases.py` measures those habits across **996 picks over 2020–2025** and turns them into a **pick-timing** adjustment — `league_pick_est`, which feeds the availability and urgency multipliers.
+
+**Timing only, never value.** This league taking Philadelphia players sixteen picks earlier than the market doesn't make them better players; it means they'll be gone sooner, so you have to act earlier. Nothing here touches VORP, projected points or confidence.
+
+What's measured, and what's actually applied:
+
+| Effect | Raw | Applied | Evidence |
+|---|---|---|---|
+| **QB** taken early | −11.8 | **−11.1** | t = −5.6, same direction all six seasons |
+| **TE** taken early | −6.6 | −6.2 | t = −2.7 |
+| **DST / K** last longer | +8.1 / +7.1 | +7.1 / +6.1 | t = 2.6 / 2.0 |
+| **RB / WR** | +1.2 / +2.9 | ~0 | no meaningful habit |
+| **PHI** taken early | −16.1 | **−9.0** | t = −5.1, every season, most managers |
+| **NE** taken early | −9.8 | −5.1 | t = −2.9 |
+| Managers (3 of 14) | ±5–8 | **not applied** | family-wise p ≈ 0.002 |
+| Individual players | ±20–45 | **not applied** | n = 2–4 against σ ≈ 20 picks |
+
+Manager effects are real but attach to a *drafter*, not a player — the tool has no idea which of the other thirteen managers is on the clock, so there's nothing to attach the shift to. Per-player effects are mostly noise, and the strict filter that selects survivors runs on the same data that produced them. Both are fitted, persisted and shown in the Analysis tab; neither moves the board.
+
+**Method.** ADP is capped at 180 (the length of the board) because anyone ranked past it can only ever produce a large negative delta with no possible positive counterpart — a truncation artefact that drags every mean negative and inflates the spread by 50–80%. Deltas are demeaned by season (the league went 12→14 teams in 2024). Team and manager effects are residualised on position×year first, so "this manager reaches" isn't just "this manager drafts quarterbacks". Managers are keyed on `teams.team_id`, never `team_name` — "Gerald Pea's Football Team" (id 11) and "GeraldPea's Football Team" (id 12) are *different* franchises one space apart.
+
+Estimates are shrunk toward zero by empirical Bayes (`shrunk = mean × n/(n+k)`, k fitted per family) rather than gated on significance: a hard `|t| > 2` cutoff would give a team with n=11 the same weight as one with n=41. This is honest but blunt — it takes Philadelphia from −16 to −9, which is correct under a mostly-null model across 32 teams and is reported alongside the raw mean rather than quietly swapped for it.
+
+```bash
+python notebooks/compute_league_bias.py --permutations 2000
+```
+
+Writes `league_bias_position` / `_proteam` / `_manager` / `_player` / `_meta` (plus per-season breakdowns). `src/api.py` reads these at startup via `load_league_bias` and falls back to measured constants, so the tool runs on a database where the fit has never been executed.
+
+**What this replaced.** The previous implementation fitted `k = median(actual_pick / market_adp)` and applied `k × adp + offset`. On real data `k` came out to exactly 1.0 — a knob that looked like it did something and didn't. Worse, it grouped by `drafts.position`, which is ESPN's *lineup slot*: 358 of 800 training rows were `"BE"` and were silently discarded by a `.get(pos, 0.0)`, so the RB offset was fitted only on RBs who happened to start at RB, systematically excluding the late and bench picks where reaching actually shows up. Same lineup-slot-versus-position bug documented above for `players_stats`.
+
+**In the board.** A reason chip sits directly after the urgency chip (it explains that number): "League reaches here", "Goes early here", "Lasts longer here", with the arithmetic and the timing-only caveat in the tooltip. The detail panel shows `ADP 42 → your league ≈ 32 (−10)`. The ADP column keeps showing the **market** number — putting a league-adjusted value under a header labelled "ADP" would be the same dishonesty the custom-sort banner exists to prevent.
 
 ### Known limitations
 
-- All of the above (regression, bias correction) is trained on one league's history. It won't generalize to other leagues' scoring settings or draft tendencies out of the box.
+- All of the above (regression, bias correction) is trained on one league's history. It won't generalize to other leagues' scoring settings or draft tendencies out of the box. The bias fit in particular is 996 picks from 14 managers — enough for the position and top team effects, not enough to trust anything smaller.
 - Sample size across seasons is small; the holdout evaluation is a single season, not a stable long-run estimate. The ADP benchmark is thinner still — three seasons, two of them consecutive — so a narrow win either way there should be read as noise.
 - 2023 is unusable for anything projection-based (`projected_points = 0.0` for 392 of 480 rows) and is excluded from NB04 and NB05 rather than reported with an anomalous R². Recovering it would need a re-pull from ESPN.
 - Rookies still have no prior-season stats to draw on; `is_rookie` marks them explicitly so the model treats a zero as *unknown* rather than as *produced nothing*, but it doesn't supply the missing information — it only stops the model misreading its absence.
