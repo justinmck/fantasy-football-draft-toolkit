@@ -138,3 +138,29 @@ def test_pick_reports_the_slot_it_filled():
     }).json()
     assert body["filled_slot"] == "RB"
     assert body["picks_remaining"] == 15
+
+
+def test_recommend_returns_league_bias_columns():
+    """The board explains *why* a player will go early here, so the split has
+    to survive the round trip - not just the total."""
+    sid = client.post("/session", json={}).json()["session_id"]
+    res = client.post("/recommend", json={
+        "session_id": sid, "current_pick": 1, "next_pick": 15, "topn": 10,
+    })
+    assert res.status_code == 200
+    for row in res.json()["results"]:
+        for col in ("bias_shift", "bias_pos_shift", "bias_team_shift"):
+            assert col in row and row[col] is not None
+        # bias_reason is legitimately None below the reporting threshold.
+        assert "bias_reason" in row
+
+
+def test_recommend_payload_is_json_safe():
+    """NaN isn't valid JSON and 500s the endpoint; the bias columns are the
+    newest place it could creep back in."""
+    sid = client.post("/session", json={}).json()["session_id"]
+    res = client.post("/recommend", json={
+        "session_id": sid, "current_pick": 1, "next_pick": 15, "topn": 50,
+    })
+    assert "NaN" not in res.text
+    assert "Infinity" not in res.text
