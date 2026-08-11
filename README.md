@@ -185,11 +185,33 @@ Open the Vite dev server URL (default `http://localhost:5173`). The frontend tal
 
 The board shows, per player: **VORP** and **ADP** (the inputs), **Available** and **Confidence** (the two signals the projection doesn't carry), and **Score** (the ranking). Each row also carries short reason chips — "Fills a big need", "Now or never", "Depth only", "Unproven" — derived from the individual scoring multipliers, so you can see *which* factor is driving a recommendation and disagree with it. The "Play it safe" slider adjusts how much uncertainty discounts a player, live.
 
-**Click any player** to expand them in place, rendered the same way as the top recommendation — name, reason chips, the four headline numbers, and the availability/confidence meters — so a player reads identically whether the board happens to rank them first or fortieth. **Full details** on that card opens the side panel with the rest: last season's actual production (points, games, targets/carries/attempts), the projection's plausible range, why their confidence is what it is, and a line-by-line breakdown of how their score was built from the four multipliers. Both stay in sync as the board re-ranks behind them.
+Above the list sit three one-line strips: **draft status** (pick and round, whose turn, how far until yours, which starting slots are open by name, sync state), **board ranking** (the top three as clickable pills, each with a reason chip), and a **recent-picks ticker**. Together they take less room than the single hero card they replaced.
+
+The list contains **every** player, with the board's own pick marked by a trophy and an emerald edge wherever it lands in the current sort. That's the point: a recommendation displayed *outside* the list it heads can't show you where it sits in any other ordering, so sorting by ADP used to hide it entirely.
+
+**Click any player** to expand them in place — name, reason chips, the four headline numbers, and the availability/confidence meters. **Full details** opens the side panel with the rest: last season's actual production (points, games, targets/carries/attempts), the projection's plausible range, why their confidence is what it is, and a line-by-line breakdown of how their score was built. Both stay in sync as the board re-ranks behind them.
 
 The **"Play it safe" slider** names the positions it's currently discounting and by how much, rather than showing a bare percentage. Its effect is genuinely uneven — K and DST get cut hard because their projections have historically explained none of the variance in what those players delivered, while skill positions sit within a few percent of each other — and a control whose consequences can't be seen may as well not exist. When the spread is too small to reorder anything, it says so.
 
 If the backend isn't reachable, the UI falls back to the static `players.json` snapshot exported by NB04. That fallback is **value only** — roster need, pick timing, and the position-reliability half of confidence all require a live session, and the UI says so rather than presenting a partial ranking as the real one.
+
+### Live ESPN draft sync
+
+**Connect to ESPN** on the setup screen attaches the board to the real draft. Picks appear within a few seconds without anyone clicking: yours fill your roster, everyone else's just leave the pool, and you can see what every team has taken. `src/espn_draft.py` + three endpoints (`/espn/connect`, `/espn/sync/{id}`, `/espn/disconnect`).
+
+Three properties of ESPN's payload drive the design, each verified against the live API:
+
+- **The pre-draft response is not empty.** It already carries every pick slot — 224 for a 14-team, 16-round draft — each with `playerId: -1` and its `teamId` assigned. The full snake order is knowable *before* the draft starts, so `current_pick`/`next_pick` are derived from the real order rather than guessed, which also survives traded picks and keepers. The "has this pick happened" test is `playerId != -1`; anything checking `if picks:` concludes the draft finished before it began.
+- **It returns the whole pick list every time, not a delta.** Session state is therefore a pure function of the latest payload: a missed poll costs nothing. That is why the frontend polls a pull-through endpoint with no background worker, and why reconciliation needs only two paths — apply the tail when the completed picks still start with everything already applied, otherwise rebuild by replaying. Undo, reordering, duplicates and manual divergence all collapse into the rebuild.
+- **It honours `If-None-Match`**, so most polls are a 0-byte 304. Polling is every 5s, paused when the tab is hidden, stopped when the draft completes or a cookie expires.
+
+**Two things this deliberately does not do.** It doesn't use `espn-api`'s `League.draft` — that gates on `draftDetail.drafted`, a *completion* flag, so it returns nothing for the entire live draft (it also duplicates on refresh and raises `NameError` on `refresh_draft(refresh__teams=True)`). And `src/espn_draft.py` never imports `espn_api` even transitively, because its `ESPNAccessDenied` formats `espn_s2` and `swid` into the exception message; a test asserts the module stays out of `sys.modules`, which is a structural guarantee rather than a promise to be careful.
+
+Ownership is decided by `teamId`, never `memberId` — autodrafted picks carry no `memberId`, and there were 74 of them in the 2025 draft. Your team is resolved once from `owners` membership rather than `primaryOwner`, since a co-owned team lists several owners and the primary one may be somebody else.
+
+A failed sync returns 200 with `status: "auth"` or `"stale"` rather than an error: the sync failed, not the request, and losing the board mid-draft because a cookie expired would be worse than the expiry. **Disconnect** is always available and hands control straight back to the manual buttons.
+
+**Rehearsal.** `notebooks/export_draft_fixture.py` builds `tests/fixtures/espn_draft_2025.json` from the `drafts` table — which has no `memberId` and no SWID, so there is nothing to scrub, by construction rather than by redaction. `tests/test_espn_draft.py` replays the real 2025 draft through the pipeline pick by pick and asserts every pick is detected once, ownership matches, the final roster is full with 7 bench, batched polling lands identically to single-stepping, re-applying is inert, and a rewind rebuilds correctly.
 
 ### Sorting the board
 
@@ -250,12 +272,14 @@ Deliberately **not** done: virtualising the player table. 300 memoised rows is f
 pytest tests/ -v
 ```
 
-157 tests covering:
+214 tests covering:
 
 - `tests/test_scoring.py` — VORP/baselines, cross-position dampening, and the three live-tool multipliers (roster need incl. FLEX, urgency and bench depth, availability/pick timing, confidence and its three sources incl. the unproven-player factor)
 - `tests/test_state.py` — draft session slot allocation: own slot → FLEX → bench depth, and picks-remaining/bench accounting
 - `tests/test_utils.py` — position recovery from `eligible_slots`, and both ADP file formats
 - `tests/test_api.py` — FastAPI routes end-to-end against a fixture SQLite database, including a regression test for a NaN-serialization bug (see below) and the ADP-year fallback
+- `tests/test_espn_draft.py` — live draft sync: the pre-draft payload having every slot but no picks, `draftDetail.drafted` being ignored, ownership via `owners` membership across brace/case spellings, autodrafted picks still attributing to a team, and a full replay of the 2025 draft (single-stepped, batched, re-applied and rewound). Also pins that the module never imports `espn_api`
+- `tests/test_espn_sync_api.py` — the endpoint contract: picks applying without a click, a failed sync degrading to a status instead of an error, the poll throttle, and that no credential appears in any response body
 - `tests/test_biases.py` — league draft bias: additive shifts, junk/unknown NFL teams, the no-market sentinel staying unshifted, `bias_reason` being `None` rather than NaN, empirical-Bayes shrinkage edge cases, and a regression test pinning that the fit reads position from ADP rather than from the draft lineup slot
 - `tests/test_analysis.py` — the retrospective analysis endpoint: correlation edge cases (too few points, zero variance, NaN pairs), JSON-safety of the payload, and the degradation path when the draft-history tables aren't present
 
