@@ -1,0 +1,27 @@
+{
+  "_comment": "Hand-written and entirely synthetic. No real SWID appears here. Shaped to exercise the three things resolve_my_team_id has to get right: brace/case normalisation, membership matching on a co-owned team, and NOT matching on primaryOwner.",
+  "members": [
+    {"id": "{AAAAAAAA-1111-2222-3333-BBBBBBBBBBBB}", "displayName": "testuser"},
+    {"id": "{CCCCCCCC-4444-5555-6666-DDDDDDDDDDDD}", "displayName": "coowner"},
+    {"id": "{EEEEEEEE-7777-8888-9999-FFFFFFFFFFFF}", "displayName": "someone-else"}
+  ],
+  "teams": [
+    {
+      "id": 3,
+      "name": "Not Mine",
+      "abbrev": "NOT",
+      "primaryOwner": "{EEEEEEEE-7777-8888-9999-FFFFFFFFFFFF}",
+      "owners": ["{EEEEEEEE-7777-8888-9999-FFFFFFFFFFFF}"]
+    },
+    {
+      "id": 8,
+      "name": "Flying Eagles",
+      "abbrev": "EGL",
+      "primaryOwner": "{CCCCCCCC-4444-5555-6666-DDDDDDDDDDDD}",
+      "owners": [
+        "{CCCCCCCC-4444-5555-6666-DDDDDDDDDDDD}",
+        "{AAAAAAAA-1111-2222-3333-BBBBBBBBBBBB}"
+      ]
+    }
+  ]
+}

@@ -14,6 +14,11 @@ class DraftSession:
         self.teams = teams
         self.rounds = rounds
         self.drafted_ids = set()
+        # Kept so a session can be reconstructed from scratch. ESPN sync
+        # rebuilds the whole session by replaying every pick whenever the
+        # remote state disagrees with what's been applied (see
+        # src/espn_draft.py), and that needs the original configuration.
+        self.roster_need = dict(roster_need)
         self.roster_state = {k: {"have": 0, "need": v} for k, v in roster_need.items()}
         # Players taken beyond a position's starting slots. Tracked separately
         # so `have` never exceeds `need` - otherwise the roster panel would
@@ -44,17 +49,34 @@ class DraftSession:
             self.depth[position] = self.depth.get(position, 0) + 1
         return None
 
-    def pick(self, player_id: int, position: str, mine=True, player_name: str | None = None):
+    def pick(self, player_id: int, position: str, mine=True, player_name: str | None = None,
+             overall_pick: int | None = None):
+        """Record a pick and, if it's mine, allocate it to a roster slot.
+
+        NOT idempotent: `drafted_ids` is a set, but `draft_log` appends and
+        `roster_state` increments unconditionally, so replaying the same pick
+        double-counts a starting slot. Any caller that can see a pick more than
+        once - the ESPN poller does, on every poll - must dedupe before calling.
+
+        `overall_pick` is ESPN's own pick number, kept alongside our sequential
+        `pick_number` because they diverge: ours counts what we've recorded,
+        ESPN's is the true slot in the draft order. Manual drafts leave it None.
+        """
         position = normalize_position(position)
         self.drafted_ids.add(player_id)
         filled = self._allocate(position) if mine else None
         self.draft_log.append({
             "pick_number": len(self.draft_log) + 1,
+            "overall_pick": overall_pick,
             "player_id": player_id,
             "player_name": player_name,
             "position": position,
             "is_my_pick": mine,
             "filled_slot": filled,
+            # False when the player couldn't be looked up, which means their
+            # position is unknown and no roster slot was consumed. The UI has
+            # to say so rather than showing a silently incomplete roster.
+            "resolved": position is not None,
         })
         return filled
 
