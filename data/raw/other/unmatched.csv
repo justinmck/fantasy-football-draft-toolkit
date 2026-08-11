@@ -1,6 +1,8 @@
-rank,player_name,team_name,bye,POS,ESPN,Sleeper,avg,position,pos_rank,year,NFL,RTSports,FFC,CBS,Fantrax,Real-Time,player_id
-190.0,Robbie Chosen,,,WR67,169.0,218.0,193.5,WR,67.0,2022,,,,,,,
-272.0,Malik Cunningham,BAL,13.0,QB34,241.0,,241.0,QB,34.0,2023,,,,,,,
-279.0,Ramiz Ahmed,,,K26,234.0,,234.0,K,26.0,2024,,,,,,,
-169.0,Cameron Ward,TEN,10.0,QB22,161.0,148.0,174.6,QB,22.0,2025,162.0,231.0,,,,,
-23.0,Jeremiyah Love,ARI,14.0,RB13,14.0,20.0,22.8,RB,13.0,2026,,21.0,,30.0,29.0,25.0,
+rank,player_name,team_name,bye,POS,ESPN,Sleeper,NFL,RTSports,FFC,Fantrax,avg,position,pos_rank,year,CBS,Real-Time,player_id
+31.0,dell Beckham Jr.,O,,WR11,33.0,,,34.0,,26.0,32.0,WR,11.0,2020,,,
+76.0,Robbie Chosen,SF,6.0,WR32,70.0,80.0,88.0,77.0,,74.0,77.4,WR,32.0,2021,,,
+190.0,Robbie Chosen,,,WR67,169.0,218.0,,,,,193.5,WR,67.0,2022,,,
+272.0,Malik Cunningham,BAL,13.0,QB34,241.0,,,,,,241.0,QB,34.0,2023,,,
+279.0,Ramiz Ahmed,,,K26,234.0,,,,,,234.0,K,26.0,2024,,,
+169.0,Cameron Ward,TEN,10.0,QB22,161.0,148.0,162.0,231.0,,,174.6,QB,22.0,2025,,,
+23.0,Jeremiyah Love,ARI,14.0,RB13,14.0,20.0,,21.0,,29.0,22.8,RB,13.0,2026,30.0,25.0,
