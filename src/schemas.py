@@ -16,6 +16,17 @@ class PickBody(BaseModel):
     player_name: Optional[str] = None
     is_my_pick: bool = True
 
+class EspnConnectBody(BaseModel):
+    session_id: str
+    # The draft's season, not the season being scored. Defaults to the upcoming
+    # draft, which is the only one anyone connects to live.
+    year: Optional[int] = None
+
+
+class EspnDisconnectBody(BaseModel):
+    session_id: str
+
+
 class RecommendBody(BaseModel):
     session_id: str
     year: Optional[int] = None
