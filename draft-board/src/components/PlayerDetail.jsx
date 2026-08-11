@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { ShieldCheck, Sparkles, Timer, UserPlus, X, XCircle } from "lucide-react";
+import { Maximize2, ShieldCheck, Sparkles, Timer, UserPlus, X, XCircle } from "lucide-react";
 
 import { confidenceBand, fmt, fmtAdp, pct, urgencyBand } from "../theme";
 import { ReasonChips } from "./explain";
@@ -15,6 +15,19 @@ const Stat = ({ label, value, hint, accent }) => (
   </div>
 );
 
+/** Says which half of the need multiplier is doing the work — an unfilled
+ *  starting slot, or a bench spot worth having. They read identically as a
+ *  bare number but mean opposite things to a drafter. */
+function needSplitHint(player) {
+  const start = Number(player.start_weight);
+  const bench = Number(player.bench_weight);
+  if (!Number.isFinite(start) || !Number.isFinite(bench)) return null;
+  if (start > 0.05 && bench > 0) return "starting slot + depth";
+  if (start > 0.05) return "starting slot open";
+  if (bench > 0) return bench >= 0.12 ? "bench depth" : "low-value depth";
+  return "roster full here";
+}
+
 const Row = ({ label, value, hint }) => (
   <div className="flex items-baseline justify-between gap-3 border-b border-white/5 py-2 last:border-b-0">
     <span className="text-xs text-slate-400">{label}</span>
@@ -24,6 +37,71 @@ const Row = ({ label, value, hint }) => (
     </span>
   </div>
 );
+
+/**
+ * The condensed version, rendered in place beneath a clicked row.
+ *
+ * Covers the two questions worth answering without losing your place on the
+ * board — what they actually did last season, and which multiplier is driving
+ * their score. Anything longer-form (the confidence prose, the plausible range,
+ * per-opportunity splits) stays behind "Full details".
+ */
+export function PlayerInlineDetail({ player, onOpenFull, onDraft, onTaken, readOnly }) {
+  const isRookie = Number(player.is_rookie) === 1;
+  const hasGamesData = player.games_last_year != null;
+  const games = Number(player.games_last_year) || 0;
+  const played = games > 0;
+
+  return (
+    <div className="grid gap-5 border-t border-white/5 bg-slate-950/40 px-4 py-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
+      <div>
+        <h4 className="label mb-1.5">Last season</h4>
+        {isRookie || !played ? (
+          <p className="rounded-lg bg-white/[0.03] px-3 py-2.5 text-xs leading-relaxed text-slate-500">
+            {isRookie
+              ? "No prior-season production on record — the projection has no history behind it."
+              : !hasGamesData
+              ? "Not included in this offline snapshot. Connect the backend to see it."
+              : "On record, but no games played last season."}
+          </p>
+        ) : (
+          <div className="rounded-lg bg-white/[0.03] px-3 py-1">
+            <Row label="Fantasy points" value={fmt(player.points_last_year, 0)} />
+            <Row label="Points per game" value={fmt(player.avg_last_year, 1)} />
+            <Row label="Games played" value={fmt(games, 0)} hint="of 17" />
+          </div>
+        )}
+      </div>
+
+      <div>
+        <h4 className="label mb-1.5">How the score is built</h4>
+        <div className="rounded-lg bg-white/[0.03] px-3 py-1">
+          <Row label="Value (VORP, position-adj.)" value={fmt(player.base_value, 0)} />
+          <Row label="× Roster need" value={`${fmt(player.pos_weight, 2)}×`} />
+          <Row label="× Pick timing" value={`${fmt(player.adp_mult, 2)}×`} />
+          <Row label="× Confidence" value={`${fmt(player.risk_mult, 2)}×`} />
+          <Row label="= Score" value={fmt(player.utility, 0)} />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2 sm:col-span-2 lg:col-span-1 lg:w-44 lg:flex-col">
+        <Button onClick={onOpenFull} size="md" title="Open the full player panel">
+          <Maximize2 size={14} /> Full details
+        </Button>
+        {!readOnly && (
+          <>
+            <Button onClick={onDraft} tone="solid" size="md" title="Draft to my team">
+              <UserPlus size={14} /> Draft
+            </Button>
+            <Button onClick={onTaken} tone="danger" size="md" title="Someone else took them">
+              <XCircle size={14} /> Taken
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Everything known about one player, opened by clicking their row.
@@ -47,6 +125,10 @@ export default function PlayerDetail({ player, nextPick, adpYear, onClose, onDra
   const urgency = urgencyBand(player.availability);
   const conf = confidenceBand(player.confidence);
   const isRookie = Number(player.is_rookie) === 1;
+  // The offline fallback (static players.json) never carries last-season game
+  // logs at all, so the field is `undefined` there - distinct from a live
+  // session genuinely reporting 0 games played.
+  const hasGamesData = player.games_last_year != null;
   const games = Number(player.games_last_year) || 0;
   const played = games > 0;
 
@@ -130,6 +212,27 @@ export default function PlayerDetail({ player, nextPick, adpYear, onClose, onDra
                 {urgency.label}. Estimated from where the market drafts them
                 {adpYear ? ` (${adpYear} ADP)` : ""} and how far away your next turn is.
               </p>
+              {/* The market's number and your league's differ in a measurable,
+                  repeatable way, so both are shown rather than quietly
+                  substituting one for the other. */}
+              {player.bias_reason && Number.isFinite(Number(player.bias_shift)) && (
+                <div className="mt-2 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2">
+                  <div className="tabular flex items-baseline gap-2 text-xs">
+                    <span className="text-slate-500">ADP {fmtAdp(player.adp)}</span>
+                    <span className="text-slate-600">→</span>
+                    <span className="font-semibold text-slate-200">
+                      your league ≈ {fmt(player.league_pick_est, 0)}
+                    </span>
+                    <span className={Number(player.bias_shift) < 0 ? "text-rose-300" : "text-emerald-300"}>
+                      ({Number(player.bias_shift) > 0 ? "+" : ""}
+                      {fmt(player.bias_shift, 0)})
+                    </span>
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                    {player.bias_reason}. Timing only — this doesn't change their value.
+                  </p>
+                </div>
+              )}
             </section>
           )}
 
@@ -194,6 +297,8 @@ export default function PlayerDetail({ player, nextPick, adpYear, onClose, onDra
               <p className="rounded-lg bg-white/[0.03] px-3 py-3 text-xs leading-relaxed text-slate-500">
                 {isRookie
                   ? "No prior-season production on record — either a rookie, or a player who didn't record stats last season. Everything above rests on the preseason projection alone."
+                  : !hasGamesData
+                  ? "Last season's box score isn't in this offline snapshot. Connect to the live backend to see it."
                   : "On record but with no games played last season, so there's no recent production to check the projection against."}
               </p>
             ) : (
@@ -226,7 +331,11 @@ export default function PlayerDetail({ player, nextPick, adpYear, onClose, onDra
             <h3 className="label mb-2">How the score is built</h3>
             <div className="rounded-lg bg-white/[0.03] px-3 py-1">
               <Row label="Value (VORP, position-adjusted)" value={fmt(player.base_value, 0)} />
-              <Row label="× Roster need" value={`${fmt(player.pos_weight, 2)}×`} />
+              <Row
+                label="× Roster need"
+                value={`${fmt(player.pos_weight, 2)}×`}
+                hint={needSplitHint(player)}
+              />
               <Row label="× Pick timing" value={`${fmt(player.adp_mult, 2)}×`} />
               <Row label="× Confidence" value={`${fmt(player.risk_mult, 2)}×`} />
               <Row label="= Score" value={fmt(player.utility, 0)} />

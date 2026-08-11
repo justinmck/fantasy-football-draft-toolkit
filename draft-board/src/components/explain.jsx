@@ -1,7 +1,27 @@
 import React from "react";
 
-import { confidenceBand, fmt, pct, urgencyBand } from "../theme";
+import { confidenceBand, fmt, fmtAdp, pct, urgencyBand } from "../theme";
 import { Badge } from "./primitives";
+
+/**
+ * How far this league's own habits move a player's expected pick.
+ *
+ * `bias_shift` is in picks and signed the way a draft board reads: negative
+ * means they go *earlier* here than the national market, so you have less time
+ * than the ADP column suggests. It is a timing signal only — nothing about the
+ * player's value changes — and the backend composes `bias_reason` so the app,
+ * the notebooks and the Analysis tab all describe an effect the same way.
+ *
+ * Null-safe on purpose: the offline snapshot has no bias data at all.
+ */
+export function biasBand(player) {
+  const shift = Number(player?.bias_shift);
+  if (!Number.isFinite(shift) || !player?.bias_reason) return null;
+  if (shift <= -8) return { tone: "danger", text: "League reaches here" };
+  if (shift <= -2) return { tone: "warn", text: "Goes early here" };
+  if (shift >= 2) return { tone: "calm", text: "Lasts longer here" };
+  return null;
+}
 
 /**
  * The reasons a player is being recommended, as chips.
@@ -15,18 +35,44 @@ import { Badge } from "./primitives";
 export function reasonsFor(player, { nextPick } = {}) {
   const reasons = [];
 
+  // `start_weight` and `bench_weight` are the two halves of the need
+  // multiplier, and they mean opposite things: one says a starting slot is
+  // empty, the other says a backup here would be useful. Collapsing both into
+  // "Depth only" (as this used to) described a valuable third RB and a useless
+  // second kicker identically.
   const need = Number(player.pos_weight);
-  if (Number.isFinite(need) && need > 1.05) {
+  const start = Number(player.start_weight);
+  const benchW = Number(player.bench_weight);
+  const hasSplit = Number.isFinite(start) && Number.isFinite(benchW);
+
+  if (hasSplit ? start > 0.05 : Number.isFinite(need) && need > 1.05) {
+    const big = hasSplit ? start > 0.6 : need > 1.6;
     reasons.push({
-      tone: need > 1.6 ? "calm" : "neutral",
-      text: need > 1.6 ? "Fills a big need" : "Fills a need",
-      title: `Roster-need multiplier ${fmt(need, 2)}x — you still have open starting slots here.`,
+      tone: big ? "calm" : "neutral",
+      text: big ? "Fills a big need" : "Fills a need",
+      title: `Roster-need multiplier ${fmt(need, 2)}× — you still have open starting slots here.`,
+    });
+  } else if (hasSplit && benchW > 0) {
+    // Bench contributions top out at 0.25 (see BENCH_WEIGHT in scoring.py);
+    // the split below is roughly RB/WR vs. QB/K/DST.
+    const good = benchW >= 0.12;
+    reasons.push({
+      tone: good ? "neutral" : "warn",
+      text: good ? "Useful depth" : "Weak bench spot",
+      title: good
+        ? "Your starters here are set, but this position misses enough games that a backup earns its roster spot."
+        : "Starters here are set, and this position almost never misses time — a backup would mostly waste a bench spot.",
     });
   } else if (Number.isFinite(need) && need <= 1.001) {
+    // Starters and bench both full: there's no roster claim left to make, so
+    // the board is ranking purely on who's projected to be best. Saying "Depth
+    // only" here was actively misleading - it implies a reason to downgrade
+    // them, when in fact nothing is being downgraded at all.
     reasons.push({
       tone: "neutral",
-      text: "Depth only",
-      title: "Your starting slots at this position are already filled, so this is bench depth.",
+      text: "Best available",
+      title:
+        "Every starting slot and bench spot is accounted for, so roster need no longer separates players — this is ranked on projected value alone.",
     });
   }
 
@@ -36,6 +82,22 @@ export function reasonsFor(player, { nextPick } = {}) {
       tone: urgency.tone,
       text: urgency.short,
       title: `${pct(player.availability)} chance still on the board at pick ${nextPick ?? "your next turn"}.`,
+    });
+  }
+
+  // Sits immediately after the urgency chip because it *explains* it: this is
+  // why the availability number is what it is. Shown on its own it would read
+  // as a stray fact, and below the fold it would never be seen — table rows
+  // only render two chips.
+  const bias = biasBand(player);
+  if (bias) {
+    reasons.push({
+      tone: bias.tone,
+      text: bias.text,
+      title:
+        `${player.bias_reason}. Estimated pick here: ` +
+        `${fmt(player.league_pick_est, 0)} against a market ADP of ${fmtAdp(player.adp)}. ` +
+        `Timing only — this does not change the player's value.`,
     });
   }
 
@@ -114,6 +176,15 @@ export const LEGEND = [
     body: `The chance this player is still on the board at your next turn, from their market draft
       position and how far away that turn is. Low means take them now; high means you can spend
       this pick elsewhere and come back.`,
+  },
+  {
+    term: "League timing",
+    body: `Your league doesn't draft like the national market, and six seasons of its own picks say
+      where. Quarterbacks go about a round earlier here than their ADP; kickers and defenses last
+      longer; Philadelphia players get taken well ahead of the market. Those shifts move the
+      Available estimate, and only that — the league reaching for a player doesn't make them better,
+      it means they'll be gone sooner. Positions and teams with no measurable habit shift by zero,
+      and every effect is pulled toward zero in proportion to how little data supports it.`,
   },
   {
     term: "Confidence",

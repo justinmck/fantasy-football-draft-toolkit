@@ -42,6 +42,26 @@ def resolve_adp_year(engine, year: int) -> int | None:
     return int(y) if y is not None and not pd.isna(y) else None
 
 
+def _missed_game_rates(engine) -> dict | None:
+    """Per-position rate at which startable players actually missed games.
+
+    Drives how much a bench spot at each position is worth (see
+    `src/scoring.py`'s `depth_needs`). Written by
+    `notebooks/compute_availability.py`; returning None falls back to the
+    measured defaults in scoring.py, so the live tool still runs on a database
+    where that script hasn't been run.
+    """
+    if not _has_table(engine, "position_availability"):
+        return None
+    df = pd.read_sql(
+        text("SELECT position, missed_game_rate FROM position_availability"), engine
+    )
+    df = df.dropna(subset=["position", "missed_game_rate"])
+    if df.empty:
+        return None
+    return {normalize_position(p): float(r) for p, r in zip(df["position"], df["missed_game_rate"])}
+
+
 def _rookie_factor(engine) -> float:
     """How much a rookie's projection is worth relative to a veteran's at the
     same position, as measured by NB05 (R² 0.282 vs 0.463 over 2021-2025).
@@ -85,6 +105,10 @@ def load_candidates(engine, year, drafted_ids):
     # average_draft_position.player_id is declared CHAR(7), so it comes back as
     # text while next_season_projections.player_id is an integer - without the
     # CAST the join silently matches nothing.
+    #
+    # The CAST spelling must match `idx_adp_year_playerid` in src/indexes.py
+    # exactly: SQLite only uses an expression index when the query spells the
+    # expression identically, and this is the hottest query in the app.
     adp_year = resolve_adp_year(engine, year)
     q = f"""
     SELECT pr.player_id, pr.player_name, pr.position, pr.pro_team,
@@ -134,10 +158,17 @@ def load_candidates(engine, year, drafted_ids):
 RESULT_COLUMNS = [
     "player_id", "player_name", "position", "pro_team", "is_rookie",
     "projected_points", "vorp", "vorp_z", "adp", "league_pick_est",
+    # How this league's own habits move the expected pick, split into its parts.
+    # Returned separately for the same reason the scoring multipliers are: the
+    # total alone can't tell the UI whether it's "your league loves Eagles" or
+    # "your league loves quarterbacks". `bias_reason` is composed server-side so
+    # notebooks and interface describe an effect identically.
+    "bias_shift", "bias_pos_shift", "bias_team_shift", "bias_reason",
     "avg_last_year", "games_last_year", "points_last_year",
     "targets_last_year", "rush_att_last_year", "pass_att_last_year",
     "predicted_vorp", "ci_low", "ci_high", "reliability", "position_rmse",
-    "pos_weight", "adp_mult", "risk_mult", "availability", "confidence",
+    "pos_weight", "start_weight", "bench_weight",
+    "adp_mult", "risk_mult", "availability", "confidence",
     "base_value", "utility",
 ]
 
@@ -163,6 +194,14 @@ def recommend(engine, year, session, current_pick, next_pick, bias, topn=10,
         # weighting to its previous, non-urgency behaviour.
         picks_remaining=session.picks_remaining(),
         risk_aversion=risk_aversion,
+        # Bench context: which positions the drafter already has spare bodies
+        # at, and whether there's any room left to add more. Without these the
+        # need term collapses to 1.0 for every position the moment the starting
+        # lineup is full - i.e. for the whole back half of the draft.
+        depth=session.depth,
+        bench_remaining=session.bench_remaining(),
+        teams=session.teams,
+        missed_game_rate=_missed_game_rates(engine),
     )
     cols = [c for c in RESULT_COLUMNS if c in ranked.columns]
     # NaN isn't valid JSON and 500s the endpoint - rookies legitimately have no
