@@ -20,7 +20,7 @@ from src.scoring import RISK_AVERSION
 from src.biases import load_league_bias
 from src.espn_draft import (
     ESPN_SYNCS, DraftSync, EspnAuthError, EspnDraftClient, EspnUnavailable,
-    load_credentials, resolve_my_team_id, team_display,
+    list_leagues, load_credentials, resolve_my_team_id, team_display,
 )
 
 log = logging.getLogger(__name__)
@@ -122,6 +122,39 @@ _MIN_POLL_SECONDS = 3.0
 _BACKOFF = (3.0, 10.0, 30.0)
 
 
+def _league_has_history(league_id, fitted_league_id) -> bool:
+    """Was the persisted bias fitted on this league?
+
+    Both sides are stringified because the id arrives as a string from the API
+    and may have been stored as an integer by the fit script.
+    """
+    if not fitted_league_id:
+        # No fit on record: the constants in src/biases.py are McFL's, and
+        # there is nothing to check them against. Treat as applicable, matching
+        # the single-league behaviour this app has always had.
+        return True
+    return str(league_id) == str(fitted_league_id)
+
+
+def _bias_for(session_id: str):
+    """The league bias to score with, or None when it doesn't apply here.
+
+    "This league reaches on Eagles" is a fact about *McFL's* drafters. Applying
+    it to a different league's board would be asserting something never
+    measured, so a session connected elsewhere gets market ADP only.
+
+    A manual session keeps the fit: that path exists as the fallback for when
+    ESPN sync breaks mid-draft, and stripping the signal exactly when the tool
+    is already degraded would make the fallback worse. The legend says which
+    league it was measured on.
+    """
+    sync = ESPN_SYNCS.get(session_id)
+    if sync is None or sync.league_id is None:
+        return BIAS
+    fitted = (BIAS.get("meta") or {}).get("league_id")
+    return BIAS if _league_has_history(sync.league_id, fitted) else None
+
+
 def _sync_or_404(session_id: str) -> DraftSync:
     sync = ESPN_SYNCS.get(session_id)
     if sync is None:
@@ -131,10 +164,23 @@ def _sync_or_404(session_id: str) -> DraftSync:
 
 def _sync_payload(s, sync: DraftSync, new_picks=None) -> dict:
     ctx = sync.context()
+    settings = sync.settings
+    fitted_league = (BIAS.get("meta") or {}).get("league_id")
     return {
         "connected": True,
         "status": sync.status,
         "message": sync.message,
+        "league": {
+            "id": sync.league_id,
+            "name": settings.name if settings else None,
+            # `draft_at` absent is exactly "no date set" - see parse_settings.
+            "draft_at": settings.draft_at if settings else None,
+            "scheduled": bool(settings and settings.scheduled),
+            # Whether this league is the one the bias was measured on. The UI
+            # says so rather than quietly applying one league's habits to
+            # another's drafters.
+            "has_history": _league_has_history(sync.league_id, fitted_league),
+        },
         "age_seconds": (round(time.time() - sync.last_ok, 1) if sync.last_ok else None),
         "version": sync.version,
         "rebuilt": sync.rebuilt,
@@ -154,6 +200,30 @@ def _sync_payload(s, sync: DraftSync, new_picks=None) -> dict:
     }
 
 
+@app.get("/espn/leagues")
+def espn_leagues(year: int | None = None):
+    """Every football league these credentials can reach.
+
+    Keyed on the SWID rather than on a league id, so nobody has to go and find
+    league ids by hand — which is the whole reason multi-league is workable.
+    """
+    year = year or NEXT_SEASON
+    try:
+        leagues = list_leagues(load_credentials(), year)
+    except EspnAuthError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    except EspnUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    return {
+        "year": year,
+        "leagues": [{"league_id": l.league_id, "name": l.name, "season": l.season}
+                    for l in leagues],
+        # Which league the persisted bias fit came from, so the UI can say
+        # "measured on McFL" rather than implying it applies everywhere.
+        "bias_league_id": (BIAS.get("meta") or {}).get("league_id"),
+    }
+
+
 @app.post("/espn/connect")
 def espn_connect(body: EspnConnectBody):
     """Attach a session to the live ESPN draft.
@@ -166,9 +236,10 @@ def espn_connect(body: EspnConnectBody):
     year = body.year or NEXT_SEASON
     try:
         creds = load_credentials()
-        client = EspnDraftClient(creds, year)
+        client = EspnDraftClient(creds, year, league_id=body.league_id)
         teams_payload = client.team_payload()
         my_team_id = resolve_my_team_id(teams_payload, creds.swid)
+        settings = client.settings()
         snapshot = client.draft_snapshot()
     except EspnAuthError as exc:
         # The message is a constant from src/espn_draft; never the response body.
@@ -184,16 +255,26 @@ def espn_connect(body: EspnConnectBody):
     if snapshot is None:
         raise HTTPException(status_code=503, detail="ESPN returned no draft data.")
 
-    # ESPN knows the real league size; the setup form's value was a guess.
+    # ESPN knows the real league shape; the setup form's values were guesses.
     if snapshot.teams and snapshot.teams != s.teams:
         log.info("adopting ESPN team count %s over %s", snapshot.teams, s.teams)
         s.teams = snapshot.teams
     if snapshot.rounds:
         s.rounds = snapshot.rounds
+    # Roster need is read from the league rather than assumed, because it sets
+    # replacement level and therefore every VORP on the board. A league that
+    # starts two quarterbacks would otherwise be scored against a one-QB
+    # baseline. Rebuilt in place because the session was created before we knew.
+    if settings.roster_need and settings.roster_need != s.roster_need:
+        log.info("adopting ESPN roster need %s", settings.roster_need)
+        s.roster_need = dict(settings.roster_need)
+        s.roster_state = {k: {"have": 0, "need": v} for k, v in settings.roster_need.items()}
+        s.depth = {}
 
     sync = DraftSync(session_id=body.session_id, client=client, engine=engine,
                      year=year, my_team_id=my_team_id,
-                     team=team_display(teams_payload, my_team_id))
+                     team=team_display(teams_payload, my_team_id),
+                     league_id=client.league_id, settings=settings)
     sync.snapshot = snapshot
     # Records the attempt as well as the success: connect has just talked to
     # ESPN, so the poll the frontend fires immediately afterwards should be
@@ -307,7 +388,7 @@ def rec(body: RecommendBody):
                    session=s,
                    current_pick=body.current_pick,
                    next_pick=body.next_pick,
-                   bias=BIAS,
+                   bias=_bias_for(body.session_id),
                    topn=body.topn,
                    risk_aversion=(RISK_AVERSION if body.risk_aversion is None
                                   else body.risk_aversion))

@@ -382,6 +382,10 @@ def load_league_bias(engine) -> dict:
     if len(meta_df):
         out["meta"].update({k: v for k, v in meta_df.iloc[0].to_dict().items()
                             if not pd.isna(v)})
+    # Normalised to a string: the id is written from the environment (a string)
+    # but round-trips through SQLite, which may hand it back as an integer.
+    if out["meta"].get("league_id"):
+        out["meta"]["league_id"] = str(out["meta"]["league_id"]).strip()
     return out
 
 

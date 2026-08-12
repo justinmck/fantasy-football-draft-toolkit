@@ -54,6 +54,27 @@ from sqlalchemy import text
 from src.state import DraftSession
 
 BASE = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl"
+# The "fan" API is how a SWID is turned into the list of leagues it belongs to,
+# so nobody has to find and paste league ids by hand.
+FAN_BASE = "https://fan.api.espn.com/apis/v2/fans"
+FAN_PARAMS = {
+    "featureFlags": "challengeEntries",
+    "showAirings": "buy,live,replay",
+    "source": "ESPN.com+-+FAN+Landing+Page",
+    "lang": "en",
+    "section": "espn",
+    "region": "us",
+}
+# ESPN's game ids: 1 is football. The fan payload mixes in every fantasy sport
+# the user plays, so this filter is doing real work.
+FOOTBALL_GAME_ID = 1
+
+# ESPN lineup slot id -> the key this project's ROSTER_NEEDS uses. Slot 23 is
+# "RB/WR/TE", which is what everyone calls FLEX. Bench (20) and IR (21) are
+# deliberately absent: they aren't starting slots, and `roster_need` drives the
+# replacement-level baseline, which is defined by who *starts*.
+STARTING_SLOTS = {0: "QB", 2: "RB", 4: "WR", 6: "TE", 16: "DST", 17: "K", 23: "FLEX"}
+BENCH_SLOT, IR_SLOT = 20, 21
 
 # ESPN's placeholder in an unfilled pick slot. The single most important
 # constant here: see point 1 in the module docstring.
@@ -75,9 +96,38 @@ class EspnUnavailable(RuntimeError):
 
 @dataclass(frozen=True)
 class EspnCredentials:
+    # Ordered so `league_id` stays first for existing positional callers. It is
+    # now only a *default* - the app supports several leagues and passes the id
+    # per connection - so it may legitimately be empty.
     league_id: str
     swid: str
     espn_s2: str
+
+
+@dataclass(frozen=True)
+class LeagueRef:
+    """One of the user's leagues, as the picker sees it."""
+    league_id: str
+    name: str
+    season: int
+
+
+@dataclass(frozen=True)
+class LeagueSettings:
+    """What a league is: its shape, and whether its draft has a date yet."""
+    name: str | None
+    size: int | None
+    rounds: int | None
+    roster_need: dict
+    bench_slots: int | None
+    # Epoch milliseconds, or None when ESPN hasn't been given a date. That
+    # absence is the *only* signal for "not scheduled yet" - see parse_settings.
+    draft_at: int | None
+    draft_type: str | None
+
+    @property
+    def scheduled(self) -> bool:
+        return self.draft_at is not None
 
 
 @dataclass(frozen=True)
@@ -131,19 +181,117 @@ def load_credentials() -> EspnCredentials:
     collection for every test in the project.
     """
     load_dotenv()
-    league_id = os.getenv("LEAGUE_ID")
     swid = os.getenv("SWID")
     espn_s2 = os.getenv("ESPN_S2")
-    if not all([league_id, swid, espn_s2]):
+    # LEAGUE_ID is no longer required. SWID and ESPN_S2 are the actual
+    # credentials, and the leagues they can reach are discovered from them - so
+    # the id in .env is just a default for the notebooks and a fallback when no
+    # league has been picked.
+    if not all([swid, espn_s2]):
         raise EspnAuthError(
-            "Missing LEAGUE_ID, SWID or ESPN_S2 in .env - see the README for how to find them."
+            "Missing SWID or ESPN_S2 in .env - see the README for how to find them."
         )
-    return EspnCredentials(league_id=str(league_id), swid=str(swid), espn_s2=str(espn_s2))
+    return EspnCredentials(
+        league_id=str(os.getenv("LEAGUE_ID") or ""),
+        swid=str(swid),
+        espn_s2=str(espn_s2),
+    )
 
 
 # ---------------------------------------------------------------------------
 # parsing - pure, no I/O
 # ---------------------------------------------------------------------------
+
+def parse_fan_leagues(payload: dict, year: int) -> list[LeagueRef]:
+    """Every football league this SWID belongs to in `year`.
+
+    The fan payload lists all of a user's fantasy entries across every sport
+    and season, so both filters matter: `gameId == 1` for football, and the
+    season, or you get last year's leagues mixed in with this year's.
+
+    Written defensively because this is a public-ish endpoint whose shape we
+    don't control - a malformed entry is skipped rather than raising, since one
+    odd league shouldn't stop the picker rendering the others.
+    """
+    out, seen = [], set()
+    for pref in payload.get("preferences") or []:
+        entry = ((pref or {}).get("metaData") or {}).get("entry") or {}
+        if entry.get("gameId") != FOOTBALL_GAME_ID:
+            continue
+        if year is not None and entry.get("seasonId") != year:
+            continue
+        groups = entry.get("groups") or []
+        if not groups:
+            continue  # an entry with no league attached is not selectable
+        group = groups[0] or {}
+        league_id = group.get("groupId")
+        if league_id is None or league_id in seen:
+            continue
+        seen.add(league_id)
+        out.append(LeagueRef(
+            league_id=str(league_id),
+            name=(group.get("groupName") or f"League {league_id}").strip(),
+            season=int(entry.get("seasonId") or year),
+        ))
+    return out
+
+
+def roster_need_from_slots(lineup_slot_counts: dict) -> dict:
+    """ESPN's lineup slot counts -> this project's ROSTER_NEEDS shape.
+
+    Read from the league rather than assumed. All three of the user's leagues
+    happen to share the standard shape today, but a league that starts two
+    quarterbacks would silently get the wrong replacement baseline - and VORP is
+    defined entirely by who starts.
+    """
+    need = {}
+    for raw_slot, count in (lineup_slot_counts or {}).items():
+        try:
+            slot, count = int(raw_slot), int(count)
+        except (TypeError, ValueError):
+            continue
+        name = STARTING_SLOTS.get(slot)
+        if name and count > 0:
+            need[name] = need.get(name, 0) + count
+    return need
+
+
+def parse_settings(payload: dict) -> LeagueSettings:
+    """League shape and draft schedule from a `view=mSettings` response.
+
+    **`draftSettings.date` being absent is the whole "not scheduled" signal.**
+    ESPN doesn't send a null or a sentinel - for a league with no date set the
+    key simply isn't in the object (verified against a scheduled and an
+    unscheduled league). So `.get("date")` returning None is the discriminator,
+    and nothing else should be invented for it.
+    """
+    settings = payload.get("settings") or {}
+    draft = settings.get("draftSettings") or {}
+    roster = settings.get("rosterSettings") or {}
+    counts = roster.get("lineupSlotCounts") or {}
+
+    need = roster_need_from_slots(counts)
+    bench = None
+    try:
+        bench = int(counts.get(str(BENCH_SLOT)) or counts.get(BENCH_SLOT) or 0) or None
+    except (TypeError, ValueError):
+        bench = None
+
+    size = settings.get("size")
+    starters = sum(need.values())
+    rounds = (starters + bench) if (bench is not None and starters) else None
+
+    date = draft.get("date")
+    return LeagueSettings(
+        name=(settings.get("name") or "").strip() or None,
+        size=int(size) if size else None,
+        rounds=rounds,
+        roster_need=need,
+        bench_slots=bench,
+        draft_at=int(date) if date else None,
+        draft_type=draft.get("type"),
+    )
+
 
 def parse_draft_detail(payload: dict) -> DraftSnapshot:
     """Turn a raw `mDraftDetail` response into a snapshot.
@@ -321,9 +469,14 @@ class EspnDraftClient:
     fixture without mocking HTTP.
     """
 
-    def __init__(self, creds: EspnCredentials, year: int, fetch=None, timeout: float = 6.0):
+    def __init__(self, creds: EspnCredentials, year: int, fetch=None, timeout: float = 6.0,
+                 league_id: str | None = None):
         self.creds = creds
         self.year = year
+        # Which league this client talks to. Overrides the credentials' default
+        # so one set of cookies can serve several leagues - keyword-with-default
+        # so existing positional construction is unaffected.
+        self.league_id = str(league_id or creds.league_id or "")
         self.timeout = timeout
         self._fetch = fetch or self._http_fetch
         self._session = requests.Session() if fetch is None else None
@@ -331,7 +484,7 @@ class EspnDraftClient:
         self._cached: dict[str, dict] = {}
 
     def _url(self) -> str:
-        return f"{BASE}/seasons/{self.year}/segments/0/leagues/{self.creds.league_id}"
+        return f"{BASE}/seasons/{self.year}/segments/0/leagues/{self.league_id}"
 
     def _http_fetch(self, view: str) -> dict | None:
         """Returns the payload, or None for 304 Not Modified."""
@@ -384,6 +537,43 @@ class EspnDraftClient:
     def team_payload(self) -> dict:
         return self.fetch("mTeam") or self._cached.get("mTeam") or {}
 
+    def settings(self) -> LeagueSettings:
+        payload = self.fetch("mSettings") or self._cached.get("mSettings") or {}
+        return parse_settings(payload)
+
+
+def list_leagues(creds: EspnCredentials, year: int, fetch=None) -> list[LeagueRef]:
+    """Every football league these credentials can reach in `year`.
+
+    Uses ESPN's "fan" endpoint, which is keyed on the SWID rather than on a
+    league - so the user never has to find a league id. Injectable `fetch` for
+    the same reason as the draft client: the tests drive it from a fixture.
+
+    Errors are mapped the same way as everywhere else in this module, because
+    this call carries the cookies too and its failures must never quote them.
+    """
+    if fetch is not None:
+        payload = fetch()
+    else:
+        try:
+            resp = requests.get(
+                f"{FAN_BASE}/{creds.swid}",
+                params=FAN_PARAMS,
+                cookies={"SWID": creds.swid, "espn_s2": creds.espn_s2},
+                timeout=8.0,
+            )
+        except requests.RequestException:
+            raise EspnUnavailable(UNAVAILABLE_MESSAGE) from None
+        if resp.status_code in (401, 403):
+            raise EspnAuthError(AUTH_MESSAGE)
+        if resp.status_code >= 400:
+            raise EspnUnavailable(UNAVAILABLE_MESSAGE)
+        try:
+            payload = resp.json()
+        except ValueError:
+            raise EspnUnavailable(UNAVAILABLE_MESSAGE) from None
+    return parse_fan_leagues(payload, year)
+
 
 # ---------------------------------------------------------------------------
 # applying a snapshot to a session
@@ -413,6 +603,11 @@ class DraftSync:
     year: int
     my_team_id: int | None = None
     team: dict = field(default_factory=dict)
+    # Which league this session is attached to. Carried here rather than on the
+    # DraftSession so the session stays usable with no ESPN at all - and read
+    # by /recommend to decide whether the persisted league bias applies.
+    league_id: str | None = None
+    settings: "LeagueSettings | None" = None
 
     snapshot: DraftSnapshot | None = None
     applied: list = field(default_factory=list)     # [(overall_pick, player_id)]

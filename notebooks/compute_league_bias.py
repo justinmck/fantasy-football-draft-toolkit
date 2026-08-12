@@ -27,11 +27,13 @@ falls back to measured constants, so the tool still runs if this never executes.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+from dotenv import load_dotenv
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
@@ -98,8 +100,14 @@ def main() -> int:
         tables["proteam_season"].to_sql("league_bias_proteam_season", engine,
                                         if_exists="replace", index=False)
 
+    # Which league this was fitted on. Without it the app can't tell whether
+    # the fit applies to whatever league is being drafted, and "this league
+    # reaches on Eagles" would silently be asserted about other people's
+    # drafters. src/api.py::_bias_for gates on exactly this.
+    load_dotenv(_REPO_ROOT / ".env")
     pd.DataFrame([{
         "fit_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "league_id": str(os.getenv("LEAGUE_ID") or ""),
         "years": meta["years"],
         "adp_cutoff": meta["adp_cutoff"],
         "n_picks": meta["n_picks"],

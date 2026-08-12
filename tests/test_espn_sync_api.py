@@ -274,3 +274,117 @@ class TestNoCredentialLeak:
         fake.upto = 60
         text = client.get(f"/espn/sync/{sid}").text
         assert "NaN" not in text and "Infinity" not in text
+
+
+# ---------------------------------------------------------------------------
+# multi-league
+# ---------------------------------------------------------------------------
+
+FAN = json.loads((FIXTURES / "espn_fan_leagues.json").read_text())
+
+
+def settings_for(name, date=None):
+    draft = {"type": "SNAKE", "orderType": "DRAFT_START", "pickOrder": list(range(1, 15))}
+    if date is not None:
+        draft["date"] = date
+    return {"settings": {
+        "name": name, "size": 14, "draftSettings": draft,
+        "rosterSettings": {"lineupSlotCounts": {
+            "0": 1, "2": 2, "4": 2, "6": 1, "16": 1, "17": 1, "20": 7, "23": 1}},
+    }}
+
+
+class TestLeaguesEndpoint:
+    def test_lists_every_football_league(self, monkeypatch):
+        monkeypatch.setattr(api, "load_credentials",
+                            lambda: EspnCredentials("", SWID_SENTINEL, S2_SENTINEL))
+        monkeypatch.setattr(api, "list_leagues",
+                            lambda creds, year: espn_draft.parse_fan_leagues(FAN, year))
+        body = client.get("/espn/leagues").json()
+        assert [l["name"] for l in body["leagues"]] == ["Sigma Fantasy", "McFL", "Sigmas"]
+
+    def test_leaks_no_credential(self, monkeypatch):
+        monkeypatch.setattr(api, "load_credentials",
+                            lambda: EspnCredentials("", SWID_SENTINEL, S2_SENTINEL))
+        monkeypatch.setattr(api, "list_leagues",
+                            lambda creds, year: espn_draft.parse_fan_leagues(FAN, year))
+        text = client.get("/espn/leagues").text
+        assert SWID_SENTINEL not in text and S2_SENTINEL not in text
+
+    def test_auth_failure_is_502_with_the_constant_message(self, monkeypatch):
+        def boom():
+            raise EspnAuthError(AUTH_MESSAGE)
+        monkeypatch.setattr(api, "load_credentials", boom)
+        res = client.get("/espn/leagues")
+        assert res.status_code == 502 and res.json()["detail"] == AUTH_MESSAGE
+
+
+class TestBiasIsScopedToItsLeague:
+    """The bias was measured on one league's drafters.
+
+    Applying "this league reaches on Eagles" to a different league's board
+    would be asserting something never measured about people we've never seen.
+    """
+
+    def _connect(self, monkeypatch, draft_payload, mteam_payload, league_id, name, date=None):
+        fake = FakeEspn(draft_payload, mteam_payload)
+        real_fetch = fake.fetch
+
+        def fetch(view):
+            if view == "mSettings":
+                return settings_for(name, date)
+            return real_fetch(view)
+
+        monkeypatch.setattr(api, "load_credentials",
+                            lambda: EspnCredentials("780575", SWID_SENTINEL, S2_SENTINEL))
+        monkeypatch.setattr(api, "resolve_my_team_id", lambda payload, swid: MY_TEAM)
+        monkeypatch.setattr(api, "EspnDraftClient",
+                            lambda creds, year, **kw: EspnDraftClient(
+                                creds, year, fetch=fetch, league_id=kw.get("league_id")))
+        monkeypatch.setattr(api, "BIAS", {"position": {"QB": -11.1}, "pro_team": {},
+                                          "player": {}, "meta": {"league_id": "780575"}})
+        sid = client.post("/session", json={"teams": 14, "rounds": 16}).json()["session_id"]
+        res = client.post("/espn/connect",
+                          json={"session_id": sid, "league_id": league_id})
+        assert res.status_code == 200, res.text
+        return sid, res.json()
+
+    def test_fitted_league_gets_the_shift(self, monkeypatch, draft_payload, mteam_payload):
+        sid, body = self._connect(monkeypatch, draft_payload, mteam_payload, "780575", "McFL")
+        assert body["league"]["has_history"] is True
+        rows = client.post("/recommend", json={"session_id": sid, "current_pick": 1,
+                                               "next_pick": 12, "topn": 50}).json()["results"]
+        qb = next(r for r in rows if r["position"] == "QB")
+        assert qb["bias_shift"] < -5
+        assert qb["bias_reason"]
+
+    def test_a_different_league_gets_market_adp_only(self, monkeypatch, draft_payload, mteam_payload):
+        sid, body = self._connect(monkeypatch, draft_payload, mteam_payload,
+                                  "1224888142", "Sigma Fantasy", date=1787612400000)
+        assert body["league"]["has_history"] is False
+        rows = client.post("/recommend", json={"session_id": sid, "current_pick": 1,
+                                               "next_pick": 12, "topn": 50}).json()["results"]
+        qb = next(r for r in rows if r["position"] == "QB")
+        # The columns still exist - only the values are neutral. A league with no
+        # history must not return differently-shaped rows.
+        assert qb["bias_shift"] == 0
+        assert qb["bias_reason"] is None
+        assert qb["league_pick_est"] == qb["adp"]
+
+    def test_scheduled_and_unscheduled_drafts_are_distinguishable(
+            self, monkeypatch, draft_payload, mteam_payload):
+        _, mcfl = self._connect(monkeypatch, draft_payload, mteam_payload, "780575", "McFL")
+        assert mcfl["league"]["scheduled"] is False
+        assert mcfl["league"]["draft_at"] is None
+
+        _, sigma = self._connect(monkeypatch, draft_payload, mteam_payload,
+                                 "1224888142", "Sigma Fantasy", date=1787612400000)
+        assert sigma["league"]["scheduled"] is True
+        assert sigma["league"]["draft_at"] == 1787612400000
+        assert sigma["league"]["name"] == "Sigma Fantasy"
+
+    def test_roster_need_is_adopted_from_the_league(
+            self, monkeypatch, draft_payload, mteam_payload):
+        _, body = self._connect(monkeypatch, draft_payload, mteam_payload, "780575", "McFL")
+        assert set(body["roster_state"]) == {"QB", "RB", "WR", "TE", "FLEX", "K", "DST"}
+        assert body["roster_state"]["RB"]["need"] == 2

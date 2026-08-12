@@ -21,6 +21,10 @@ class EspnConnectBody(BaseModel):
     # The draft's season, not the season being scored. Defaults to the upcoming
     # draft, which is the only one anyone connects to live.
     year: Optional[int] = None
+    # Which of the user's leagues to attach to. Optional so an existing caller
+    # (and the notebooks' single-league assumption) still works: falls back to
+    # LEAGUE_ID from the environment.
+    league_id: Optional[str] = None
 
 
 class EspnDisconnectBody(BaseModel):

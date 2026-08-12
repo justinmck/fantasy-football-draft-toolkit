@@ -26,7 +26,10 @@ from src.espn_draft import (
     EspnDraftClient,
     EspnUnavailable,
     derive_pick_context,
+    list_leagues,
     parse_draft_detail,
+    parse_fan_leagues,
+    parse_settings,
     resolve_my_team_id,
     team_display,
 )
@@ -459,3 +462,134 @@ class TestReplay:
         _, _, seen = self._run(draft_payload, engine, step=8)
         blob = json.dumps(seen)
         assert "NaN" not in blob and "Infinity" not in blob
+
+
+# ---------------------------------------------------------------------------
+# league discovery and settings
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def fan_payload():
+    return json.loads((FIXTURES / "espn_fan_leagues.json").read_text())
+
+
+def settings_payload(*, date=None, size=14, name="McFL", counts=None):
+    """A `view=mSettings` response, shaped like the real one.
+
+    `counts` defaults to the standard 14-team layout every one of the user's
+    leagues actually uses: QB/RB/RB/WR/WR/TE/FLEX/K/DST plus 7 bench.
+    """
+    draft = {"type": "SNAKE", "orderType": "DRAFT_START", "pickOrder": list(range(1, 15))}
+    # The key is ABSENT when no date is set - ESPN sends no null and no
+    # sentinel. That absence is the entire "not scheduled" signal.
+    if date is not None:
+        draft["date"] = date
+    return {"settings": {
+        "name": name,
+        "size": size,
+        "draftSettings": draft,
+        "rosterSettings": {"lineupSlotCounts": counts if counts is not None else {
+            "0": 1, "2": 2, "4": 2, "6": 1, "16": 1, "17": 1, "20": 7, "23": 1,
+            "21": 0, "3": 0, "5": 0,
+        }},
+    }}
+
+
+class TestFanLeagues:
+    def test_finds_every_football_league_for_the_season(self, fan_payload):
+        leagues = parse_fan_leagues(fan_payload, 2026)
+        assert [l.name for l in leagues] == ["Sigma Fantasy", "McFL", "Sigmas"]
+        assert [l.league_id for l in leagues] == ["1224888142", "780575", "197229335"]
+
+    def test_other_sports_are_excluded(self, fan_payload):
+        # The payload mixes every fantasy sport the user plays.
+        assert all("Hoops" not in l.name for l in parse_fan_leagues(fan_payload, 2026))
+
+    def test_other_seasons_are_excluded(self, fan_payload):
+        assert len(parse_fan_leagues(fan_payload, 2026)) == 3
+        assert [l.season for l in parse_fan_leagues(fan_payload, 2025)] == [2025]
+
+    def test_entry_with_no_league_is_skipped_not_fatal(self, fan_payload):
+        # One malformed entry shouldn't stop the picker rendering the rest.
+        assert all(l.league_id for l in parse_fan_leagues(fan_payload, 2026))
+
+    def test_duplicate_leagues_appear_once(self, fan_payload):
+        ids = [l.league_id for l in parse_fan_leagues(fan_payload, 2026)]
+        assert len(ids) == len(set(ids))
+
+    def test_empty_payload_is_empty_not_an_error(self):
+        assert parse_fan_leagues({}, 2026) == []
+
+
+class TestLeagueSettings:
+    def test_absent_date_means_not_scheduled(self):
+        """McFL's actual state, and the discriminator the whole feature hangs on.
+
+        ESPN omits the key rather than sending null, so any check subtler than
+        "is it there" would get this wrong.
+        """
+        s = parse_settings(settings_payload(date=None))
+        assert s.draft_at is None
+        assert s.scheduled is False
+
+    def test_epoch_date_means_scheduled(self):
+        # Sigma Fantasy: 2026-08-24 23:00 UTC.
+        s = parse_settings(settings_payload(date=1787612400000))
+        assert s.draft_at == 1787612400000
+        assert s.scheduled is True
+
+    def test_roster_need_matches_the_projects_shape(self):
+        s = parse_settings(settings_payload())
+        assert s.roster_need == {"QB": 1, "RB": 2, "WR": 2, "TE": 1, "FLEX": 1, "K": 1, "DST": 1}
+
+    def test_bench_and_ir_are_not_starting_slots(self):
+        """roster_need drives replacement level, which is defined by who starts."""
+        s = parse_settings(settings_payload())
+        assert "BE" not in s.roster_need and "IR" not in s.roster_need
+        assert s.bench_slots == 7
+
+    def test_rounds_are_starters_plus_bench(self):
+        s = parse_settings(settings_payload())
+        assert sum(s.roster_need.values()) == 9
+        assert s.rounds == 16
+
+    def test_a_two_quarterback_league_is_read_not_assumed(self):
+        """The reason this is parsed rather than hardcoded: a different lineup
+        changes replacement level, and therefore every VORP on the board."""
+        counts = {"0": 2, "2": 2, "4": 2, "6": 1, "16": 1, "17": 1, "20": 7, "23": 1}
+        s = parse_settings(settings_payload(counts=counts))
+        assert s.roster_need["QB"] == 2
+        assert sum(s.roster_need.values()) == 10
+
+    def test_name_and_size_come_through(self):
+        s = parse_settings(settings_payload(name="Sigma Fantasy ", size=12))
+        assert s.name == "Sigma Fantasy"  # trailing space in the real payload
+        assert s.size == 12
+
+    def test_empty_payload_degrades_without_raising(self):
+        s = parse_settings({})
+        assert s.roster_need == {} and s.scheduled is False and s.size is None
+
+
+class TestListLeagues:
+    def test_uses_the_injected_fetch(self, fan_payload):
+        creds = EspnCredentials("", "swid", "s2")
+        leagues = list_leagues(creds, 2026, fetch=lambda: fan_payload)
+        assert len(leagues) == 3
+
+    def test_credentials_without_a_league_id_are_valid(self, fan_payload):
+        """LEAGUE_ID is only a default now - discovery is what replaces it."""
+        creds = EspnCredentials("", "swid", "s2")
+        assert list_leagues(creds, 2026, fetch=lambda: fan_payload)
+
+
+class TestClientLeagueOverride:
+    def test_league_id_overrides_the_credential_default(self):
+        creds = EspnCredentials("780575", "swid", "s2")
+        client = EspnDraftClient(creds, 2026, fetch=lambda v: {}, league_id="1224888142")
+        assert "/leagues/1224888142" in client._url()
+
+    def test_falls_back_to_the_credential_league(self):
+        creds = EspnCredentials("780575", "swid", "s2")
+        client = EspnDraftClient(creds, 2026, fetch=lambda v: {})
+        assert "/leagues/780575" in client._url()

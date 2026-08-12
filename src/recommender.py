@@ -183,7 +183,11 @@ def recommend(engine, year, session, current_pick, next_pick, bias, topn=10,
     # positions - see src/scoring.py's add_vorp_z docstring. Raw `vorp` is
     # still returned below, unchanged, so old vs. new can be compared.
     pool = add_vorp_z(pool, teams=session.teams)
-    pool = apply_league_bias(pool, bias) if bias else pool.assign(league_pick_est=pool.adp)
+    # Always applied, even with no bias to apply: an empty fit yields
+    # `league_pick_est == adp`, zero shifts and a null reason, which keeps the
+    # response shape identical whether or not this league has a measured
+    # history. A league without one shouldn't return differently-shaped rows.
+    pool = apply_league_bias(pool, bias or {})
     ranked = score(
         pool,
         session.roster_state,

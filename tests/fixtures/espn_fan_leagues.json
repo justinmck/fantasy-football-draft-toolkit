@@ -1,0 +1,75 @@
+{
+  "_comment": "Synthetic, shaped like the real fan API response. Contains no SWID: the real payload keys on one, but nothing the parser reads carries it. Deliberately includes a basketball entry, a prior-season entry, an entry with no groups, and a duplicate, because each is a filter the parser has to get right.",
+  "preferences": [
+    {
+      "metaData": {
+        "entry": {
+          "gameId": 1,
+          "seasonId": 2026,
+          "name": "Fantasy Football 2026",
+          "groups": [{ "groupId": 1224888142, "groupName": "Sigma Fantasy " }]
+        }
+      }
+    },
+    {
+      "metaData": {
+        "entry": {
+          "gameId": 1,
+          "seasonId": 2026,
+          "name": "Fantasy Football 2026",
+          "groups": [{ "groupId": 780575, "groupName": "McFL" }]
+        }
+      }
+    },
+    {
+      "metaData": {
+        "entry": {
+          "gameId": 1,
+          "seasonId": 2026,
+          "name": "Fantasy Football 2026",
+          "groups": [{ "groupId": 197229335, "groupName": "Sigmas" }]
+        }
+      }
+    },
+    {
+      "metaData": {
+        "entry": {
+          "gameId": 1,
+          "seasonId": 2025,
+          "name": "Fantasy Football 2025",
+          "groups": [{ "groupId": 780575, "groupName": "McFL" }]
+        }
+      }
+    },
+    {
+      "metaData": {
+        "entry": {
+          "gameId": 46,
+          "seasonId": 2026,
+          "name": "Fantasy Basketball",
+          "groups": [{ "groupId": 55555555, "groupName": "Hoops League" }]
+        }
+      }
+    },
+    {
+      "metaData": {
+        "entry": {
+          "gameId": 1,
+          "seasonId": 2026,
+          "name": "Orphaned entry",
+          "groups": []
+        }
+      }
+    },
+    {
+      "metaData": {
+        "entry": {
+          "gameId": 1,
+          "seasonId": 2026,
+          "name": "Duplicate of McFL",
+          "groups": [{ "groupId": 780575, "groupName": "McFL" }]
+        }
+      }
+    }
+  ]
+}
