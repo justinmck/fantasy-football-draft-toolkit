@@ -197,7 +197,15 @@ If the backend isn't reachable, the UI falls back to the static `players.json` s
 
 ### Live ESPN draft sync
 
-**Connect to ESPN** on the setup screen attaches the board to the real draft. Picks appear within a few seconds without anyone clicking: yours fill your roster, everyone else's just leave the pool, and you can see what every team has taken. `src/espn_draft.py` + three endpoints (`/espn/connect`, `/espn/sync/{id}`, `/espn/disconnect`).
+**Home lists every league your credentials can reach** — discovered from your SWID via ESPN's fan endpoint, so no league ids are typed by hand. Each row shows when that league's draft is and whether league-specific timing applies to it. The title in the header is always the way back; mid-draft it confirms first, since the picks only live in server memory.
+
+Roster settings are read per league from `rosterSettings.lineupSlotCounts` rather than assumed. All three of the current leagues happen to share the standard shape, but roster need sets replacement level and therefore every VORP on the board — a league starting two quarterbacks would otherwise be scored against a one-QB baseline.
+
+**Draft scheduling.** `draftSettings.date` is simply absent when a commissioner hasn't set one — ESPN sends no null and no sentinel — so that absence is the entire "not scheduled" signal and nothing else is invented for it. A connected league gets a **Draft day** tab with a countdown, every pick number you own, the starting slots still to fill, and round 1 by team name. It's a tab rather than a mode, so a league with no date still shows the full board. The countdown never flips the app into live mode: that is driven by the first real pick appearing, because drafts start late, get paused, and a scheduled time is a plan rather than a fact.
+
+**League bias is scoped to the league it was measured on.** `league_bias_meta` records the fitted league id and `/recommend` gates on it, so a board for a different league gets market ADP timing only and says so. "This league reaches on Eagles" is a fact about one set of drafters; asserting it about people in another league would be inventing a finding. Manual sessions keep the fit, because that path is the fallback for when sync breaks and stripping the signal exactly when the tool is degraded would make the fallback worse.
+
+**Connect to ESPN** attaches the board to the real draft. Picks appear within a few seconds without anyone clicking: yours fill your roster, everyone else's just leave the pool, and you can see what every team has taken. `src/espn_draft.py` + three endpoints (`/espn/connect`, `/espn/sync/{id}`, `/espn/disconnect`).
 
 Three properties of ESPN's payload drive the design, each verified against the live API:
 
@@ -272,7 +280,7 @@ Deliberately **not** done: virtualising the player table. 300 memoised rows is f
 pytest tests/ -v
 ```
 
-214 tests covering:
+239 tests covering:
 
 - `tests/test_scoring.py` — VORP/baselines, cross-position dampening, and the three live-tool multipliers (roster need incl. FLEX, urgency and bench depth, availability/pick timing, confidence and its three sources incl. the unproven-player factor)
 - `tests/test_state.py` — draft session slot allocation: own slot → FLEX → bench depth, and picks-remaining/bench accounting
