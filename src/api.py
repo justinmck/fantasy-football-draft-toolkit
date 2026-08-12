@@ -20,7 +20,7 @@ from src.scoring import RISK_AVERSION
 from src.biases import load_league_bias
 from src.espn_draft import (
     ESPN_SYNCS, DraftSync, EspnAuthError, EspnDraftClient, EspnUnavailable,
-    list_leagues, load_credentials, resolve_my_team_id, team_display,
+    all_teams, list_leagues, load_credentials, resolve_my_team_id, team_display,
 )
 
 log = logging.getLogger(__name__)
@@ -209,18 +209,37 @@ def espn_leagues(year: int | None = None):
     """
     year = year or NEXT_SEASON
     try:
-        leagues = list_leagues(load_credentials(), year)
+        creds = load_credentials()
+        leagues = list_leagues(creds, year)
     except EspnAuthError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     except EspnUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+
+    fitted = (BIAS.get("meta") or {}).get("league_id")
+    out = []
+    for lg in leagues:
+        # One settings fetch each so the picker can show when every draft is,
+        # rather than making the user pick blind and find out afterwards.
+        # Three sequential calls at ~100ms; a league that fails to answer is
+        # still listed, just without its date.
+        draft_at, scheduled = None, False
+        try:
+            settings = EspnDraftClient(creds, year, league_id=lg.league_id).settings()
+            draft_at, scheduled = settings.draft_at, settings.scheduled
+        except (EspnAuthError, EspnUnavailable):
+            log.warning("could not read settings for league %s", lg.league_id)
+        out.append({
+            "league_id": lg.league_id, "name": lg.name, "season": lg.season,
+            "draft_at": draft_at, "scheduled": scheduled,
+            "has_history": _league_has_history(lg.league_id, fitted),
+        })
     return {
         "year": year,
-        "leagues": [{"league_id": l.league_id, "name": l.name, "season": l.season}
-                    for l in leagues],
+        "leagues": out,
         # Which league the persisted bias fit came from, so the UI can say
         # "measured on McFL" rather than implying it applies everywhere.
-        "bias_league_id": (BIAS.get("meta") or {}).get("league_id"),
+        "bias_league_id": fitted,
     }
 
 
@@ -293,6 +312,9 @@ def espn_connect(body: EspnConnectBody):
         "rounds": snapshot.rounds,
         "total_slots": snapshot.total_slots,
         "pick_order": list(snapshot.order),
+        # Names for the order, so the Draft day view doesn't render fourteen
+        # anonymous team ids.
+        "teams_list": all_teams(teams_payload),
     }
 
 

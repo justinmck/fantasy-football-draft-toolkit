@@ -4,6 +4,7 @@ import {
   ArrowUp,
   ArrowUpDown,
   BarChart3,
+  CalendarClock,
   ChevronDown,
   Info,
   LayoutList,
@@ -60,8 +61,50 @@ async function apiPost(path, body) {
   return res.json();
 }
 
+// ---- Draft scheduling ----
+//
+// `draft_at` is null when ESPN has no date on file. That absence is the entire
+// "not scheduled" signal - ESPN sends no sentinel date and no flag - so it is
+// the only thing tested for here.
+
+const fmtDraftDate = (ms) =>
+  new Date(ms).toLocaleString(undefined, {
+    weekday: "short", day: "numeric", month: "short",
+    hour: "numeric", minute: "2-digit",
+  });
+
+/** "in 3d 4h" / "in 12m" / "underway". Null once there's no date. */
+function countdownTo(ms, now = Date.now()) {
+  if (!ms) return null;
+  const left = ms - now;
+  if (left <= 0) return "underway";
+  const m = Math.floor(left / 60000);
+  const d = Math.floor(m / 1440);
+  const h = Math.floor((m % 1440) / 60);
+  if (d > 0) return `in ${d}d ${h}h`;
+  if (h > 0) return `in ${h}h ${m % 60}m`;
+  return `in ${m}m`;
+}
+
+const DraftWhenChip = ({ draftAt, scheduled, className = "" }) =>
+  scheduled && draftAt ? (
+    <span
+      className={`shrink-0 rounded-md bg-sky-500/15 px-2 py-1 text-[11px] text-sky-300 ${className}`}
+      title={`Draft scheduled for ${fmtDraftDate(draftAt)}`}
+    >
+      {fmtDraftDate(draftAt)}
+    </span>
+  ) : (
+    <span
+      className={`shrink-0 rounded-md bg-white/5 px-2 py-1 text-[11px] text-slate-500 ${className}`}
+      title="ESPN has no draft date for this league yet."
+    >
+      Not scheduled
+    </span>
+  );
+
 // ---- Session setup ----
-function SetupScreen({ onStart, starting, error }) {
+function SetupScreen({ onStart, starting, error, leagues, leaguesError }) {
   const [teams, setTeams] = useState(14);
   const [mySlot, setMySlot] = useState(1);
   const [rounds, setRounds] = useState(DEFAULT_ROUNDS);
@@ -91,18 +134,43 @@ function SetupScreen({ onStart, starting, error }) {
 
         {!manual && (
           <>
-            <button
-              onClick={() => onStart({ espn: true })}
-              disabled={starting}
-              className="h-11 w-full rounded-lg bg-emerald-500 text-sm font-semibold text-slate-950
-                transition hover:bg-emerald-400 disabled:opacity-50"
-            >
-              {starting ? "Connecting…" : "Connect to ESPN"}
-            </button>
-            <p className="mt-3 text-xs leading-relaxed text-slate-500">
-              Reads your league's draft directly: picks appear as they happen, yours fill your
-              roster automatically, and you can see what every other team has taken.
-            </p>
+            {leaguesError ? (
+              <div className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2.5 text-xs leading-relaxed text-rose-300">
+                Couldn't reach ESPN. Check SWID and ESPN_S2 in <code>.env</code>, or set up manually.
+              </div>
+            ) : leagues === null ? (
+              <div className="py-3 text-sm text-slate-500">Finding your leagues…</div>
+            ) : leagues.length === 0 ? (
+              <div className="text-sm text-slate-500">No football leagues found for this season.</div>
+            ) : (
+              <>
+                <div className="label mb-2">Your leagues</div>
+                <div className="space-y-2">
+                  {leagues.map((lg) => (
+                    <button
+                      key={lg.league_id}
+                      onClick={() => onStart({ espn: true, leagueId: lg.league_id })}
+                      disabled={starting}
+                      className="flex w-full items-center justify-between gap-3 rounded-lg border
+                        border-white/10 bg-slate-900 px-3.5 py-3 text-left transition
+                        hover:border-emerald-400/40 hover:bg-slate-800/60 disabled:opacity-50"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-slate-100">
+                          {lg.name}
+                        </span>
+                        <span className="mt-0.5 block text-[11px] text-slate-500">
+                          {lg.has_history
+                            ? "Draft history collected — league timing applied"
+                            : "No draft history — market ADP timing only"}
+                        </span>
+                      </span>
+                      <DraftWhenChip draftAt={lg.draft_at} scheduled={lg.scheduled} />
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
             {error && (
               <div className="mt-4 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
                 {error}
@@ -401,67 +469,295 @@ const PlayerRow = React.memo(function PlayerRow({
     </>
   );
 });
+// ---- Draft day ----
+//
+// Everything that's knowable before a pick is made. Deliberately a tab rather
+// than a mode: the board stays fully reachable for a league whose draft has no
+// date yet, which is most of them most of the year.
+//
+// Note what does NOT live here: the switch to "the draft is live" is driven by
+// the first real pick appearing, never by this countdown reaching zero. Drafts
+// start late, get paused, and the scheduled time is a plan rather than a fact.
 
-// ---- Top strips ----
+function DraftDay({ league, pickCtx, order, teamsList, rosterState, picksRemaining, myTeamId }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!league?.draft_at) return;
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, [league?.draft_at]);
 
-/** Where the draft is, what you still need, and whether ESPN is talking to us. */
-function DraftStatusStrip({ mode, pickCtx, rosterState, picksRemaining, sync, onDisconnect }) {
-  const offline = mode === "offline";
-  const open = Object.entries(rosterState || {})
-    .filter(([, v]) => v.need - v.have > 0)
-    .map(([pos]) => pos);
-  const round = pickCtx?.currentPick ? Math.ceil(pickCtx.currentPick / (pickCtx.teams || 14)) : null;
+  const names = useMemo(() => {
+    const m = new Map();
+    (teamsList || []).forEach((t) => m.set(t.id, t));
+    return m;
+  }, [teamsList]);
+
+  const teams = pickCtx?.teams || 14;
+  const roundOne = (order || []).slice(0, teams);
+  const open = Object.entries(rosterState || {}).filter(([, v]) => v.need - v.have > 0);
+  const countdown = countdownTo(league?.draft_at, now);
 
   return (
-    <div
-      className={`card flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5 text-xs ${
-        pickCtx?.isMyTurn ? "border-l-2 border-l-emerald-400" : ""
-      }`}
-    >
-      {offline ? (
-        <Badge tone="warn" title="The backend isn't running, so need and timing can't be applied.">
-          <WifiOff size={11} /> Offline — value only
-        </Badge>
-      ) : (
-        <>
-          <span className="flex items-center gap-1.5">
-            <span className="text-slate-500">Pick</span>
-            <span className="tabular font-semibold text-slate-100">
-              {pickCtx?.currentPick ?? "—"}
-            </span>
-            {round && <span className="text-slate-600">· Rd {round}</span>}
-          </span>
+    <div className="mx-auto max-w-5xl space-y-5 p-4">
+      <div className="card p-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <h1 className="text-lg font-semibold tracking-tight text-slate-100">
+            {league?.name || "Your draft"}
+          </h1>
+          <DraftWhenChip draftAt={league?.draft_at} scheduled={league?.scheduled} />
+        </div>
 
-          {pickCtx?.isMyTurn ? (
-            <Badge tone="calm">You're on the clock</Badge>
-          ) : (
-            <span className="text-slate-400">
-              You're up at{" "}
-              <span className="tabular font-semibold text-slate-200">
-                {pickCtx?.thisTurn ?? "—"}
+        {league?.scheduled ? (
+          <div className="mt-4 flex flex-wrap items-baseline gap-3">
+            <span className={`text-3xl font-semibold tracking-tight ${
+              countdown === "underway" ? "text-emerald-400" : "text-slate-100"}`}>
+              {countdown === "underway" ? "Draft should be underway" : countdown}
+            </span>
+            <span className="text-sm text-slate-500">{fmtDraftDate(league.draft_at)}</span>
+          </div>
+        ) : (
+          <p className="mt-4 max-w-2xl text-sm leading-relaxed text-slate-400">
+            <strong className="text-slate-200">No date set yet.</strong> Your commissioner hasn't
+            scheduled this draft, so there's nothing to count down to — but the order below is
+            already fixed, and the board is live and ready whenever it starts.
+          </p>
+        )}
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <div className="card p-5">
+          <h2 className="mb-1 text-sm font-semibold text-slate-200">Your picks</h2>
+          <p className="mb-3 text-xs leading-relaxed text-slate-500">
+            Every slot you own, straight from the league's own order — so this survives traded
+            picks and keepers rather than assuming a clean snake.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {(pickCtx?.myPicks || []).map((n, i) => (
+              <span
+                key={n}
+                className={`tabular rounded-md px-2 py-1 text-xs ${
+                  i === 0 ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/25"
+                          : "bg-white/[0.04] text-slate-300"}`}
+                title={i === 0 ? "Your first pick" : `Round ${i + 1}`}
+              >
+                {n}
               </span>
-              {pickCtx?.picksUntilMyTurn != null && (
-                <span className="text-slate-600">
-                  {" "}· {pickCtx.picksUntilMyTurn} away
+            ))}
+          </div>
+          {!pickCtx?.myPicks?.length && (
+            <div className="text-xs text-slate-500">Not available.</div>
+          )}
+        </div>
+
+        <div className="card p-5">
+          <h2 className="mb-1 text-sm font-semibold text-slate-200">Still to fill</h2>
+          <p className="mb-3 text-xs leading-relaxed text-slate-500">
+            Starting slots open, against the picks you have left.
+          </p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {open.length === 0 ? (
+              <span className="text-xs text-slate-500">Starting lineup complete.</span>
+            ) : (
+              open.map(([pos, v]) => (
+                <span key={pos} className="flex items-center gap-1 rounded-md bg-white/[0.04] px-2 py-1">
+                  <PositionChip position={pos} />
+                  <span className="tabular text-xs text-slate-400">×{v.need - v.have}</span>
                 </span>
+              ))
+            )}
+          </div>
+          {picksRemaining != null && (
+            <p className="mt-3 text-xs text-slate-500">
+              <span className="tabular font-semibold text-slate-300">{picksRemaining}</span> picks left
+            </p>
+          )}
+        </div>
+      </div>
+
+      <div className="card p-5">
+        <h2 className="mb-1 text-sm font-semibold text-slate-200">Round 1 order</h2>
+        <p className="mb-3 text-xs leading-relaxed text-slate-500">
+          Known before the draft starts — ESPN publishes the full slot order as soon as the league
+          is set up, which is also where your pick numbers come from.
+        </p>
+        <div className="space-y-1">
+          {roundOne.map((teamId, i) => {
+            const t = names.get(teamId);
+            const mine = teamId === myTeamId;
+            return (
+              <div
+                key={i}
+                className={`flex items-center gap-3 rounded-md px-2.5 py-1.5 text-sm ${
+                  mine ? "bg-emerald-500/10 ring-1 ring-emerald-400/25" : ""}`}
+              >
+                <span className="tabular w-6 text-right text-xs text-slate-600">{i + 1}</span>
+                <span className={mine ? "font-semibold text-emerald-200" : "text-slate-300"}>
+                  {t?.name || `Team ${teamId}`}
+                </span>
+                {mine && <span className="text-[11px] text-emerald-400/70">you</span>}
+                {t?.abbrev && <span className="ml-auto text-[11px] text-slate-600">{t.abbrev}</span>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- Board header ----
+//
+// One block rather than three stacked strips. The three-strip version wrapped
+// onto a second line whenever a player's name ran long, which both looked
+// broken and cost the vertical space the list needs - the whole reason the
+// original hero card was removed. A fixed three-column grid cannot wrap.
+
+function BoardHeader({
+  mode, pickCtx, sync, onDisconnect, players, nextPick, readOnly, customSort,
+  onOpen, onDraft, onTaken, draftLog,
+}) {
+  const offline = mode === "offline";
+  const league = sync?.league;
+  const round = pickCtx?.currentPick && pickCtx?.teams
+    ? Math.ceil(pickCtx.currentPick / pickCtx.teams) : null;
+
+  return (
+    <div className="card overflow-hidden">
+      {/* Row 1: which league, what state, whose turn. */}
+      <div className={`flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-white/5 px-4 py-2.5 text-xs
+        ${pickCtx?.isMyTurn && !offline ? "bg-emerald-500/[0.06]" : ""}`}>
+        {offline ? (
+          <Badge tone="warn" title="The backend isn't running, so need and timing can't be applied.">
+            <WifiOff size={11} /> Offline — value only
+          </Badge>
+        ) : (
+          <>
+            <span className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-slate-100">
+                {league?.name || "Draft board"}
+              </span>
+              {league && (
+                <DraftWhenChip draftAt={league.draft_at} scheduled={league.scheduled} />
               )}
             </span>
-          )}
 
-          {open.length > 0 && (
-            <span className="flex items-center gap-1.5 text-slate-500">
-              Still need
-              <span className="text-slate-300">{open.join(" · ")}</span>
+            <span className="h-3 w-px bg-white/10" />
+
+            <span className="flex items-center gap-1.5">
+              <span className="text-slate-500">Pick</span>
+              <span className="tabular font-semibold text-slate-100">
+                {pickCtx?.currentPick ?? "—"}
+              </span>
+              {round && <span className="text-slate-600">· Rd {round}</span>}
+            </span>
+
+            {pickCtx?.isMyTurn ? (
+              <Badge tone="calm">You're on the clock</Badge>
+            ) : (
+              <span className="text-slate-400">
+                you're up at{" "}
+                <span className="tabular font-semibold text-slate-200">
+                  {pickCtx?.thisTurn ?? "—"}
+                </span>
+                {pickCtx?.picksUntilMyTurn != null && (
+                  <span className="text-slate-600"> · {pickCtx.picksUntilMyTurn} away</span>
+                )}
+              </span>
+            )}
+          </>
+        )}
+
+        <div className="ml-auto flex items-center gap-2">
+          {/* Bias is measured on one league's drafters. Saying so is the point:
+              a board with no league timing shouldn't look identical to one
+              that has it. */}
+          {league && league.has_history === false && (
+            <span
+              className="rounded-md bg-white/5 px-2 py-0.5 text-[11px] text-slate-500"
+              title="No draft history has been collected for this league, so pick timing uses national ADP only. League-specific tendencies are only applied where they were measured."
+            >
+              Market timing only
             </span>
           )}
-          {picksRemaining != null && (
-            <span className="tabular text-slate-600">{picksRemaining} picks left</span>
-          )}
-        </>
+          <SyncChip sync={sync} onDisconnect={onDisconnect} />
+        </div>
+      </div>
+
+      {/* Row 2: the board's own top three, as equal cards. */}
+      {players?.length > 0 && (
+        <div className="px-4 py-3">
+          <div className="label mb-2 flex items-center gap-1.5 text-emerald-400/70">
+            <Trophy size={11} />
+            <span title={customSort ? "Unaffected by the table's current sort." : undefined}>
+              Board ranking
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {players.map((p, i) => (
+              <TopPickCard
+                key={p.player_id}
+                player={p}
+                rank={i + 1}
+                nextPick={nextPick}
+                readOnly={readOnly}
+                onOpen={onOpen}
+                onDraft={onDraft}
+                onTaken={onTaken}
+              />
+            ))}
+          </div>
+        </div>
       )}
 
-      <div className="ml-auto flex items-center gap-2">
-        <SyncChip sync={sync} onDisconnect={onDisconnect} />
+      {mode === "live" && draftLog?.length > 0 && <RecentPicksTicker draftLog={draftLog} />}
+    </div>
+  );
+}
+
+/** One of the top three. Fixed height, so the row can never reflow. */
+function TopPickCard({ player, rank, nextPick, readOnly, onOpen, onDraft, onTaken }) {
+  const top = rank === 1;
+  return (
+    <div
+      className={`flex min-w-0 flex-col justify-between rounded-lg px-3 py-2.5 transition
+        ${top ? "bg-emerald-500/10 ring-1 ring-emerald-400/25" : "bg-white/[0.04] hover:bg-white/[0.06]"}`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <button
+          onClick={() => onOpen(player.player_id)}
+          className="min-w-0 text-left"
+          title="Show this player in the list"
+        >
+          <span className="flex items-baseline gap-1.5">
+            <span className="tabular text-[11px] text-slate-600">{rank}</span>
+            <span className="truncate text-sm font-semibold text-slate-100 hover:text-emerald-300">
+              {player.player_name}
+            </span>
+          </span>
+          <span className="mt-1 flex items-center gap-1.5">
+            <PositionChip position={player.position} />
+            <span className="text-[11px] text-slate-600">{player.pro_team}</span>
+          </span>
+        </button>
+        <span className="tabular shrink-0 text-lg font-semibold leading-none text-emerald-400">
+          {fmt(player.utility, 0)}
+        </span>
+      </div>
+
+      <div className="mt-2 flex min-h-[22px] items-center justify-between gap-2">
+        {/* One chip: even in miniature the board explains rather than asserts. */}
+        <ReasonChips player={player} nextPick={nextPick} max={1} />
+        {top && !readOnly && (
+          <span className="flex shrink-0 gap-1">
+            <Button onClick={() => onDraft(player)} tone="primary" title="Draft to my team">
+              <UserPlus size={12} /> Me
+            </Button>
+            <Button onClick={() => onTaken(player)} tone="danger" title="Someone else took them">
+              <XCircle size={12} /> Taken
+            </Button>
+          </span>
+        )}
       </div>
     </div>
   );
@@ -504,66 +800,12 @@ function SyncChip({ sync, onDisconnect }) {
   );
 }
 
-/**
- * The board's own top three, as one line.
- *
- * Always ranked by score, never by the table's current sort - sorting by ADP
- * must not relabel the earliest-drafted player as "best available for you",
- * which is the claim this tool exists to argue against. It does respect the
- * position filter and search, because those are the user narrowing the
- * question rather than reordering the answer.
- */
-function TopPicksStrip({ players, nextPick, readOnly, customSort, onOpen, onDraft, onTaken }) {
-  if (!players?.length) return null;
-  return (
-    <div className="card flex flex-wrap items-center gap-2 px-4 py-2.5">
-      <span
-        className="label shrink-0 text-emerald-400/80"
-        title={customSort ? "Unaffected by the table's current sort." : undefined}
-      >
-        Board ranking
-      </span>
-      {players.map((p, i) => (
-        <div
-          key={p.player_id}
-          className={`flex items-center gap-2 rounded-lg px-2.5 py-1 text-xs ${
-            i === 0 ? "bg-emerald-500/10 ring-1 ring-emerald-400/25" : "bg-white/[0.04]"
-          }`}
-        >
-          <span className="tabular text-slate-600">{i + 1}</span>
-          <button
-            onClick={() => onOpen(p.player_id)}
-            className="font-medium text-slate-100 transition hover:text-emerald-300"
-            title="Show this player in the list"
-          >
-            {p.player_name}
-          </button>
-          <PositionChip position={p.position} />
-          <span className="tabular font-semibold text-emerald-400">{fmt(p.utility, 0)}</span>
-          {/* One chip, so even the compact form explains rather than asserts. */}
-          <ReasonChips player={p} nextPick={nextPick} max={1} />
-          {i === 0 && !readOnly && (
-            <span className="flex gap-1">
-              <Button onClick={() => onDraft(p)} tone="primary" title="Draft to my team">
-                <UserPlus size={12} /> Me
-              </Button>
-              <Button onClick={() => onTaken(p)} tone="danger" title="Someone else took them">
-                <XCircle size={12} /> Taken
-              </Button>
-            </span>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /** What just happened, league-wide. Newest first, never wraps. */
 function RecentPicksTicker({ draftLog }) {
   const recent = [...draftLog].slice(-8).reverse();
   if (!recent.length) return null;
   return (
-    <div className="card flex items-center gap-2 px-4 py-2">
+    <div className="flex items-center gap-2 border-t border-white/5 bg-white/[0.02] px-4 py-1.5">
       <span className="label shrink-0">Just went</span>
       <div className="scroll-slim flex flex-1 gap-1.5 overflow-x-auto whitespace-nowrap">
         {recent.map((p) => (
@@ -883,6 +1125,10 @@ export default function DraftBoard() {
                                      version: -1, team: null });
   const [syncCtx, setSyncCtx] = useState(null);
   const [sort, setSort] = useState({ key: "utility", dir: "desc" });
+  const [pickOrder, setPickOrder] = useState([]);
+  const [teamsList, setTeamsList] = useState([]);
+  const [leagues, setLeagues] = useState(null);      // null = still loading
+  const [leaguesError, setLeaguesError] = useState(false);
   const [adpYear, setAdpYear] = useState(null);
 
   // Where the draft is. Two implementations, deliberately:
@@ -1002,6 +1248,18 @@ export default function DraftBoard() {
   // Applies a payload from /espn/connect or /espn/sync. The server sends the
   // full authoritative state, not a delta, so everything is replaced wholesale
   // - which is what makes a missed poll or a page refresh self-healing.
+  // Leagues are discovered from the credentials, so the home screen can list
+  // them by name with their draft dates instead of asking for an id.
+  useEffect(() => {
+    if (mode !== "setup") return;
+    let cancelled = false;
+    fetch(`${API_URL}/espn/leagues`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((d) => !cancelled && setLeagues(d.leagues || []))
+      .catch(() => !cancelled && setLeaguesError(true));
+    return () => { cancelled = true; };
+  }, [mode]);
+
   const absorbSync = useCallback((data) => {
     setSync({
       connected: data.connected !== false,
@@ -1010,6 +1268,7 @@ export default function DraftBoard() {
       ageSeconds: data.age_seconds ?? null,
       version: data.version ?? 0,
       team: data.team ?? null,
+      league: data.league ?? null,
       complete: !!data.complete,
     });
     setSyncCtx({
@@ -1018,6 +1277,7 @@ export default function DraftBoard() {
       nextPick: data.next_pick,
       isMyTurn: !!data.is_my_turn,
       picksUntilMyTurn: data.picks_until_my_turn,
+      myPicks: data.my_picks ?? [],
       teams: data.teams ?? teams,
     });
     if (data.draft_log) setDraftLog(data.draft_log);
@@ -1028,11 +1288,15 @@ export default function DraftBoard() {
     if (data.bench_filled !== undefined) setBenchFilled(data.bench_filled);
   }, [teams]);
 
-  const connectEspn = useCallback(async (sid) => {
-    const data = await apiPost("/espn/connect", { session_id: sid });
+  const connectEspn = useCallback(async (sid, leagueId) => {
+    const data = await apiPost("/espn/connect", { session_id: sid, league_id: leagueId });
     absorbSync(data);
     if (data.teams) setTeams(data.teams);
     if (data.rounds) setRounds(data.rounds);
+    // The full order and the team names only come back on connect - they don't
+    // change during a draft, so there's no reason to resend them every poll.
+    if (data.pick_order) setPickOrder(data.pick_order);
+    if (data.teams_list) setTeamsList(data.teams_list);
     return data;
   }, [absorbSync]);
 
@@ -1079,7 +1343,7 @@ export default function DraftBoard() {
       absorbSync, refreshRecommendations, riskAversion]);
 
   const handleStart = useCallback(
-    async ({ espn, teams: t = 14, mySlot: s = 1, rounds: r = DEFAULT_ROUNDS }) => {
+    async ({ espn, leagueId, teams: t = 14, mySlot: s = 1, rounds: r = DEFAULT_ROUNDS }) => {
       setStarting(true);
       setSetupError(null);
       setTeams(t);
@@ -1110,7 +1374,7 @@ export default function DraftBoard() {
           // Connect *before* showing the board: it supplies the real team
           // count, round count and pick order, and starting on guessed values
           // would mean the first recommendation used the wrong next_pick.
-          const data = await connectEspn(session_id);
+          const data = await connectEspn(session_id, leagueId);
           setMode("live");
           setStarting(false);
           await refreshRecommendations(
@@ -1198,6 +1462,27 @@ export default function DraftBoard() {
   const handleDraft = useCallback((p) => submitPick(p, true), [submitPick]);
   const handleTaken = useCallback((p) => submitPick(p, false), [submitPick]);
 
+  // The title is the way home. Mid-draft it confirms first: a stray click that
+  // discards a part-built roster isn't recoverable, and the drafted players
+  // only live in server memory.
+  const goHome = useCallback(() => {
+    if (draftLog.length > 0 &&
+        !window.confirm("Leave this draft and pick a different league? Your picks here will be cleared.")) {
+      return;
+    }
+    disconnectEspn();
+    setPool([]);
+    setDraftLog([]);
+    setExpandedId(null);
+    setSelectedId(null);
+    setPickOrder([]);
+    setTeamsList([]);
+    setLeagues(null);
+    setLeaguesError(false);
+    setSetupError(null);
+    setMode("setup");
+  }, [draftLog.length, disconnectEspn]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const rows = pool
@@ -1258,21 +1543,36 @@ export default function DraftBoard() {
   );
 
   if (mode === "setup") {
-    return <SetupScreen onStart={handleStart} starting={starting} error={setupError} />;
+    return (
+      <SetupScreen
+        onStart={handleStart}
+        starting={starting}
+        error={setupError}
+        leagues={leagues}
+        leaguesError={leaguesError}
+      />
+    );
   }
 
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-white/5 bg-slate-950/85 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3">
-          <div className="flex items-center gap-2">
+          <button
+            onClick={goHome}
+            title="Back to your leagues"
+            className="flex items-center gap-2 rounded-lg px-1.5 py-1 transition hover:bg-white/5"
+          >
             <Trophy className="text-emerald-400" size={18} />
             <span className="font-semibold tracking-tight">Justin's Draft Assistant</span>
-          </div>
+          </button>
 
           <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-slate-900 p-1">
             {[
               { id: "board", label: "Draft board", icon: <LayoutList size={12} /> },
+              ...(sync.connected
+                ? [{ id: "draftday", label: "Draft day", icon: <CalendarClock size={12} /> }]
+                : []),
               { id: "analysis", label: "Analysis", icon: <BarChart3 size={12} /> },
             ].map((t) => (
               <button
@@ -1336,6 +1636,18 @@ export default function DraftBoard() {
           unmounted. Unmounting threw away the fetched payload, so every switch
           back paid the full request again. `hidden` is enough here because the
           wrapper carries no display utility class that would override it. */}
+      {tab === "draftday" && sync.connected && (
+        <DraftDay
+          league={sync.league}
+          pickCtx={pickCtx}
+          order={pickOrder}
+          teamsList={teamsList}
+          rosterState={rosterState}
+          picksRemaining={picksRemaining}
+          myTeamId={sync.team?.id}
+        />
+      )}
+
       {analysisSeen && (
         <div hidden={tab !== "analysis"}>
           <Suspense fallback={<div className="mx-auto max-w-5xl p-8 text-sm text-slate-500">Loading analysis…</div>}>
@@ -1359,16 +1671,11 @@ export default function DraftBoard() {
               point of this screen, so the chrome above it has to earn its
               height - together these take less room than the single card did
               and say considerably more. */}
-          <DraftStatusStrip
+          <BoardHeader
             mode={mode}
             pickCtx={pickCtx}
-            rosterState={rosterState}
-            picksRemaining={picksRemaining}
             sync={sync}
             onDisconnect={disconnectEspn}
-          />
-
-          <TopPicksStrip
             players={topThree}
             nextPick={nextPick}
             readOnly={readOnly}
@@ -1376,11 +1683,8 @@ export default function DraftBoard() {
             onOpen={focusPlayer}
             onDraft={handleDraft}
             onTaken={handleTaken}
+            draftLog={draftLog}
           />
-
-          {mode === "live" && draftLog.length > 0 && (
-            <RecentPicksTicker draftLog={draftLog} />
-          )}
 
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative min-w-[200px] flex-1 sm:max-w-xs">

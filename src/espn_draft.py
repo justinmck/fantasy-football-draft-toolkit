@@ -374,6 +374,25 @@ def team_display(payload: dict, team_id: int | None) -> dict:
     return {"id": team_id, "name": None, "abbrev": None}
 
 
+def all_teams(payload: dict) -> list[dict]:
+    """Every team in the league, so the draft order can be shown by name.
+
+    The order itself is a list of team ids; without this it would render as
+    fourteen anonymous numbers.
+    """
+    out = []
+    for team in payload.get("teams") or []:
+        name = team.get("name") or " ".join(
+            filter(None, [team.get("location"), team.get("nickname")])
+        ).strip()
+        try:
+            out.append({"id": int(team.get("id")), "name": name or f"Team {team.get('id')}",
+                        "abbrev": team.get("abbrev")})
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def my_pick_numbers(snapshot: DraftSnapshot, my_team_id: int | None) -> list[int]:
     if my_team_id is None:
         return []
