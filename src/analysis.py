@@ -37,6 +37,7 @@ from scipy import stats
 from sqlalchemy import text
 
 from notebooks.config import CURRENT_SEASON, POSITIONS, ROSTER_NEEDS, TEAMS
+from src.migrations import known_leagues, seasons_for_league
 from src.scoring import (
     add_vorp,
     compute_baselines,
@@ -74,12 +75,20 @@ JOIN average_draft_position a
      -- exactly, or SQLite silently stops using the expression index.
      ON CAST(a.player_id AS INTEGER) = d.player_id AND a.year = d.year
 WHERE d.year = :year
+  -- Every join here is league-scoped: a draft pick, the team that made it and
+  -- the fantasy points it earned all belong to one league. Without this the
+  -- three leagues' rows would be silently pooled, and since scoring settings
+  -- differ the points wouldn't even be on a common scale.
+  AND d.league_id = :league_id
+  AND s.league_id = :league_id
+  AND t.league_id = :league_id
 """
 
 _PROJECTION_ACTUALS_SQL = """
 SELECT player_id, position, projected_points, points AS actual_points
 FROM players_stats
 WHERE year = :year
+  AND league_id = :league_id
   AND projected_points IS NOT NULL AND projected_points != 0
   AND points IS NOT NULL
 """
@@ -116,8 +125,15 @@ class _Ctx:
     every function still works when handed a bare engine.
     """
 
-    def __init__(self, engine):
+    def __init__(self, engine, league_id=None, roster_need=None):
         self.engine = engine
+        # Which league everything on this page describes. Held on the context
+        # so it can't be forgotten by one section and applied by another.
+        self.league_id = str(league_id) if league_id else None
+        # That league's own starting lineup. Replacement level is defined by
+        # who starts, so a league with a different lineup gets different
+        # baselines and therefore a different VORP for every player.
+        self.roster_need = dict(roster_need) if roster_need else dict(ROSTER_NEEDS)
         self._tables = None
         self._columns = {}
         self._draft = {}
@@ -141,13 +157,13 @@ class _Ctx:
         return self._columns[table]
 
 
-def _ctx(engine) -> _Ctx:
+def _ctx(engine, league_id=None, roster_need=None) -> _Ctx:
     """Accept either a context or a bare engine.
 
     Given an engine this builds a throwaway context, so a standalone call is no
     slower than it was — it just doesn't share anything with its neighbours.
     """
-    return engine if isinstance(engine, _Ctx) else _Ctx(engine)
+    return engine if isinstance(engine, _Ctx) else _Ctx(engine, league_id, roster_need)
 
 
 def _engine_of(engine):
@@ -266,14 +282,15 @@ def load_draft_season(engine, year: int) -> pd.DataFrame:
     ctx = _ctx(engine)
     if year in ctx._draft:
         return ctx._draft[year].copy()
-    if not all(_has_table(ctx, t) for t in _REQUIRED_DRAFT_TABLES):
+    if not all(_has_table(ctx, t) for t in _REQUIRED_DRAFT_TABLES) or not ctx.league_id:
         ctx._draft[year] = pd.DataFrame()
         return pd.DataFrame()
-    df = pd.read_sql(text(_DRAFT_SEASON_SQL), _engine_of(engine), params={"year": year})
+    df = pd.read_sql(text(_DRAFT_SEASON_SQL), _engine_of(engine),
+                     params={"year": year, "league_id": ctx.league_id})
     if not df.empty:
         df["position"] = df["position"].map(normalize_position)
         df = df[df["position"].notna()]
-        baselines = compute_baselines(df, teams=TEAMS, roster_needs=ROSTER_NEEDS, value_col="points")
+        baselines = compute_baselines(df, teams=TEAMS, roster_needs=ctx.roster_need, value_col="points")
         df = add_vorp(df, baselines, value_col="points", out_col="vorp")
     ctx._draft[year] = df
     return df.copy()
@@ -287,18 +304,20 @@ def replacement_levels(engine, year: int) -> dict:
     from league settings (teams × starters, plus a share of FLEX) rather than a
     hand-picked rank cutoff, which is what earlier versions used.
     """
-    if not _has_columns(engine, "players_stats", _PROJECTION_COLUMNS):
+    ctx = _ctx(engine)
+    if not _has_columns(ctx, "players_stats", _PROJECTION_COLUMNS) or not ctx.league_id:
         return {"year": year, "positions": []}
-    df = pd.read_sql(text(_PROJECTION_ACTUALS_SQL), _engine_of(engine), params={"year": year})
+    df = pd.read_sql(text(_PROJECTION_ACTUALS_SQL), _engine_of(engine),
+                     params={"year": year, "league_id": ctx.league_id})
     if df.empty:
         return {"year": year, "positions": []}
     df["position"] = df["position"].map(normalize_position)
     df = df[df["position"].isin(set(POSITIONS))]
-    baselines = compute_baselines(df, teams=TEAMS, roster_needs=ROSTER_NEEDS, value_col="actual_points")
+    baselines = compute_baselines(df, teams=TEAMS, roster_needs=ctx.roster_need, value_col="actual_points")
 
     rows = []
     for pos, grp in df.groupby("position"):
-        n = starters_needed(pos, teams=TEAMS)
+        n = starters_needed(pos, teams=TEAMS, roster_needs=ctx.roster_need)
         rows.append({
             "position": pos,
             "starters_league_wide": n,
@@ -307,7 +326,7 @@ def replacement_levels(engine, year: int) -> dict:
             "pool": int(len(grp)),
         })
     rows.sort(key=lambda r: -r["baseline_points"])
-    return {"year": year, "teams": TEAMS, "roster_needs": ROSTER_NEEDS, "positions": rows}
+    return {"year": year, "teams": TEAMS, "roster_needs": ctx.roster_need, "positions": rows}
 
 
 def draft_value_by_round(engine, year: int) -> list[dict]:
@@ -387,20 +406,23 @@ def _projection_actuals(engine, years: list[int]) -> pd.DataFrame:
     thing in the payload — twelve baseline computations across six seasons.
     """
     ctx = _ctx(engine)
+    if not ctx.league_id:
+        return pd.DataFrame()
     key = tuple(years)
     if key in ctx._actuals:
         return ctx._actuals[key].copy()
     frames = []
     for year in years:
-        df = pd.read_sql(text(_PROJECTION_ACTUALS_SQL), _engine_of(engine), params={"year": year})
+        df = pd.read_sql(text(_PROJECTION_ACTUALS_SQL), _engine_of(engine),
+                         params={"year": year, "league_id": ctx.league_id})
         if df.empty:
             continue
         df["position"] = df["position"].map(normalize_position)
         df = df[df["position"].isin(set(POSITIONS))]
         if df.empty:
             continue
-        proj_base = compute_baselines(df, teams=TEAMS, roster_needs=ROSTER_NEEDS, value_col="projected_points")
-        act_base = compute_baselines(df, teams=TEAMS, roster_needs=ROSTER_NEEDS, value_col="actual_points")
+        proj_base = compute_baselines(df, teams=TEAMS, roster_needs=ctx.roster_need, value_col="projected_points")
+        act_base = compute_baselines(df, teams=TEAMS, roster_needs=ctx.roster_need, value_col="actual_points")
         df = add_vorp(df, proj_base, value_col="projected_points", out_col="proj_vorp").drop(columns="baseline")
         df = add_vorp(df, act_base, value_col="actual_points", out_col="actual_vorp").drop(columns="baseline")
         df["year"] = year
@@ -550,18 +572,34 @@ def bench_depth(engine) -> dict:
 # payload
 # ---------------------------------------------------------------------------
 
-def league_analysis(engine, year: int | None = None) -> dict:
+def league_analysis(engine, year: int | None = None, league_id: str | None = None,
+                    roster_need: dict | None = None) -> dict:
     """Everything the Analysis tab renders, in one round-trip.
 
     One request context is built here and threaded through every section, so the
     expensive frames each section would otherwise load for itself are read once.
+
+    Scoped to one league. When the caller doesn't name one, fall back to the
+    only league with history - which keeps single-league databases behaving
+    exactly as before. With several, refusing to guess is the honest answer:
+    picking arbitrarily would label one league's drafters with another's habits.
     """
     year = year or CURRENT_SEASON
-    engine = _ctx(engine)
+    if league_id is None:
+        stored = known_leagues(engine if not isinstance(engine, _Ctx) else engine.engine)
+        league_id = stored[0] if len(stored) == 1 else None
+    engine = _ctx(engine, league_id, roster_need)
+    seasons = (seasons_for_league(engine.engine, league_id) if league_id else [])
     return {
         "year": year,
+        "league_id": league_id,
+        # Which seasons of this league's own history are stored. Drives the
+        # "needs prior seasons" gate: an empty list means the league-specific
+        # half of the page has nothing to say.
+        "seasons": seasons,
+        "has_history": bool(seasons),
         "teams_in_league": TEAMS,
-        "roster_needs": ROSTER_NEEDS,
+        "roster_needs": engine.roster_need,
         "dataset": dataset_provenance(engine),
         "replacement_levels": replacement_levels(engine, year),
         "draft_value_by_round": draft_value_by_round(engine, year),
@@ -571,6 +609,14 @@ def league_analysis(engine, year: int | None = None) -> dict:
         "adp_benchmark": adp_benchmark(engine, year),
         "bench_depth": bench_depth(engine),
         "league_bias": league_bias(engine),
+        # Which league the persisted tables below were fitted on. They are
+        # NOT recomputed per league: projection reliability and the regression
+        # diagnostics come from whichever league's history was processed. When
+        # that isn't the league being viewed, the UI labels them as a general
+        # reference rather than presenting them as this league's own numbers.
+        "reference_league_id": (
+            (_read_table(engine, "league_bias_meta") or [{}])[0].get("league_id")
+        ),
         # Persisted notebook outputs. Empty lists when that notebook hasn't been
         # run, which the UI renders as "not available yet" rather than as zeros.
         "position_reliability": _read_table(engine, "position_reliability", order_by="r2 DESC"),

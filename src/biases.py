@@ -64,6 +64,7 @@ import numpy as np
 import pandas as pd
 from sqlalchemy import text
 
+from src.migrations import known_leagues
 from src.scoring import NO_ADP_SENTINEL, normalize_position
 
 try:
@@ -128,6 +129,11 @@ JOIN average_draft_position a
 LEFT JOIN players_stats s ON s.player_id = d.player_id AND s.year = d.year
 LEFT JOIN players p       ON p.player_id = d.player_id
 WHERE a.avg IS NOT NULL AND a.avg > 0
+  -- One league's drafters. Pooling leagues here would average away the very
+  -- thing being measured: "this league takes QBs early" is a claim about a
+  -- specific set of people.
+  AND d.league_id = :league_id
+  AND (s.league_id IS NULL OR s.league_id = :league_id)
 """
 
 _BIAS_TABLES = ("league_bias_position", "league_bias_proteam",
@@ -217,8 +223,17 @@ def _permutation_p(df: pd.DataFrame, key: str, value: str, n_perm: int, seed: in
 # fitting
 # ---------------------------------------------------------------------------
 
-def _load_fit_frame(engine, years, adp_max: float) -> pd.DataFrame:
-    df = pd.read_sql(text(_FIT_SQL), engine)
+def empty_result() -> dict:
+    """No usable history - every consumer must handle this, not just the UI."""
+    return {"position": {}, "pro_team": {}, "player": {},
+            "meta": {"source": "fit", "n_picks": 0},
+            "tables": {k: pd.DataFrame() for k in
+                       ("position", "pro_team", "manager", "player",
+                        "position_season", "proteam_season")}}
+
+
+def _load_fit_frame(engine, years, adp_max: float, league_id: str) -> pd.DataFrame:
+    df = pd.read_sql(text(_FIT_SQL), engine, params={"league_id": str(league_id)})
     if df.empty:
         return df
     df = df[df["year"].isin(list(years))]
@@ -242,7 +257,7 @@ def _seasons_same_sign(df: pd.DataFrame, key: str, value: str) -> pd.Series:
 
 
 def fit_league_bias(engine, years=None, adp_max: float = DEFAULT_ADP_MAX,
-                    permutations: int = 0) -> dict:
+                    permutations: int = 0, league_id: str | None = None) -> dict:
     """Measure this league's draft habits against the national market.
 
     Returns the applied shifts plus full diagnostics per family, ready to be
@@ -255,11 +270,17 @@ def fit_league_bias(engine, years=None, adp_max: float = DEFAULT_ADP_MAX,
     alongside the raw mean rather than quietly swapped for it.
     """
     years = tuple(years) if years else tuple(range(2020, CURRENT_SEASON + 1))
-    df = _load_fit_frame(engine, years, adp_max)
-    empty = {"position": {}, "pro_team": {}, "player": {}, "meta": {"source": "fit", "n_picks": 0},
-             "tables": {k: pd.DataFrame() for k in ("position", "pro_team", "manager", "player")}}
+    if league_id is None:
+        # Fall back to the only league with history; refuse to guess between
+        # several, since attributing one league's habits to another is the
+        # exact error this scoping exists to prevent.
+        stored = known_leagues(engine)
+        league_id = stored[0] if len(stored) == 1 else None
+    if league_id is None:
+        return empty_result()
+    df = _load_fit_frame(engine, years, adp_max, league_id)
     if df.empty:
-        return empty
+        return empty_result()
 
     seasons = ",".join(str(y) for y in sorted(df["year"].unique()))
     resid_sd = float(df["resid"].std())
@@ -330,7 +351,7 @@ def fit_league_bias(engine, years=None, adp_max: float = DEFAULT_ADP_MAX,
         "pro_team": {r.pro_team: float(r.shrunk) for r in team.itertuples()} if len(team) else {},
         "player": {int(r.player_id): float(r.mean) for r in ply.itertuples() if r.passes_strict_filter},
         "meta": {
-            "source": "fit", "years": seasons, "adp_cutoff": float(adp_max),
+            "source": "fit", "league_id": str(league_id), "years": seasons, "adp_cutoff": float(adp_max),
             "n_picks": int(len(df)), "resid_sd": resid_sd,
             "k_position": float(k_pos), "k_proteam": float(k_team), "k_manager": float(k_mgr),
         },
