@@ -27,6 +27,14 @@ class EspnConnectBody(BaseModel):
     league_id: Optional[str] = None
 
 
+class AnalysisRunBody(BaseModel):
+    league_id: str
+    # Which seasons to look for. Defaults cover every season ESPN is likely to
+    # still serve; seasons the league didn't exist for are skipped, not errors.
+    since: Optional[int] = None
+    through: Optional[int] = None
+
+
 class EspnDisconnectBody(BaseModel):
     session_id: str
 

@@ -1,0 +1,118 @@
+"""A minimal background job runner for work too slow to hold a request open.
+
+Pulling a league's history is one request per view per season — for five
+seasons that's a couple of minutes, mostly waiting on ESPN. A blocking
+endpoint would risk a browser or proxy timeout part-way through, leaving the
+database half-populated and the user with a spinner that never resolves.
+
+Deliberately small: a thread per job, an in-memory registry, and progress the
+job reports itself. There is no queue, no persistence and no cancellation,
+because there is exactly one user and one job that matters. The alternative -
+Celery, a broker, a worker process - would be more machinery than the whole
+rest of the backend.
+
+Jobs are *not* persisted: a backend restart loses them. That is acceptable
+because the work is idempotent and the result lives in the database, so
+re-running after a restart costs time rather than correctness.
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+import time
+import uuid
+from dataclasses import dataclass, field
+
+log = logging.getLogger(__name__)
+
+# Finished jobs are kept this long so a poll that arrives after completion
+# still sees the result rather than a confusing 404.
+_RETAIN_SECONDS = 30 * 60
+
+
+@dataclass
+class Job:
+    id: str
+    kind: str
+    key: str                      # what it's about, e.g. a league id
+    status: str = "running"       # running | done | failed
+    progress: float = 0.0         # 0..1
+    message: str = ""
+    result: dict | None = None
+    error: str | None = None
+    started: float = field(default_factory=time.time)
+    finished: float | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id, "kind": self.kind, "key": self.key,
+            "status": self.status, "progress": round(self.progress, 3),
+            "message": self.message, "result": self.result, "error": self.error,
+            "elapsed": round((self.finished or time.time()) - self.started, 1),
+        }
+
+
+JOBS: dict[str, Job] = {}
+_LOCK = threading.Lock()
+
+
+def _reap() -> None:
+    """Drop long-finished jobs so the registry can't grow without bound."""
+    cutoff = time.time() - _RETAIN_SECONDS
+    for job_id in [j.id for j in JOBS.values()
+                   if j.finished and j.finished < cutoff]:
+        JOBS.pop(job_id, None)
+
+
+def find_active(kind: str, key: str) -> Job | None:
+    """A running job for the same thing, so a double-click doesn't start two."""
+    with _LOCK:
+        for job in JOBS.values():
+            if job.kind == kind and job.key == str(key) and job.status == "running":
+                return job
+    return None
+
+
+def start(kind: str, key: str, fn) -> Job:
+    """Run `fn(report)` on a thread. `report(progress, message)` drives the UI.
+
+    Returns the existing job if one is already running for this key - clicking
+    "Run analysis" twice should watch one pull, not start a second one against
+    the same league.
+    """
+    existing = find_active(kind, key)
+    if existing:
+        return existing
+
+    job = Job(id=uuid.uuid4().hex[:12], kind=kind, key=str(key))
+    with _LOCK:
+        _reap()
+        JOBS[job.id] = job
+
+    def report(progress: float, message: str = "") -> None:
+        job.progress = max(0.0, min(1.0, float(progress)))
+        if message:
+            job.message = message
+
+    def run() -> None:
+        try:
+            job.result = fn(report)
+            job.status, job.progress = "done", 1.0
+            job.message = job.message or "Finished"
+        except Exception as exc:  # noqa: BLE001 - the message is shown to the user
+            # str(exc) is safe here only because everything this runs raises the
+            # constant-message exceptions from src/espn_draft.py. Anything that
+            # could interpolate a credential must never be raised into a job.
+            job.status, job.error = "failed", str(exc)
+            job.message = "Failed"
+            log.warning("job %s (%s/%s) failed: %s", job.id, kind, key, exc)
+        finally:
+            job.finished = time.time()
+
+    threading.Thread(target=run, daemon=True, name=f"job-{job.id}").start()
+    return job
+
+
+def get(job_id: str) -> Job | None:
+    return JOBS.get(job_id)

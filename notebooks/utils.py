@@ -15,6 +15,10 @@ if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
 from config import POSITIONS
+# Position parsing lives in src/scoring.py with the rest of the
+# position handling, so code that must not import espn_api (which
+# this module does) can still use it. Re-exported for callers.
+from src.scoring import position_from_eligible_slots  # noqa: F401
 import pandas as pd
 import time
 import re
@@ -31,53 +35,6 @@ from src.scoring import add_vorp, compute_baselines, normalize_position
 # "OP") are deliberately NOT listed - matching is exact, so a WR whose slots
 # are ["RB/WR", "WR", "WR/TE", "RB/WR/TE"] resolves to WR rather than RB.
 _SINGULAR_POSITION_SLOTS = ("QB", "RB", "WR", "TE", "K")
-
-
-def position_from_eligible_slots(slots):
-    """Derive a player's real position from ESPN's `eligibleSlots` list.
-
-    ESPN's player objects expose `lineupSlot` (where the player sat in a
-    roster *this* week - "BE" for bench, "RB/WR/TE" for a flex start, or a
-    raw slot id) and `eligibleSlots` (every roster slot the player is
-    *allowed* to fill, which is a property of the player, not of any given
-    week). Only the latter identifies position.
-
-    This project originally recorded `lineupSlot` into the `position` column,
-    which meant ~76% of every season's rows landed in `players_stats` labelled
-    "0" or "BE" and were then silently dropped by every downstream
-    `position.isin(POSITIONS)` filter. Deriving from `eligibleSlots` instead
-    recovers 99.97% of rows and agrees with the existing labels on 100% of
-    the rows that were already correct.
-
-    Accepts a list, a JSON string (as stored in the DB), or a Python-repr
-    string (as stored in the raw CSVs). Returns None when no fantasy position
-    is present - e.g. punters, whose only eligible slot is "P".
-    """
-    if slots is None:
-        return None
-    if isinstance(slots, str):
-        text_value = slots.strip()
-        if not text_value:
-            return None
-        try:
-            slots = json.loads(text_value)
-        except (ValueError, TypeError):
-            try:
-                slots = ast.literal_eval(text_value)
-            except (ValueError, SyntaxError):
-                return None
-    if not isinstance(slots, (list, tuple, set)):
-        return None
-
-    available = {str(s).strip() for s in slots}
-    for position in _SINGULAR_POSITION_SLOTS:
-        if position in available:
-            return position
-    # Defense is the one position ESPN spells differently from our POSITIONS
-    # constant, so normalize it here rather than leaving it to callers.
-    if "D/ST" in available or "DST" in available:
-        return "DST"
-    return None
 
 
 def load_season_stats(engine, year):

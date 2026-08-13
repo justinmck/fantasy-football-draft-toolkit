@@ -499,3 +499,48 @@ def apply_league_bias(df: pd.DataFrame, bias: dict, include_player: bool = False
         for s, p, t, po, te in zip(shift, pos_shift, team_shift, positions, teams)
     ]
     return out
+
+
+def persist_league_bias(engine, fit: dict, league_id: str, permutations: int = 0) -> None:
+    """Write a fit to the tables `load_league_bias` reads.
+
+    Shared by `notebooks/compute_league_bias.py` and the API's analysis job, so
+    a fit produced either way is stored identically - the same rule that keeps
+    VORP in one place.
+
+    Rows are replaced wholesale per table rather than per league. That is a
+    real limitation: fitting league B discards league A's stored fit. It is
+    acceptable only because the app fits the league you are looking at, and
+    `league_id` in `league_bias_meta` says which one that was, so nothing is
+    ever silently attributed to the wrong league.
+    """
+    import pandas as pd
+    from datetime import datetime, timezone
+
+    tables = fit.get("tables") or {}
+    mapping = {
+        "position": "league_bias_position",
+        "pro_team": "league_bias_proteam",
+        "manager": "league_bias_manager",
+        "player": "league_bias_player",
+        "position_season": "league_bias_position_season",
+        "proteam_season": "league_bias_proteam_season",
+    }
+    for key, table in mapping.items():
+        frame = tables.get(key)
+        if frame is not None and len(frame):
+            frame.to_sql(table, engine, if_exists="replace", index=False)
+
+    meta = fit.get("meta") or {}
+    pd.DataFrame([{
+        "fit_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "league_id": str(league_id),
+        "years": meta.get("years"),
+        "adp_cutoff": meta.get("adp_cutoff"),
+        "n_picks": meta.get("n_picks", 0),
+        "resid_sd": round(meta.get("resid_sd", 0.0), 3),
+        "k_position": round(meta.get("k_position", 0.0), 2),
+        "k_proteam": round(meta.get("k_proteam", 0.0), 2),
+        "k_manager": round(meta.get("k_manager", 0.0), 2),
+        "permutations": permutations,
+    }]).to_sql("league_bias_meta", engine, if_exists="replace", index=False)

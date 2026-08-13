@@ -12,12 +12,16 @@ from src.analysis import league_analysis
 from src.db import engine
 from src.indexes import ensure_indexes
 from src.schemas import (
-    EspnConnectBody, EspnDisconnectBody, SessionCreate, PickBody, RecommendBody,
+    AnalysisRunBody, EspnConnectBody, EspnDisconnectBody, SessionCreate,
+    PickBody, RecommendBody,
 )
 from src.state import SESSIONS, new_session, get_session
 from src.recommender import recommend
 from src.scoring import RISK_AVERSION
-from src.biases import load_league_bias
+from src.biases import fit_league_bias, load_league_bias, persist_league_bias
+from src.espn_history import available_seasons, pull_season, store_season
+from src.jobs import find_active, get as get_job, start
+from src.migrations import add_league_id, seasons_for_league
 from src.espn_draft import (
     ESPN_SYNCS, DraftSync, EspnAuthError, EspnDraftClient, EspnUnavailable,
     all_teams, list_leagues, load_credentials, resolve_my_team_id, team_display,
@@ -38,8 +42,11 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 # refusing to boot.
 try:
     ensure_indexes(engine)
+    # Additive and idempotent: gives the league-scoped tables a league_id and
+    # labels pre-existing rows with the configured league. Safe every boot.
+    add_league_id(engine, os.getenv("LEAGUE_ID"))
 except Exception as exc:  # pragma: no cover - depends on DB permissions
-    log.warning("could not ensure indexes: %s", exc)
+    log.warning("could not prepare database: %s", exc)
 
 # Read the persisted fit rather than computing it here. Fitting at import would
 # need `teams`, `players` and `players_stats.pro_team`, which a partially built
@@ -85,7 +92,7 @@ def _db_version() -> tuple | None:
 
 
 @app.get("/analysis")
-def analysis(year: int | None = None):
+def analysis(year: int | None = None, league_id: str | None = None):
     """Retrospective league analysis for the UI's Analysis tab.
 
     Cached against the database file's identity (see `_db_version`), because the
@@ -96,13 +103,13 @@ def analysis(year: int | None = None):
     year = year or CURRENT_SEASON
     version = _db_version()
     if version is None:
-        return league_analysis(engine, year)
+        return league_analysis(engine, year, league_id=league_id)
 
-    key = (year, version)
+    key = (year, league_id, version)
     if key not in _ANALYSIS_CACHE:
         # The database moved, so every previous entry is stale by definition.
         _ANALYSIS_CACHE.clear()
-        _ANALYSIS_CACHE[key] = league_analysis(engine, year)
+        _ANALYSIS_CACHE[key] = league_analysis(engine, year, league_id=league_id)
     return _ANALYSIS_CACHE[key]
 
 # --- live ESPN draft sync -------------------------------------------------
@@ -368,6 +375,86 @@ def espn_disconnect(body: EspnDisconnectBody):
     """
     ESPN_SYNCS.pop(body.session_id, None)
     return {"connected": False}
+
+
+# --- per-league analysis ------------------------------------------------
+
+@app.get("/analysis/status")
+def analysis_status(league_id: str, year: int | None = None):
+    """What the Analysis tab needs to decide between the gate and the page.
+
+    Cheap and local: reads what's stored rather than asking ESPN, so opening
+    the tab costs nothing. Probing ESPN for which seasons *could* be pulled
+    happens only when the user asks to run it.
+    """
+    year = year or CURRENT_SEASON
+    seasons = seasons_for_league(engine, league_id)
+    running = find_active("history", league_id)
+    return {
+        "league_id": league_id,
+        "seasons": seasons,
+        "has_history": bool(seasons),
+        # Fitted on whichever league was processed; the tab labels the shared
+        # reliability tables as reference when it isn't this one.
+        "reference_league_id": (BIAS.get("meta") or {}).get("league_id"),
+        "job": running.to_dict() if running else None,
+    }
+
+
+@app.post("/analysis/run")
+def analysis_run(body: AnalysisRunBody):
+    """Pull this league's completed seasons, then refit its bias.
+
+    A background job: five seasons is a couple of minutes of waiting on ESPN,
+    and a blocking request risks timing out with the database half-populated.
+    """
+    league_id = str(body.league_id)
+    try:
+        creds = load_credentials()
+    except EspnAuthError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+
+    first, last = body.since or 2020, body.through or CURRENT_SEASON
+
+    def work(report):
+        report(0.02, "Checking which seasons exist…")
+        seasons = available_seasons(creds, league_id, range(first, last + 1))
+        if not seasons:
+            # Not a failure: a brand-new league genuinely has no history, and
+            # the tab explains that rather than showing an error.
+            return {"seasons": [], "written": {}, "reason": "no completed seasons"}
+
+        written, skipped = {}, []
+        for i, year in enumerate(seasons):
+            report(0.05 + 0.8 * i / len(seasons), f"Pulling {year}…")
+            try:
+                frames = pull_season(creds, league_id, year)
+            except EspnUnavailable:
+                # One bad season shouldn't lose the four that worked.
+                skipped.append(year)
+                continue
+            written[year] = store_season(engine, league_id, year, frames)
+
+        report(0.9, "Measuring this league's draft habits…")
+        fit = fit_league_bias(engine, league_id=league_id, permutations=0)
+        persist_league_bias(engine, fit, league_id)
+
+        # The payload is keyed on the database file's identity, which just
+        # changed - drop it so the tab doesn't read the pre-pull version.
+        _ANALYSIS_CACHE.clear()
+        return {"seasons": sorted(written), "skipped": skipped,
+                "written": {str(k): v for k, v in written.items()},
+                "picks_fitted": fit["meta"].get("n_picks", 0)}
+
+    return start("history", league_id, work).to_dict()
+
+
+@app.get("/analysis/job/{job_id}")
+def analysis_job(job_id: str):
+    job = get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="job not found")
+    return job.to_dict()
 
 
 @app.post("/session")

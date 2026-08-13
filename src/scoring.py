@@ -21,6 +21,8 @@ hand-picked and re-justified per position.
 """
 from __future__ import annotations
 
+import ast
+import json
 import math
 
 import numpy as np
@@ -49,6 +51,72 @@ def normalize_position(pos: str | None) -> str | None:
     if pos is None:
         return pos
     return POSITION_ALIASES.get(pos, pos)
+
+
+# Slot names that identify exactly one position. Order matters only in that
+# every entry is unambiguous; FLEX-style slots are deliberately absent.
+_SINGULAR_POSITION_SLOTS = ("QB", "RB", "WR", "TE", "K")
+
+# ESPN reports eligible slots as names in its exported CSVs but as numeric ids
+# in the live API, and both reach this function. Only the unambiguous ones are
+# listed - flex slots (3, 5, 23) identify no single position, and bench (20) /
+# IR (21) identify none at all.
+_SLOT_ID_NAMES = {0: "QB", 2: "RB", 4: "WR", 6: "TE", 16: "D/ST", 17: "K"}
+
+
+def position_from_eligible_slots(slots):
+    """Derive a player's real position from ESPN's `eligibleSlots` list.
+
+    ESPN's player objects expose `lineupSlot` (where the player sat in a
+    roster *this* week - "BE" for bench, "RB/WR/TE" for a flex start, or a
+    raw slot id) and `eligibleSlots` (every roster slot the player is
+    *allowed* to fill, which is a property of the player, not of any given
+    week). Only the latter identifies position.
+
+    This project originally recorded `lineupSlot` into the `position` column,
+    which meant ~76% of every season's rows landed in `players_stats` labelled
+    "0" or "BE" and were then silently dropped by every downstream
+    `position.isin(POSITIONS)` filter. Deriving from `eligibleSlots` instead
+    recovers 99.97% of rows and agrees with the existing labels on 100% of
+    the rows that were already correct.
+
+    Accepts a list, a JSON string (as stored in the DB), or a Python-repr
+    string (as stored in the raw CSVs). Returns None when no fantasy position
+    is present - e.g. punters, whose only eligible slot is "P".
+    """
+    if slots is None:
+        return None
+    if isinstance(slots, str):
+        text_value = slots.strip()
+        if not text_value:
+            return None
+        try:
+            slots = json.loads(text_value)
+        except (ValueError, TypeError):
+            try:
+                slots = ast.literal_eval(text_value)
+            except (ValueError, SyntaxError):
+                return None
+    if not isinstance(slots, (list, tuple, set)):
+        return None
+
+    available = set()
+    for slot in slots:
+        # An int (or a digit string) is a slot id; anything else is a name.
+        try:
+            available.add(_SLOT_ID_NAMES[int(slot)])
+            continue
+        except (TypeError, ValueError, KeyError):
+            pass
+        available.add(str(slot).strip())
+    for position in _SINGULAR_POSITION_SLOTS:
+        if position in available:
+            return position
+    # Defense is the one position ESPN spells differently from our POSITIONS
+    # constant, so normalize it here rather than leaving it to callers.
+    if "D/ST" in available or "DST" in available:
+        return "DST"
+    return None
 
 
 def starters_needed(position: str, teams: int = TEAMS, roster_needs: dict | None = None) -> int:

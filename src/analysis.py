@@ -584,12 +584,18 @@ def league_analysis(engine, year: int | None = None, league_id: str | None = Non
     exactly as before. With several, refusing to guess is the honest answer:
     picking arbitrarily would label one league's drafters with another's habits.
     """
-    year = year or CURRENT_SEASON
     if league_id is None:
         stored = known_leagues(engine if not isinstance(engine, _Ctx) else engine.engine)
         league_id = stored[0] if len(stored) == 1 else None
     engine = _ctx(engine, league_id, roster_need)
     seasons = (seasons_for_league(engine.engine, league_id) if league_id else [])
+    # The retrospective sections describe one season, and it has to be a season
+    # this league actually drafted in. Defaulting to the calendar's current
+    # season would show an empty page for a league that skipped a year or ran
+    # its draft offline - Sigmas' 2025 draft was never completed in ESPN, so
+    # its most recent real draft is 2024.
+    if year is None or (seasons and year not in seasons):
+        year = seasons[-1] if seasons else (year or CURRENT_SEASON)
     return {
         "year": year,
         "league_id": league_id,
