@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
@@ -17,6 +17,7 @@ import {
   Timer,
   Trophy,
   UserPlus,
+  Users,
   WifiOff,
   XCircle,
 } from "lucide-react";
@@ -51,13 +52,50 @@ function nextMyPick(fromPick, mySlot, teams) {
   return n;
 }
 
+// ---- Device memory ----
+//
+// Only the opaque token is kept here; the ESPN cookies stay on the server. See
+// src/auth.py for why. `lastLeagueId` is what makes reopening the app land on
+// the board instead of the league picker.
+const STORE_KEY = "jda.device";
+
+function loadDevice() {
+  try {
+    return JSON.parse(localStorage.getItem(STORE_KEY) || "{}") || {};
+  } catch {
+    return {};   // private mode, or someone hand-edited it
+  }
+}
+
+function saveDevice(patch) {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify({ ...loadDevice(), ...patch }));
+  } catch { /* remembering is a convenience; never break the app over it */ }
+}
+
+// Read once at load and kept in a module variable so every request carries it
+// without threading the token through a dozen call sites.
+let deviceToken = loadDevice().token || null;
+
+const authHeaders = () => (deviceToken ? { "X-Device-Token": deviceToken } : {});
+
+const apiGet = (path) => fetch(`${API_URL}${path}`, { headers: authHeaders() });
+
 async function apiPost(path, body) {
   const res = await fetch(`${API_URL}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    // The detail is the whole value of the auth errors - "check your cookies"
+    // versus "ESPN is down" send someone to different places.
+    let detail = null;
+    try { detail = (await res.json()).detail; } catch { /* not JSON */ }
+    const e = new Error(detail || `HTTP ${res.status}`);
+    e.status = res.status;
+    throw e;
+  }
   return res.json();
 }
 
@@ -103,8 +141,170 @@ const DraftWhenChip = ({ draftAt, scheduled, className = "" }) =>
     </span>
   );
 
+// ---- League switcher ----
+//
+// Switching used to mean going home first. The name in the header is the menu,
+// so the league you're looking at and the control that changes it are the same
+// thing.
+function LeagueMenu({ leagues, currentId, currentName, onSwitch, onSignOut }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const away = (e) => { if (!box.current?.contains(e.target)) setOpen(false); };
+    const esc = (e) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+
+  const list = leagues || [];
+
+  return (
+    <div className="relative" ref={box}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title="Switch league"
+        className="flex max-w-[14rem] items-center gap-1.5 rounded-lg border border-white/10 bg-slate-900
+          px-2.5 py-1.5 text-xs text-slate-300 transition hover:border-white/20 hover:text-white"
+      >
+        <Users size={12} className="shrink-0 text-slate-500" />
+        <span className="truncate">{currentName || "League"}</span>
+        <ChevronDown size={12} className={`shrink-0 ${open ? "rotate-180 transition" : "transition"}`} />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-1.5 w-72 overflow-hidden rounded-xl border
+          border-white/10 bg-slate-900 shadow-xl shadow-black/40">
+          <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-slate-600">
+            Your leagues
+          </div>
+          {list.length === 0 && (
+            <div className="px-3 pb-3 text-xs text-slate-500">No leagues found.</div>
+          )}
+          {list.map((l) => {
+            const active = String(l.league_id) === String(currentId);
+            return (
+              <button
+                key={l.league_id}
+                onClick={() => { setOpen(false); if (!active) onSwitch(l.league_id); }}
+                className={`flex w-full items-center gap-2 px-3 py-2 text-left transition ${
+                  active ? "bg-emerald-500/10" : "hover:bg-white/5"
+                }`}
+              >
+                <span className={`flex-1 truncate text-xs ${active ? "text-emerald-300" : "text-slate-300"}`}>
+                  {l.name}
+                </span>
+                <DraftWhenChip draftAt={l.draft_at} scheduled={l.scheduled} />
+              </button>
+            );
+          })}
+          <button
+            onClick={() => { setOpen(false); onSignOut(); }}
+            className="w-full border-t border-white/5 px-3 py-2 text-left text-xs text-slate-500
+              transition hover:bg-white/5 hover:text-slate-300"
+          >
+            Sign out of ESPN
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Sign in ----
+//
+// The credentials go to the backend, which keeps them and returns an opaque
+// token. Only that token is stored on the device, so a script on this page
+// can't read the ESPN session cookies and they don't travel on every request.
+
+function SignInScreen({ onSignIn, busy, error }) {
+  const [swid, setSwid] = useState("");
+  const [s2, setS2] = useState("");
+  const [how, setHow] = useState(false);
+
+  const field =
+    "mt-1.5 h-10 w-full rounded-lg border border-white/10 bg-slate-900 px-3 font-mono text-xs " +
+    "text-slate-100 outline-none transition focus:border-emerald-400/50 focus:ring-2 focus:ring-emerald-400/20";
+
+  return (
+    <div className="flex min-h-screen items-center justify-center p-6">
+      <div className="card w-full max-w-md p-7">
+        <div className="mb-1 flex items-center gap-2">
+          <Trophy className="text-emerald-400" size={20} />
+          <h1 className="text-xl font-semibold tracking-tight">Justin's Draft Assistant</h1>
+        </div>
+        <p className="mb-6 text-sm leading-relaxed text-slate-400">
+          Connect your ESPN account to load your leagues, follow your draft live, and analyse how
+          your league drafts.
+        </p>
+
+        <form
+          onSubmit={(e) => { e.preventDefault(); onSignIn(swid.trim(), s2.trim()); }}
+          className="space-y-3"
+        >
+          <label className="block text-sm text-slate-300">
+            SWID
+            <input
+              value={swid} onChange={(e) => setSwid(e.target.value)}
+              placeholder="{XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"
+              className={field} spellCheck={false} autoComplete="off"
+            />
+          </label>
+          <label className="block text-sm text-slate-300">
+            espn_s2
+            <input
+              value={s2} onChange={(e) => setS2(e.target.value)}
+              placeholder="AEB..."
+              className={field} spellCheck={false} autoComplete="off"
+            />
+          </label>
+
+          {error && (
+            <div className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs leading-relaxed text-rose-300">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={busy || !swid.trim() || !s2.trim()}
+            className="h-11 w-full rounded-lg bg-emerald-500 text-sm font-semibold text-slate-950
+              transition hover:bg-emerald-400 disabled:opacity-50"
+          >
+            {busy ? "Connecting…" : "Connect ESPN account"}
+          </button>
+        </form>
+
+        <button
+          onClick={() => setHow((v) => !v)}
+          className="mt-4 flex w-full items-center justify-center gap-1 text-xs text-slate-500 hover:text-slate-300"
+        >
+          Where do I find these? <ChevronDown size={12} className={how ? "rotate-180 transition" : "transition"} />
+        </button>
+        {how && (
+          <ol className="mt-3 space-y-1.5 rounded-lg bg-white/[0.03] p-3 text-xs leading-relaxed text-slate-400">
+            <li>1. Sign in at <span className="text-slate-300">fantasy.espn.com</span> in this browser.</li>
+            <li>2. Open developer tools → Application → Cookies → espn.com.</li>
+            <li>3. Copy the values of <span className="text-slate-300">SWID</span> and <span className="text-slate-300">espn_s2</span>.</li>
+          </ol>
+        )}
+
+        <p className="mt-5 text-[11px] leading-relaxed text-slate-600">
+          These are stored on the server running this app and remembered on this device, so you
+          only do it once. They are never kept in your browser and never sent back to it.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ---- Session setup ----
-function SetupScreen({ onStart, starting, error, leagues, leaguesError }) {
+function SetupScreen({ onStart, starting, error, leagues, leaguesError, onSignOut }) {
   const [teams, setTeams] = useState(14);
   const [mySlot, setMySlot] = useState(1);
   const [rounds, setRounds] = useState(DEFAULT_ROUNDS);
@@ -479,13 +679,50 @@ const PlayerRow = React.memo(function PlayerRow({
 // the first real pick appearing, never by this countdown reaching zero. Drafts
 // start late, get paused, and the scheduled time is a plan rather than a fact.
 
+/** The countdown, broken into units so it can be read at a glance. */
+function CountdownClock({ draftAt, now }) {
+  const left = Math.max(draftAt - now, 0);
+  const total = Math.floor(left / 1000);
+  const units = [
+    { label: "days", value: Math.floor(total / 86400) },
+    { label: "hours", value: Math.floor((total % 86400) / 3600) },
+    { label: "mins", value: Math.floor((total % 3600) / 60) },
+    { label: "secs", value: total % 60 },
+  ];
+  // Leading zero units are noise twelve days out; drop them until one matters.
+  const firstSignificant = units.findIndex((u) => u.value > 0);
+  let shown = units.slice(firstSignificant === -1 ? 2 : Math.min(firstSignificant, 2));
+  // Seconds only inside the final hour, which is also the only time the clock
+  // ticks that fast. Showing a seconds digit that moves twice a minute reads as
+  // a broken page rather than a slow one.
+  if (total >= 3600) shown = shown.filter((u) => u.label !== "secs");
+
+  return (
+    <div className="flex flex-wrap items-end gap-x-5 gap-y-2">
+      {shown.map((u) => (
+        <div key={u.label} className="flex items-baseline gap-1.5">
+          <span className="tabular text-5xl font-semibold leading-none tracking-tight text-slate-50">
+            {String(u.value).padStart(2, "0")}
+          </span>
+          <span className="text-xs uppercase tracking-wider text-slate-500">{u.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function DraftDay({ league, pickCtx, order, teamsList, rosterState, picksRemaining, myTeamId }) {
   const [now, setNow] = useState(Date.now());
+  const draftAt = league?.draft_at;
+  // Every second inside the last hour, every thirty otherwise. A seconds
+  // display that only moves twice a minute reads as broken, and a page that
+  // re-renders every second for twelve days is pure waste.
   useEffect(() => {
-    if (!league?.draft_at) return;
-    const id = setInterval(() => setNow(Date.now()), 30000);
+    if (!draftAt) return;
+    const near = draftAt - Date.now() < 3600_000;
+    const id = setInterval(() => setNow(Date.now()), near ? 1000 : 30000);
     return () => clearInterval(id);
-  }, [league?.draft_at]);
+  }, [draftAt, now < draftAt - 3600_000]);
 
   const names = useMemo(() => {
     const m = new Map();
@@ -496,32 +733,44 @@ function DraftDay({ league, pickCtx, order, teamsList, rosterState, picksRemaini
   const teams = pickCtx?.teams || 14;
   const roundOne = (order || []).slice(0, teams);
   const open = Object.entries(rosterState || {}).filter(([, v]) => v.need - v.have > 0);
-  const countdown = countdownTo(league?.draft_at, now);
+  const underway = draftAt && draftAt - now <= 0;
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 p-4">
-      <div className="card p-5">
-        <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <h1 className="text-lg font-semibold tracking-tight text-slate-100">
-            {league?.name || "Your draft"}
-          </h1>
-          <DraftWhenChip draftAt={league?.draft_at} scheduled={league?.scheduled} />
+      {/* The countdown is the page, not a line inside a card - it's the one
+          thing you open this tab for. */}
+      <div className="card px-6 py-7">
+        <div className="label mb-3 text-slate-500">
+          {league?.name || "Your draft"} · draft day
         </div>
 
         {league?.scheduled ? (
-          <div className="mt-4 flex flex-wrap items-baseline gap-3">
-            <span className={`text-3xl font-semibold tracking-tight ${
-              countdown === "underway" ? "text-emerald-400" : "text-slate-100"}`}>
-              {countdown === "underway" ? "Draft should be underway" : countdown}
-            </span>
-            <span className="text-sm text-slate-500">{fmtDraftDate(league.draft_at)}</span>
-          </div>
+          underway ? (
+            <div className="flex flex-wrap items-baseline gap-3">
+              <span className="text-4xl font-semibold tracking-tight text-emerald-400">
+                Draft should be underway
+              </span>
+              <span className="text-sm text-slate-500">{fmtDraftDate(draftAt)}</span>
+            </div>
+          ) : (
+            <>
+              <CountdownClock draftAt={draftAt} now={now} />
+              <p className="mt-4 text-sm text-slate-400">
+                {fmtDraftDate(draftAt)} · the board switches over on its own when the first pick
+                lands, not when this hits zero.
+              </p>
+            </>
+          )
         ) : (
-          <p className="mt-4 max-w-2xl text-sm leading-relaxed text-slate-400">
-            <strong className="text-slate-200">No date set yet.</strong> Your commissioner hasn't
-            scheduled this draft, so there's nothing to count down to — but the order below is
-            already fixed, and the board is live and ready whenever it starts.
-          </p>
+          <>
+            <div className="text-4xl font-semibold tracking-tight text-slate-300">
+              Not scheduled yet
+            </div>
+            <p className="mt-4 max-w-2xl text-sm leading-relaxed text-slate-400">
+              Your commissioner hasn't set a date, so there's nothing to count down to. The order
+              below is already fixed, though, and the board is live and ready whenever it starts.
+            </p>
+          </>
         )}
       </div>
 
@@ -1130,6 +1379,18 @@ export default function DraftBoard() {
   const [leagues, setLeagues] = useState(null);      // null = still loading
   const [leaguesError, setLeaguesError] = useState(false);
   const [adpYear, setAdpYear] = useState(null);
+  const [leagueId, setLeagueId] = useState(null);
+
+  // Sign-in. "unknown" until the stored token has been checked with the
+  // server, so a remembered device never flashes the sign-in screen on the way
+  // to its board - and a revoked token still lands there rather than on a
+  // board that can't load.
+  const [authState, setAuthState] = useState(deviceToken ? "unknown" : "out");
+  const [signingIn, setSigningIn] = useState(false);
+  const [signInError, setSignInError] = useState(null);
+  // Set while the remembered league is being reconnected, so the app shows a
+  // restoring state instead of the picker it is about to skip.
+  const [restoring, setRestoring] = useState(false);
 
   // Where the draft is. Two implementations, deliberately:
   //
@@ -1250,15 +1511,19 @@ export default function DraftBoard() {
   // - which is what makes a missed poll or a page refresh self-healing.
   // Leagues are discovered from the credentials, so the home screen can list
   // them by name with their draft dates instead of asking for an id.
+  //
+  // Loaded once signed in rather than once on the setup screen, because the
+  // top-bar league dropdown needs them on a device that restored straight to a
+  // board and never saw setup.
   useEffect(() => {
-    if (mode !== "setup") return;
+    if (authState === "out") return;
     let cancelled = false;
-    fetch(`${API_URL}/espn/leagues`)
+    apiGet("/espn/leagues")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
       .then((d) => !cancelled && setLeagues(d.leagues || []))
       .catch(() => !cancelled && setLeaguesError(true));
     return () => { cancelled = true; };
-  }, [mode]);
+  }, [authState]);
 
   const absorbSync = useCallback((data) => {
     setSync({
@@ -1375,6 +1640,11 @@ export default function DraftBoard() {
           // count, round count and pick order, and starting on guessed values
           // would mean the first recommendation used the wrong next_pick.
           const data = await connectEspn(session_id, leagueId);
+          const settled = data.league?.id ?? leagueId ?? null;
+          setLeagueId(settled);
+          // Remembered only after a successful connect, so a league that fails
+          // to load can't strand the next visit on a broken restore.
+          if (settled) saveDevice({ lastLeagueId: String(settled) });
           setMode("live");
           setStarting(false);
           await refreshRecommendations(
@@ -1384,9 +1654,9 @@ export default function DraftBoard() {
         } catch (e) {
           // Stay on the setup screen with the manual path still available.
           setSetupError(
-            String(e).includes("502") || String(e).includes("503")
-              ? "Couldn't reach your ESPN league. Check SWID and ESPN_S2 in .env, or set up manually."
-              : String(e)
+            e.status === 502 || e.status === 503
+              ? e.message || "Couldn't reach your ESPN league. Try signing in again, or set up manually."
+              : String(e.message || e)
           );
           setStarting(false);
           return;
@@ -1399,6 +1669,97 @@ export default function DraftBoard() {
       await refreshRecommendations(session_id, 1, nextMyPick(thisTurn + 1, s, t), riskAversion);
     },
     [refreshRecommendations, loadOfflineFallback, connectEspn, riskAversion]
+  );
+
+  // --- sign in, and staying signed in ---
+
+  const handleSignIn = useCallback(async (swid, espn_s2) => {
+    setSigningIn(true);
+    setSignInError(null);
+    try {
+      const data = await apiPost("/auth/connect", { swid, espn_s2 });
+      deviceToken = data.token;
+      saveDevice({ token: data.token });
+      setLeagues(data.leagues || []);
+      setAuthState("in");
+    } catch (e) {
+      setSignInError(e.message || String(e));
+    } finally {
+      setSigningIn(false);
+    }
+  }, []);
+
+  const handleSignOut = useCallback(async () => {
+    try {
+      await apiPost("/auth/forget");
+    } catch { /* forgetting locally is what matters; do it either way */ }
+    deviceToken = null;
+    saveDevice({ token: null, lastLeagueId: null });
+    setAuthState("out");
+    setMode("setup");
+    setLeagues(null);
+    setLeagueId(null);
+    setSessionId(null);
+    setSync({ connected: false, status: null, ageSeconds: null, version: -1, team: null });
+    setSyncCtx(null);
+  }, []);
+
+  // Validate a remembered token before trusting it. Cookies expire and the
+  // store can be cleared server-side, and finding that out here - rather than
+  // as a board that mysteriously won't load - is the difference between "sign
+  // in again" and a bug report.
+  useEffect(() => {
+    if (authState !== "unknown") return;
+    let cancelled = false;
+    apiGet("/auth/session")
+      .then((r) => {
+        if (cancelled) return;
+        if (r.ok) return setAuthState("in");
+        deviceToken = null;
+        saveDevice({ token: null });
+        setAuthState("out");
+      })
+      .catch(() => {
+        // Backend down, not signed out. Keep the token and let the setup
+        // screen's own offline fallback handle it.
+        if (!cancelled) setAuthState("in");
+      });
+    return () => { cancelled = true; };
+  }, [authState]);
+
+  // Reopening the app lands on the last league's board rather than the picker.
+  // Runs once, only with a league to restore, and gives up quietly to the
+  // picker if that league is gone from the account.
+  const restored = useRef(false);
+  useEffect(() => {
+    if (authState !== "in" || mode !== "setup" || restored.current) return;
+    const last = loadDevice().lastLeagueId;
+    if (!last || leagues === null) return;   // wait for the list
+    restored.current = true;
+    if (!leagues.some((l) => String(l.league_id) === String(last))) {
+      saveDevice({ lastLeagueId: null });
+      return;
+    }
+    setRestoring(true);
+    handleStart({ espn: true, leagueId: String(last) }).finally(() => setRestoring(false));
+  }, [authState, mode, leagues, handleStart]);
+
+  // Switching leagues from the top bar. A fresh session, because team count,
+  // rounds and roster need all belong to the league - reusing the old one
+  // would carry the previous league's shape into the new board.
+  const switchLeague = useCallback(
+    (id) => {
+      if (String(id) === String(leagueId)) return;
+      setPool([]);
+      setDraftLog([]);
+      setPickOrder([]);
+      setTeamsList([]);
+      setSyncCtx(null);
+      setSync({ connected: false, status: null, ageSeconds: null, version: -1, team: null });
+      setTab("board");
+      handleStart({ espn: true, leagueId: String(id) });
+    },
+    [leagueId, handleStart]
   );
 
   const submitPick = useCallback(
@@ -1542,6 +1903,24 @@ export default function DraftBoard() {
     [pool, selectedId]
   );
 
+  // A remembered token is being checked, or its league reconnected. Both are a
+  // round-trip; showing sign-in or the picker underneath would flash a screen
+  // the user is not going to end up on.
+  if (authState === "unknown" || restoring) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="flex items-center gap-2 text-sm text-slate-500">
+          <Trophy className="text-emerald-400" size={16} />
+          {restoring ? "Loading your league…" : "Signing you in…"}
+        </div>
+      </div>
+    );
+  }
+
+  if (authState === "out") {
+    return <SignInScreen onSignIn={handleSignIn} busy={signingIn} error={signInError} />;
+  }
+
   if (mode === "setup") {
     return (
       <SetupScreen
@@ -1550,6 +1929,7 @@ export default function DraftBoard() {
         error={setupError}
         leagues={leagues}
         leaguesError={leaguesError}
+        onSignOut={handleSignOut}
       />
     );
   }
@@ -1566,6 +1946,16 @@ export default function DraftBoard() {
             <Trophy className="text-emerald-400" size={18} />
             <span className="font-semibold tracking-tight">Justin's Draft Assistant</span>
           </button>
+
+          {mode !== "offline" && (
+            <LeagueMenu
+              leagues={leagues}
+              currentId={leagueId}
+              currentName={sync.league?.name}
+              onSwitch={switchLeague}
+              onSignOut={handleSignOut}
+            />
+          )}
 
           <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-slate-900 p-1">
             {[
@@ -1651,7 +2041,16 @@ export default function DraftBoard() {
       {analysisSeen && (
         <div hidden={tab !== "analysis"}>
           <Suspense fallback={<div className="mx-auto max-w-5xl p-8 text-sm text-slate-500">Loading analysis…</div>}>
-            <Analysis apiUrl={API_URL} />
+            {/* The session is how the analysis learns the league's lineup, and
+                the lineup sets replacement level - so the numbers on this page
+                are the ones this league would actually see. */}
+            <Analysis
+              apiUrl={API_URL}
+              leagueId={leagueId}
+              leagueName={sync.league?.name}
+              sessionId={sessionId}
+              authHeaders={authHeaders()}
+            />
           </Suspense>
         </div>
       )}
