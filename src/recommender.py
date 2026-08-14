@@ -79,7 +79,42 @@ def _rookie_factor(engine) -> float:
     return float(row["reliability_factor"].iloc[0])
 
 
-def load_candidates(engine, year, drafted_ids):
+def resolve_stats_league(engine, year: int, league_id: str | None) -> str | None:
+    """Which league's player-seasons the board should read for `year`.
+
+    `players_stats` is per league, because scoring settings differ - the same
+    player-season is worth different points in two leagues. That makes the join
+    below one-to-many unless a league is named: with two leagues stored for
+    2025, every player who appears in both produced *two* rows in the pool and
+    the board listed them twice.
+
+    Prefers the league being drafted. When it has no stored seasons - a
+    brand-new league, the common case - it borrows the fullest league's rows
+    rather than treating every player as a rookie with no history, which is
+    what an empty join would silently do. The borrowed figures are last
+    season's production; only the points columns are scoring-dependent.
+
+    Returns None when the column doesn't exist (a database from before the
+    migration, or a test fixture), which leaves the query unfiltered.
+    """
+    if not _has_table(engine, "players_stats"):
+        return None
+    if "league_id" not in {c["name"] for c in inspect(engine).get_columns("players_stats")}:
+        return None
+    rows = pd.read_sql(
+        text("""SELECT league_id, COUNT(*) AS n FROM players_stats
+                WHERE year = :year AND league_id IS NOT NULL GROUP BY league_id"""),
+        engine, params={"year": year},
+    )
+    if rows.empty:
+        return None
+    stored = {str(v) for v in rows["league_id"]}
+    if league_id and str(league_id) in stored:
+        return str(league_id)
+    return str(rows.sort_values("n", ascending=False)["league_id"].iloc[0])
+
+
+def load_candidates(engine, year, drafted_ids, league_id=None):
     """Every undrafted player projected for `year`, with the market's view of
     them and - when NB04 has been run - the model's prediction interval.
 
@@ -110,6 +145,10 @@ def load_candidates(engine, year, drafted_ids):
     # exactly: SQLite only uses an expression index when the query spells the
     # expression identically, and this is the hottest query in the app.
     adp_year = resolve_adp_year(engine, year)
+    # Without this the players_stats join fans out across leagues - see
+    # resolve_stats_league.
+    stats_league = resolve_stats_league(engine, year - 1, league_id)
+    stats_filter = " AND ps.league_id = :stats_league" if stats_league else ""
     q = f"""
     SELECT pr.player_id, pr.player_name, pr.position, pr.pro_team,
            pr.projected_points, ps.avg_points AS avg_last_year,
@@ -124,10 +163,13 @@ def load_candidates(engine, year, drafted_ids):
     LEFT JOIN average_draft_position adp
         ON CAST(adp.player_id AS INTEGER) = pr.player_id AND adp.year = :adp_year
     LEFT JOIN players_stats ps
-        ON ps.player_id = pr.player_id AND ps.year = pr.year - 1{extra_joins}
+        ON ps.player_id = pr.player_id AND ps.year = pr.year - 1{stats_filter}{extra_joins}
     WHERE pr.year = :year
     """
-    df = pd.read_sql(text(q), engine, params={"year": year, "adp_year": adp_year})
+    params = {"year": year, "adp_year": adp_year}
+    if stats_league:
+        params["stats_league"] = stats_league
+    df = pd.read_sql(text(q), engine, params=params)
     df["position"] = df["position"].map(normalize_position)
 
     # A player with no prior-season row has no production history for the
@@ -174,8 +216,9 @@ RESULT_COLUMNS = [
 
 
 def recommend(engine, year, session, current_pick, next_pick, bias, topn=10,
-              risk_aversion=RISK_AVERSION):
-    pool = load_candidates(engine, year, drafted_ids=session.drafted_ids)
+              risk_aversion=RISK_AVERSION, league_id=None):
+    pool = load_candidates(engine, year, drafted_ids=session.drafted_ids,
+                           league_id=league_id)
     baselines = compute_baselines(pool, teams=session.teams)
     pool = add_vorp(pool, baselines)
     # vorp_z dampens positions with a steep replacement-level cliff (e.g. QB)
