@@ -583,7 +583,10 @@ def list_leagues(creds: EspnCredentials, year: int, fetch=None) -> list[LeagueRe
             )
         except requests.RequestException:
             raise EspnUnavailable(UNAVAILABLE_MESSAGE) from None
-        if resp.status_code in (401, 403):
+        # The SWID is part of the path here, so a 404 means "no such fan" -
+        # a bad SWID, not a network problem. Reporting it as unreachable would
+        # send someone debugging their wifi instead of their cookies.
+        if resp.status_code in (401, 403, 404):
             raise EspnAuthError(AUTH_MESSAGE)
         if resp.status_code >= 400:
             raise EspnUnavailable(UNAVAILABLE_MESSAGE)

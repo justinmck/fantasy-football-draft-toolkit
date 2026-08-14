@@ -27,6 +27,12 @@ class EspnConnectBody(BaseModel):
     league_id: Optional[str] = None
 
 
+class AuthConnectBody(BaseModel):
+    swid: str
+    espn_s2: str
+    year: Optional[int] = None
+
+
 class AnalysisRunBody(BaseModel):
     league_id: str
     # Which seasons to look for. Defaults cover every season ESPN is likely to

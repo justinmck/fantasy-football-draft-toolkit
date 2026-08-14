@@ -6,3 +6,5 @@ notes
 .DS_Store
 .claude/
 .pytest_cache/
+# Credential store - see src/auth.py
+data/device_tokens.json

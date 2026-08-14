@@ -2,7 +2,7 @@ import logging
 import os
 import time
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
@@ -11,8 +11,9 @@ from src.settings import API_ORIGINS, TEAMS
 from src.analysis import league_analysis
 from src.db import engine
 from src.indexes import ensure_indexes
+from src.auth import credentials_for, forget, issue, verify
 from src.schemas import (
-    AnalysisRunBody, EspnConnectBody, EspnDisconnectBody, SessionCreate,
+    AnalysisRunBody, AuthConnectBody, EspnConnectBody, EspnDisconnectBody, SessionCreate,
     PickBody, RecommendBody,
 )
 from src.state import SESSIONS, new_session, get_session
@@ -92,8 +93,16 @@ def _db_version() -> tuple | None:
 
 
 @app.get("/analysis")
-def analysis(year: int | None = None, league_id: str | None = None):
+def analysis(year: int | None = None, league_id: str | None = None,
+             session_id: str | None = None):
     """Retrospective league analysis for the UI's Analysis tab.
+
+    `session_id` is how the analysis picks up the league's *settings*. A
+    connected session has already adopted that league's `lineupSlotCounts`, and
+    the lineup sets replacement level, so every VORP on the page moves with it -
+    a two-QB league grades its quarterbacks against a completely different
+    baseline. Without a session the default lineup is used, which is right for
+    the notebooks and for a league nobody has connected to yet.
 
     Cached against the database file's identity (see `_db_version`), because the
     payload is expensive to build and does not change until a notebook rewrites
@@ -101,15 +110,25 @@ def analysis(year: int | None = None, league_id: str | None = None):
     determined.
     """
     year = year or CURRENT_SEASON
+    session = SESSIONS.get(session_id) if session_id else None
+    roster_need = dict(session.roster_need) if session else None
+
+    def compute():
+        return league_analysis(engine, year, league_id=league_id, roster_need=roster_need)
+
     version = _db_version()
     if version is None:
-        return league_analysis(engine, year, league_id=league_id)
+        return compute()
 
-    key = (year, league_id, version)
+    # The lineup is part of the key: two leagues can share a season and a
+    # database and still be owed different numbers.
+    key = (year, league_id, version,
+           tuple(sorted(roster_need.items())) if roster_need else None)
     if key not in _ANALYSIS_CACHE:
         # The database moved, so every previous entry is stale by definition.
-        _ANALYSIS_CACHE.clear()
-        _ANALYSIS_CACHE[key] = league_analysis(engine, year, league_id=league_id)
+        if not any(k[2] == version for k in _ANALYSIS_CACHE):
+            _ANALYSIS_CACHE.clear()
+        _ANALYSIS_CACHE[key] = compute()
     return _ANALYSIS_CACHE[key]
 
 # --- live ESPN draft sync -------------------------------------------------
@@ -207,8 +226,65 @@ def _sync_payload(s, sync: DraftSync, new_picks=None) -> dict:
     }
 
 
+# --- sign in -------------------------------------------------------------
+#
+# The token identifies a device; the credentials stay on the server. Every
+# ESPN-touching endpoint accepts the token via the X-Device-Token header and
+# falls back to .env when there isn't one, so nothing breaks for a checkout
+# that has never signed in.
+
+def _creds_for(token: str | None):
+    """Token credentials if the device has signed in, else the environment."""
+    creds = credentials_for(token)
+    if creds and creds.swid and creds.espn_s2:
+        return creds
+    return load_credentials()
+
+
+@app.post("/auth/connect")
+def auth_connect(body: AuthConnectBody):
+    """Verify a pair of ESPN cookies and remember them for this device."""
+    year = body.year or NEXT_SEASON
+    swid, espn_s2 = body.swid.strip(), body.espn_s2.strip()
+    if not swid or not espn_s2:
+        raise HTTPException(status_code=400, detail="Both SWID and espn_s2 are required.")
+    try:
+        leagues = verify(swid, espn_s2, year)
+    except EspnAuthError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    except EspnUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    if not leagues:
+        raise HTTPException(
+            status_code=502,
+            detail="Those credentials work, but no football leagues were found for this season.",
+        )
+    # Only ever returns the token - never the credentials it stands for.
+    return {
+        "token": issue(swid, espn_s2),
+        "year": year,
+        "leagues": [{"league_id": l.league_id, "name": l.name, "season": l.season}
+                    for l in leagues],
+    }
+
+
+@app.get("/auth/session")
+def auth_session(x_device_token: str | None = Header(default=None)):
+    """Whether this device is still signed in."""
+    creds = credentials_for(x_device_token)
+    if not creds:
+        raise HTTPException(status_code=401, detail="Not signed in.")
+    return {"signed_in": True}
+
+
+@app.post("/auth/forget")
+def auth_forget(x_device_token: str | None = Header(default=None)):
+    return {"signed_in": False, "forgotten": forget(x_device_token)}
+
+
 @app.get("/espn/leagues")
-def espn_leagues(year: int | None = None):
+def espn_leagues(year: int | None = None,
+                 x_device_token: str | None = Header(default=None)):
     """Every football league these credentials can reach.
 
     Keyed on the SWID rather than on a league id, so nobody has to go and find
@@ -216,7 +292,7 @@ def espn_leagues(year: int | None = None):
     """
     year = year or NEXT_SEASON
     try:
-        creds = load_credentials()
+        creds = _creds_for(x_device_token)
         leagues = list_leagues(creds, year)
     except EspnAuthError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
@@ -251,7 +327,8 @@ def espn_leagues(year: int | None = None):
 
 
 @app.post("/espn/connect")
-def espn_connect(body: EspnConnectBody):
+def espn_connect(body: EspnConnectBody,
+                 x_device_token: str | None = Header(default=None)):
     """Attach a session to the live ESPN draft.
 
     Credentials are read here, never at import: `src/api.py` is imported by the
@@ -261,7 +338,7 @@ def espn_connect(body: EspnConnectBody):
     s = _get_session_or_404(body.session_id)
     year = body.year or NEXT_SEASON
     try:
-        creds = load_credentials()
+        creds = _creds_for(x_device_token)
         client = EspnDraftClient(creds, year, league_id=body.league_id)
         teams_payload = client.team_payload()
         my_team_id = resolve_my_team_id(teams_payload, creds.swid)
@@ -402,7 +479,8 @@ def analysis_status(league_id: str, year: int | None = None):
 
 
 @app.post("/analysis/run")
-def analysis_run(body: AnalysisRunBody):
+def analysis_run(body: AnalysisRunBody,
+                 x_device_token: str | None = Header(default=None)):
     """Pull this league's completed seasons, then refit its bias.
 
     A background job: five seasons is a couple of minutes of waiting on ESPN,
@@ -410,7 +488,7 @@ def analysis_run(body: AnalysisRunBody):
     """
     league_id = str(body.league_id)
     try:
-        creds = load_credentials()
+        creds = _creds_for(x_device_token)
     except EspnAuthError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
@@ -498,6 +576,10 @@ def rec(body: RecommendBody):
                    current_pick=body.current_pick,
                    next_pick=body.next_pick,
                    bias=_bias_for(body.session_id),
+                   # Which league's stored player-seasons to read. `players_stats`
+                   # is per league now, so without this the pool joins against
+                   # every league's copy and lists players twice.
+                   league_id=getattr(ESPN_SYNCS.get(body.session_id), "league_id", None),
                    topn=body.topn,
                    risk_aversion=(RISK_AVERSION if body.risk_aversion is None
                                   else body.risk_aversion))
