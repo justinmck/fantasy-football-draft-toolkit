@@ -158,21 +158,225 @@ const SECTIONS = [
 
 // ---------------------------------------------------------------------------
 
-export default function Analysis({ apiUrl }) {
+// What the analysis is for, said before it's run rather than after. Each of
+// these maps to a section below, and the ones that need prior seasons are
+// marked, because that's the difference between a full page and half of one.
+const PROMISES = [
+  { icon: <Crown size={14} />, needsHistory: true,
+    title: "Who actually drafted well",
+    body: "Every manager's picks graded against what those players went on to score — and whether drafting well predicted finishing well." },
+  { icon: <Fingerprint size={14} />, needsHistory: true,
+    title: "Your league's own habits",
+    body: "Positions and NFL teams this league reaches for or lets slide, measured against the national market, and which managers do it." },
+  { icon: <Gem size={14} />, needsHistory: true,
+    title: "Steals and reaches",
+    body: "The picks that returned far more or far less than their draft slot was worth, and what each round is really worth here." },
+  { icon: <Target size={14} />, needsHistory: false,
+    title: "How much the projections are worth",
+    body: "ESPN's projections graded against what happened, overall and position by position — the reliability the board's confidence column is built on." },
+  { icon: <Ruler size={14} />, needsHistory: false,
+    title: "Where the market was wrong",
+    body: "Average draft position against actual value, plus how unproven players and rookies really performed." },
+];
+
+/** The screen before the page: what you'd get, what it needs, and the button. */
+function RunGate({ leagueName, status, onRun, job, error }) {
+  const seasons = status?.seasons || [];
+  const has = seasons.length > 0;
+  const running = !!job && job.status === "running";
+
+  return (
+    <div className="mx-auto max-w-3xl p-4">
+      <div className="card p-6 sm:p-8">
+        <div className="label mb-1.5 text-emerald-400/70">Analysis</div>
+        <h1 className="text-xl font-semibold tracking-tight text-slate-100">
+          Analyse {leagueName || "this league"}
+        </h1>
+        <p className="mt-2 text-sm leading-relaxed text-slate-400">
+          This reads your league's completed drafts and finished seasons out of ESPN and grades
+          them. Nothing is precomputed — it's built from this league's own history, so the numbers
+          describe the people you actually draft against.
+        </p>
+
+        <div className="mt-6 space-y-3">
+          {PROMISES.map((p) => (
+            <div key={p.title} className="flex gap-3">
+              <span className="mt-0.5 shrink-0 text-emerald-400">{p.icon}</span>
+              <div>
+                <div className="text-sm font-medium text-slate-200">
+                  {p.title}
+                  {p.needsHistory && (
+                    <span className="ml-2 rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-slate-500">
+                      needs prior seasons
+                    </span>
+                  )}
+                </div>
+                <div className="text-xs leading-relaxed text-slate-500">{p.body}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* The honest version of "this might not work": say which seasons are
+            there before the button is pressed, not after a two-minute pull. */}
+        <div className={`mt-6 rounded-xl border px-4 py-3 text-sm leading-relaxed ${
+          has ? "border-emerald-400/20 bg-emerald-500/5 text-emerald-200/90"
+              : "border-amber-400/20 bg-amber-500/5 text-amber-200/90"}`}>
+          {status === null ? (
+            "Checking what this league has…"
+          ) : has ? (
+            <>
+              <strong>{seasons.length} season{seasons.length === 1 ? "" : "s"} stored</strong>{" "}
+              ({seasons.join(", ")}). Everything above is available.
+              {seasons.length < 3 && (
+                <div className="mt-1 text-xs text-emerald-200/60">
+                  Thin history — the league-habit figures are measured on a few hundred picks, so
+                  treat the smaller effects as suggestive rather than settled.
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <strong>No prior seasons stored yet.</strong> Running will ask ESPN which seasons this
+              league has and pull them. A league in its first year genuinely has no draft history —
+              in that case you'll still get the projection and market sections, and the four that
+              grade past drafts will say plainly that they need seasons this league hasn't played.
+            </>
+          )}
+        </div>
+
+        {error && (
+          <div className="mt-3 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs leading-relaxed text-rose-300">
+            {error}
+          </div>
+        )}
+
+        {running ? (
+          <div className="mt-6">
+            <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
+              <span>{job.message || "Working…"}</span>
+              <span className="tabular">{Math.round((job.progress || 0) * 100)}%</span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+              <div className="h-full rounded-full bg-emerald-400 transition-all"
+                   style={{ width: `${Math.max(3, (job.progress || 0) * 100)}%` }} />
+            </div>
+            <p className="mt-2 text-xs text-slate-600">
+              Pulling several seasons of box scores takes a minute or two. You can go back to the
+              board — this keeps running.
+            </p>
+          </div>
+        ) : (
+          <button
+            onClick={() => onRun()}
+            disabled={status === null}
+            className="mt-6 h-11 w-full rounded-lg bg-emerald-500 text-sm font-semibold text-slate-950
+              transition hover:bg-emerald-400 disabled:opacity-50"
+          >
+            {has ? "Run analysis" : "Run analysis (pulls this league's history)"}
+          </button>
+        )}
+
+        {has && !running && (
+          <button
+            onClick={() => onRun({ pull: true })}
+            className="mt-2 w-full text-center text-xs text-slate-500 hover:text-slate-300"
+          >
+            Re-pull from ESPN first
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function Analysis({ apiUrl, leagueId, leagueName, sessionId, authHeaders = {} }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [job, setJob] = useState(null);
+  const [runError, setRunError] = useState(null);
 
+  const get = (path) => fetch(`${apiUrl}${path}`, { headers: authHeaders });
+
+  // What this league has, before anything is run. Cheap and local — it reads
+  // what's stored rather than asking ESPN, so opening the tab costs nothing.
   useEffect(() => {
     let cancelled = false;
-    fetch(`${apiUrl}/analysis`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
+    setData(null);
+    setStatus(null);
+    setJob(null);
+    setRunError(null);
+    if (!leagueId) return;
+    get(`/analysis/status?league_id=${encodeURIComponent(leagueId)}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((s) => {
+        if (cancelled) return;
+        setStatus(s);
+        // A pull started from another tab (or before a reload) is still the
+        // same job; rejoin it rather than starting a second one.
+        if (s.job) setJob(s.job);
       })
-      .then((d) => !cancelled && setData(d))
       .catch((e) => !cancelled && setErr(String(e)));
     return () => { cancelled = true; };
-  }, [apiUrl]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiUrl, leagueId]);
+
+  const fetchAnalysis = React.useCallback(() => {
+    const qs = new URLSearchParams();
+    if (leagueId) qs.set("league_id", leagueId);
+    if (sessionId) qs.set("session_id", sessionId);   // carries the league's lineup
+    return get(`/analysis?${qs}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then(setData)
+      .catch((e) => setErr(String(e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiUrl, leagueId, sessionId]);
+
+  const run = (opts = {}) => {
+    setRunError(null);
+    // Already stored and not being force-refreshed: there is nothing to pull,
+    // so don't spend two minutes on ESPN to arrive at the same rows.
+    if (status?.has_history && opts.pull !== true) {
+      setData("loading");
+      fetchAnalysis();
+      return;
+    }
+    fetch(`${apiUrl}/analysis/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders },
+      body: JSON.stringify({ league_id: String(leagueId) }),
+    })
+      .then((r) => (r.ok ? r.json() : r.json().then((b) => Promise.reject(new Error(b.detail || r.status)))))
+      .then(setJob)
+      .catch((e) => setRunError(e.message || String(e)));
+  };
+
+  // Poll the job. Stops on its own the moment it isn't running, so a finished
+  // pull doesn't leave an interval behind.
+  useEffect(() => {
+    if (!job || job.status !== "running") return;
+    let cancelled = false;
+    const id = setInterval(() => {
+      get(`/analysis/job/${job.id}`)
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+        .then((j) => {
+          if (cancelled) return;
+          setJob(j);
+          if (j.status === "done") {
+            setStatus((s) => ({ ...s, seasons: j.result?.seasons || [],
+                                has_history: !!(j.result?.seasons || []).length }));
+            setData("loading");
+            fetchAnalysis();
+          } else if (j.status === "failed") {
+            setRunError(j.error || "The pull failed.");
+          }
+        })
+        .catch(() => {});
+    }, 1200);
+    return () => { cancelled = true; clearInterval(id); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.id, job?.status, fetchAnalysis]);
 
   if (err) {
     return (
@@ -187,13 +391,30 @@ export default function Analysis({ apiUrl }) {
     );
   }
 
+  // Nothing has been asked for yet - the gate, not a page of numbers the user
+  // didn't request and can't tell the provenance of.
   if (!data) {
-    return <div className="mx-auto max-w-5xl p-8 text-sm text-slate-500">Loading analysis…</div>;
+    return (
+      <RunGate leagueName={leagueName} status={status} job={job} error={runError}
+               onRun={run} />
+    );
+  }
+
+  if (data === "loading") {
+    return <div className="mx-auto max-w-5xl p-8 text-sm text-slate-500">Building the analysis…</div>;
   }
 
   return (
     <div className="mx-auto max-w-5xl p-4">
-      <Intro data={data} />
+      <Intro data={data} leagueName={leagueName} />
+      {!data.has_history && (
+        <div className="mt-4 rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-200">
+          <strong>This league has no completed prior drafts</strong>, so the four sections that
+          grade past drafts — who drafted well, what each round returned, steals and reaches, and
+          this league's own habits — have nothing to measure. Everything else on this page is
+          graded against projections and actual scoring and doesn't need them.
+        </div>
+      )}
       <Contents />
       <div className="mt-5 space-y-5">
         <DataSection data={data} />
@@ -216,26 +437,36 @@ export default function Analysis({ apiUrl }) {
 
 // ---------------------------------------------------------------------------
 
-const Intro = ({ data }) => (
+const Intro = ({ data, leagueName }) => (
   <div className="card p-5 sm:p-6">
+    <div className="label mb-1.5 text-emerald-400/70">
+      {leagueName || "This league"}
+      {data.seasons?.length ? ` · ${data.seasons.join(", ")}` : ""}
+    </div>
     <h1 className="text-xl font-semibold tracking-tight text-slate-100">
       What the board is built on
     </h1>
     <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-400">
-      Five notebooks sit behind the draft board. They pull this{" "}
-      {data.teams_in_league}-team league's history out of ESPN, clean it, measure who actually
-      drafted well, fit and validate a next-season projection, and then grade how much that
-      projection was worth. This page is all of it in one place — the methods, the numbers, and
-      what they mean.
+      Five notebooks sit behind the draft board. They pull{" "}
+      <strong className="text-slate-300">{leagueName || "this league"}</strong>'s history out of
+      ESPN, clean it, measure who actually drafted well, fit and validate a next-season projection,
+      and then grade how much that projection was worth. This page is all of it in one place — the
+      methods, the numbers, and what they mean.
     </p>
     <p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-400">
       Everything below is recomputed from the database each time this page loads, so it can never
       disagree with the board itself. Retrospective figures cover the{" "}
       <strong className="text-slate-300">{data.year}</strong> season unless a wider range is stated.
     </p>
+    {/* The first claim is a measurement, so it's only made where it was
+        measured. Stating it for a league with no completed drafts would be
+        borrowing another league's result and calling it this one's. */}
     <Verdict tone="info">
-      <strong>The short version.</strong> Drafting well genuinely predicted finishing well in this
-      league. ESPN's projections are decent and beat the market overall, but not reliably at the top
+      <strong>The short version.</strong>{" "}
+      {data.has_history
+        ? "Drafting well genuinely predicted finishing well in this league. "
+        : "Whether drafting well predicts finishing well can't be checked here yet — that needs completed drafts. "}
+      ESPN's projections are decent and beat the market overall, but not reliably at the top
       of the board where picks are actually agonised over. A regression trained to improve on them
       fails to — the projection is at its ceiling. So the board's job isn't to out-forecast anyone:
       it's to apply the three things a projection contains no information about at all, which are
@@ -409,12 +640,32 @@ function ReplacementSection({ data }) {
 
 // --- 3. did drafting matter ----------------------------------------------
 
+/** A section that has nothing to say yet, saying so instead of showing blanks. */
+const NeedsHistory = ({ id, icon, eyebrow, title, what }) => (
+  <Section id={id} icon={icon} eyebrow={eyebrow} title={title}
+           blurb={<>Needs completed drafts from prior seasons, which this league doesn't have yet.
+                  Once it has played a season, this section {what}.</>} />
+);
+
 function DraftPerformanceSection({ data }) {
   const dp = data.draft_performance || {};
   const corr = dp.correlation;
   const verdict = correlationVerdict(corr);
   const teams = dp.teams || [];
   const maxVorp = Math.max(...teams.map((t) => Math.abs(t.avg_vorp || 0)), 1);
+
+  // A blank chart under "did drafting matter?" reads as "no" rather than as
+  // "not measurable here", which is the opposite of what's true.
+  if (!teams.length) {
+    return (
+      <NeedsHistory
+        id="draft" icon={<Crown size={17} />} eyebrow="NB03 — the premise"
+        title="Did drafting well actually matter?"
+        what="grades every manager's draft on the same VORP scale the board ranks with, and
+              checks it against where they finished"
+      />
+    );
+  }
 
   return (
     <Section
@@ -561,14 +812,26 @@ function Sparkline({ rows, max }) {
 function LeagueBiasSection({ data }) {
   const lb = data.league_bias || {};
   const positions = lb.position || [];
-  if (!positions.length) {
+  // The stored fit belongs to whichever league was last processed. Showing it
+  // here for a different league would attribute one set of drafters' habits to
+  // another - the exact mistake this section exists to correct.
+  const fittedElsewhere =
+    lb.meta?.league_id && data.league_id && String(lb.meta.league_id) !== String(data.league_id);
+  if (!positions.length || fittedElsewhere) {
     return (
       <Section
         id="bias"
         icon={<Fingerprint size={17} />}
         eyebrow="Live tool — league fingerprint"
         title="How this league drafts differently"
-        blurb="Not measured yet. Run notebooks/compute_league_bias.py to fit it."
+        blurb={
+          fittedElsewhere
+            ? "Not measured for this league. A draft-habit fit needs several hundred of this " +
+              "league's own picks against the market; the stored fit belongs to another league " +
+              "and says nothing about the people you draft against here. The board falls back " +
+              "to market ADP timing, which it says on the board itself."
+            : "Not measured yet. Run notebooks/compute_league_bias.py to fit it."
+        }
       />
     );
   }
@@ -800,7 +1063,15 @@ const PlayerTable = ({ rows, deltaLabel }) =>
     </Table>
   );
 
-const MarketSection = ({ data }) => (
+const MarketSection = ({ data }) =>
+  !(data.steals_and_reaches?.steals || []).length &&
+  !(data.steals_and_reaches?.reaches || []).length ? (
+    <NeedsHistory
+      id="market" icon={<Gem size={17} />} eyebrow="NB03 — where the crowd was wrong"
+      title="Steals and reaches"
+      what="lists the picks that returned far more or far less than their draft slot was worth"
+    />
+  ) : (
   <Section
     id="market"
     icon={<Gem size={17} />}

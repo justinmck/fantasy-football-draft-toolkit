@@ -195,13 +195,26 @@ The **"Play it safe" slider** names the positions it's currently discounting and
 
 If the backend isn't reachable, the UI falls back to the static `players.json` snapshot exported by NB04. That fallback is **value only** — roster need, pick timing, and the position-reliability half of confidence all require a live session, and the UI says so rather than presenting a partial ranking as the real one.
 
+### Signing in, and being remembered
+
+The app used to read credentials from `.env`, which meant there was no sign-in and nothing to remember. Now the home screen asks for your `SWID` and `espn_s2` once.
+
+**The browser never holds the credentials.** They go to the backend, which stores them and returns an opaque device token; only that token is kept in `localStorage`. A script on the page cannot read the ESPN session cookies, and they don't travel on every request. That indirection is the entire design — a simpler version would put both cookies straight into browser storage.
+
+- `POST /auth/connect` validates the pair by calling ESPN's fan endpoint before storing anything, so a bad cookie fails immediately and legibly rather than later as a mysteriously empty board. The same call returns your leagues, so signing in costs one request rather than two. A 404 there means a bad SWID (it's in the URL path) and is reported as such, not as "could not reach ESPN".
+- `GET /auth/session` validates a remembered token on load; `POST /auth/forget` signs the device out.
+- Tokens live in `data/device_tokens.json` — gitignored, created `0600` before anything is written to it, never logged and never returned. A file rather than an in-memory dict, because the point of the feature is that reopening the app just works, and an in-memory store would sign you out on every backend restart.
+- **`.env` remains a fallback**, so the notebooks and a fresh checkout keep working with no sign-in at all.
+
+Reopening the app goes straight to the last league's board. The device remembers `{token, lastLeagueId}`, the league is only remembered after a connect actually succeeded, and a league that has since disappeared from the account falls back to the picker rather than a broken restore. **The league dropdown in the header** switches leagues in place — a new session each time, because team count, rounds and roster need all belong to the league.
+
 ### Live ESPN draft sync
 
 **Home lists every league your credentials can reach** — discovered from your SWID via ESPN's fan endpoint, so no league ids are typed by hand. Each row shows when that league's draft is and whether league-specific timing applies to it. The title in the header is always the way back; mid-draft it confirms first, since the picks only live in server memory.
 
 Roster settings are read per league from `rosterSettings.lineupSlotCounts` rather than assumed. All three of the current leagues happen to share the standard shape, but roster need sets replacement level and therefore every VORP on the board — a league starting two quarterbacks would otherwise be scored against a one-QB baseline.
 
-**Draft scheduling.** `draftSettings.date` is simply absent when a commissioner hasn't set one — ESPN sends no null and no sentinel — so that absence is the entire "not scheduled" signal and nothing else is invented for it. A connected league gets a **Draft day** tab with a countdown, every pick number you own, the starting slots still to fill, and round 1 by team name. It's a tab rather than a mode, so a league with no date still shows the full board. The countdown never flips the app into live mode: that is driven by the first real pick appearing, because drafts start late, get paused, and a scheduled time is a plan rather than a fact.
+**Draft scheduling.** `draftSettings.date` is simply absent when a commissioner hasn't set one — ESPN sends no null and no sentinel — so that absence is the entire "not scheduled" signal and nothing else is invented for it. A connected league gets a **Draft day** tab led by a live countdown, followed by every pick number you own, the starting slots still to fill, and round 1 by team name. It's a tab rather than a mode, so a league with no date still shows the full board — it gets "Not scheduled yet" in the countdown's place, with the note that the order below is already fixed. Leading zero units are dropped, and seconds appear only inside the final hour, which is also the only time the clock ticks that fast: a seconds digit that moves twice a minute reads as a broken page rather than a slow one. The countdown never flips the app into live mode: that is driven by the first real pick appearing, because drafts start late, get paused, and a scheduled time is a plan rather than a fact.
 
 **League bias is scoped to the league it was measured on.** `league_bias_meta` records the fitted league id and `/recommend` gates on it, so a board for a different league gets market ADP timing only and says so. "This league reaches on Eagles" is a fact about one set of drafters; asserting it about people in another league would be inventing a finding. Manual sessions keep the fit, because that path is the fallback for when sync breaks and stripping the signal exactly when the tool is degraded would make the fallback worse.
 
@@ -232,7 +245,16 @@ Missing values always sort last regardless of direction: a player with no ADP is
 
 ### The Analysis tab
 
-The second tab is the entire analytical case behind the board — all five notebooks in one page, with the methodology alongside the numbers. Served from `GET /analysis` (`src/analysis.py`).
+The second tab is the entire analytical case behind the board — all five notebooks in one page, with the methodology alongside the numbers. Served from `GET /analysis` (`src/analysis.py`), **for the league you're currently on**.
+
+**It's something you run, not something that appears.** Opening the tab shows a gate first: what the analysis would tell you, which of those parts need prior seasons, and which seasons this league actually has (`GET /analysis/status`, a local read — opening the tab costs nothing). Then a Run button.
+
+- A league whose history is already stored renders immediately; "Re-pull from ESPN first" is the explicit way to refresh it.
+- A league with nothing stored runs a **background job** (`POST /analysis/run` → `GET /analysis/job/{id}`), because pulling several seasons of box scores is a couple of minutes and a blocking request risks timing out with the database half-populated. Progress is per season — "Pulling 2023…" — and one season that 404s is skipped and reported rather than losing the four that worked. A pull already running is rejoined rather than started twice.
+
+**Analysis is scoped to one league, and adjusted to its settings.** Every history query filters on `league_id`, so three leagues in one database never pool their rows. `players_stats` is per league because scoring settings genuinely differ (McFL has 37 scoring items; the other two have 46), so the same player-season is worth different points in each — `average_draft_position` stays shared, since it's the national market. Replacement level comes from the connected league's own `lineupSlotCounts`, which moves every VORP on the page. And the season shown follows the league's own drafts rather than the calendar, since a league that skipped a year or drafted offline would otherwise render an empty page.
+
+**A league with no completed drafts still gets most of the page.** Projection accuracy, per-position reliability, unproven players and the ADP benchmark are graded against projections and actual scoring, and don't depend on who drafted. The four that do — who drafted well, draft capital, steals and reaches, and league bias — say plainly that they need seasons this league hasn't played, instead of rendering empty charts. A blank chart under "did drafting matter?" reads as *no* rather than as *not measurable here*.
 
 **Nothing on it is hardcoded.** Figures are either computed at request time or read from a table the notebooks persist. That's deliberate: the notebooks rewrite those tables whenever the data is refreshed, and a number typed into the frontend would silently drift away from what the board is actually doing — which is the exact failure the page exists to prevent. Twelve sections:
 
@@ -446,6 +468,8 @@ Writes `league_bias_position` / `_proteam` / `_manager` / `_player` / `_meta` (p
 ### Known limitations
 
 - All of the above (regression, bias correction) is trained on one league's history. It won't generalize to other leagues' scoring settings or draft tendencies out of the box. The bias fit in particular is 996 picks from 14 managers — enough for the position and top team effects, not enough to trust anything smaller.
+- **Only one league's bias fit is stored at a time.** The `league_bias_*` tables are replaced wholesale, so fitting league B discards league A's fit. It's tolerable because the app fits the league you're looking at and `league_bias_meta.league_id` records which one that was — the Analysis tab and the board both check it and fall back to market ADP rather than attributing one league's habits to another — but re-running is the only way back.
+- `players_stats` is per league, which makes the recommender's join one-to-many unless a league is named. It resolves to one league's rows (the one being drafted, or the fullest stored league for a brand-new one); a database predating the `league_id` migration is left unfiltered, which is the old behaviour exactly.
 - Sample size across seasons is small; the holdout evaluation is a single season, not a stable long-run estimate. The ADP benchmark is thinner still — three seasons, two of them consecutive — so a narrow win either way there should be read as noise.
 - 2023 is unusable for anything projection-based (`projected_points = 0.0` for 392 of 480 rows) and is excluded from NB04 and NB05 rather than reported with an anomalous R². Recovering it would need a re-pull from ESPN.
 - Rookies still have no prior-season stats to draw on; `is_rookie` marks them explicitly so the model treats a zero as *unknown* rather than as *produced nothing*, but it doesn't supply the missing information — it only stops the model misreading its absence.
