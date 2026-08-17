@@ -178,6 +178,17 @@ export const LEGEND = [
       this pick elsewhere and come back.`,
   },
   {
+    term: "Reach",
+    body: `How far off the market's price your league drafts this player, in picks. "11 early" means
+      they've gone about eleven picks ahead of their ADP here, so waiting for the market's number
+      loses them; "7 late" means they've lasted longer than the market says. It's estimated from
+      this league's past drafts through the player's position and NFL team, which is why it has a
+      number for players your league has never drafted. A dot marks the ones whose own record here
+      backs it up — that record is shown as evidence, never folded into the estimate, because two or
+      three drafts against a spread of about nineteen picks is far too little to trust on its own.
+      A dash means this league has no measured history at all, which is not the same as no effect.`,
+  },
+  {
     term: "League timing",
     body: `Your league doesn't draft like the national market, and six seasons of its own picks say
       where. Quarterbacks go about a round earlier here than their ADP; kickers and defenses last

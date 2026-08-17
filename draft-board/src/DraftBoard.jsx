@@ -630,6 +630,65 @@ const MeterRow = ({ icon, label, value, meter, tone, caption }) => (
 // and expanding a row all used to re-render every one of them. The handlers are
 // shared across rows and take the player as an argument, so this component
 // supplies its own identity when calling them.
+// Below this, the shift is smaller than the noise it was measured against and
+// saying "1 pick early" would dress a rounding error as a finding. Matches
+// MIN_REPORTABLE_SHIFT in src/biases.py.
+const MIN_REACH = 2.0;
+
+/** How far this league moves a player off the market's price, in picks. */
+function ReachCell({ player }) {
+  const shift = player.bias_shift;
+  // Null - not zero - is what a league with no measured history returns. "Par"
+  // would be a claim; a dash is the absence of one.
+  if (shift == null || !Number.isFinite(Number(shift)))
+    return <span className="text-xs text-slate-700" title="No draft history measured for this league.">—</span>;
+
+  const n = Number(shift);
+  const own = player.bias_player_shift;
+  const ownN = player.bias_player_n;
+  // Negative shift = drafted earlier here than the market says. That's the
+  // direction that costs you a player, so it's the one that gets a colour.
+  const early = n < 0;
+  const picks = Math.abs(n);
+
+  // Written without a pronoun: half these rows are defenses, and the data
+  // carries no pronouns for the players either.
+  const ownText =
+    own != null && ownN
+      ? ` Drafted here ${ownN} times, ${Math.abs(own).toFixed(0)} picks ` +
+        `${own < 0 ? "early" : "late"} on average — a small sample, shown as evidence ` +
+        `rather than folded into the estimate.`
+      : "";
+
+  if (picks < MIN_REACH)
+    return (
+      <span className="text-xs text-slate-600"
+            title={`This league drafts ${player.player_name} about where the market does.${ownText}`}>
+        par
+      </span>
+    );
+
+  return (
+    <span
+      className={`tabular text-xs ${early ? "text-rose-300" : "text-emerald-300/80"}`}
+      title={
+        // `bias_reason` is composed server-side and carries no full stop, so
+        // one is added here rather than changing a string the notebooks share.
+        `${player.bias_reason
+            ? `${player.bias_reason}.`
+            : `This league takes ${player.player_name} ${picks.toFixed(0)} picks ` +
+              `${early ? "earlier" : "later"} than the market.`}` +
+        ` Estimated from this league's past drafts.${ownText}`
+      }
+    >
+      {picks.toFixed(0)} {early ? "early" : "late"}
+      {/* A dot means the estimate is backed by this player's own record here,
+          not only by his position and NFL team. */}
+      {own != null && ownN ? <span className="ml-1 text-slate-500">•</span> : null}
+    </span>
+  );
+}
+
 const PlayerRow = React.memo(function PlayerRow({
   player, rank, nextPick, onDraft, onTaken, onToggle, onOpenFull, expanded, readOnly, highlight,
 }) {
@@ -683,6 +742,9 @@ const PlayerRow = React.memo(function PlayerRow({
       <td className="tabular hidden py-2.5 pr-3 text-right text-slate-400 md:table-cell">
         {fmtAdp(player.adp)}
       </td>
+      <td className="hidden py-2.5 pr-3 text-right lg:table-cell">
+        <ReachCell player={player} />
+      </td>
       <td className="hidden py-2.5 pr-3 sm:table-cell">
         <div className="flex min-w-[64px] flex-col gap-1">
           <span className="tabular text-right text-xs text-slate-400">{pct(player.availability)}</span>
@@ -721,7 +783,7 @@ const PlayerRow = React.memo(function PlayerRow({
     </tr>
     {expanded && (
       <tr>
-        <td colSpan={9} className="border-t border-white/5 bg-slate-950/40 p-0">
+        <td colSpan={10} className="border-t border-white/5 bg-slate-950/40 p-0">
           <ExpandedPlayer
             player={player}
             nextPick={nextPick}
@@ -1163,6 +1225,9 @@ const SORT_COLUMNS = [
   { key: "position", label: "Pos", align: "left", dir: "asc", cls: "" },
   { key: "vorp", label: "VORP", align: "right", dir: "desc", cls: "hidden md:table-cell" },
   { key: "adp", label: "ADP", align: "right", dir: "asc", cls: "hidden md:table-cell" },
+  // Sorted ascending first, so the first click surfaces the biggest reaches -
+  // the players who won't be there when the market says they will.
+  { key: "bias_shift", label: "Reach", align: "right", dir: "asc", cls: "hidden lg:table-cell" },
   { key: "availability", label: "Available", align: "right", dir: "desc", cls: "hidden sm:table-cell" },
   { key: "confidence", label: "Confidence", align: "right", dir: "desc", cls: "hidden sm:table-cell" },
   { key: "utility", label: "Score", align: "right", dir: "desc", cls: "" },
@@ -1560,6 +1625,8 @@ export default function DraftBoard() {
               bias_pos_shift: null,
               bias_team_shift: null,
               bias_reason: null,
+              bias_player_shift: null,
+              bias_player_n: null,
               // Ranked on the position-dampened VORP, matching the live
               // backend's value term - offline can't apply need or timing,
               // which is exactly what the banner warns about.
@@ -2274,7 +2341,7 @@ export default function DraftBoard() {
                   ))}
                   {!loading && filtered.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="py-12 text-center text-sm text-slate-500">
+                      <td colSpan={10} className="py-12 text-center text-sm text-slate-500">
                         No players match your filters.
                       </td>
                     </tr>

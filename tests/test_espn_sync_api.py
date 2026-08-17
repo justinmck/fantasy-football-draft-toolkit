@@ -431,10 +431,13 @@ class TestBiasIsScopedToItsLeague:
         rows = client.post("/recommend", json={"session_id": sid, "current_pick": 1,
                                                "next_pick": 12, "topn": 50}).json()["results"]
         qb = next(r for r in rows if r["position"] == "QB")
-        # The columns still exist - only the values are neutral. A league with no
-        # history must not return differently-shaped rows.
-        assert qb["bias_shift"] == 0
+        # The columns still exist - a league with no history must not return
+        # differently-shaped rows - but they carry null rather than zero. The
+        # board prints this number, and zero would claim this league drafts
+        # everyone exactly at market, which was never measured.
+        assert "bias_shift" in qb and qb["bias_shift"] is None
         assert qb["bias_reason"] is None
+        # Scoring is unaffected either way: the pick estimate stays at ADP.
         assert qb["league_pick_est"] == qb["adp"]
 
     def test_scheduled_and_unscheduled_drafts_are_distinguishable(

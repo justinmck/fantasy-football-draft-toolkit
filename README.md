@@ -236,6 +236,22 @@ A failed sync returns 200 with `status: "auth"` or `"stale"` rather than an erro
 
 **Rehearsal.** `notebooks/export_draft_fixture.py` builds `tests/fixtures/espn_draft_2025.json` from the `drafts` table — which has no `memberId` and no SWID, so there is nothing to scrub, by construction rather than by redaction. `tests/test_espn_draft.py` replays the real 2025 draft through the pipeline pick by pick and asserts every pick is detected once, ownership matches, the final roster is full with 7 bench, batched polling lands identically to single-stepping, re-applying is inert, and a rewind rebuilds correctly.
 
+### The Reach column
+
+How far off the market's price your league drafts a player, in picks: **"11 early"** means they've gone about eleven picks ahead of their ADP here, so waiting for the market's number loses them; **"7 late"** means they've lasted longer. Sortable — one click surfaces the biggest reaches, which is the list of players who won't be there when the market says they will. In McFL that's Jalen Hurts at 20 early, Drake Maye at 16, Dallas Goedert at 15 — the quarterback and Philadelphia effects, made concrete per player.
+
+It's estimated through the player's **position and NFL team**, which is why every player has a number, including ones your league has never drafted. Where the player has their own record here, a dot marks the row and the tooltip gives it: *"Drafted here 5 times, 16 picks early on average."* That record is **evidence beside the estimate, never folded into it** — with n of 2–4 against a per-pick spread of about 19 picks, a per-player average is mostly noise, and only the 25 players clearing the strict filter are shown at all.
+
+Three states, deliberately distinct:
+
+| Shown | Means |
+|---|---|
+| `11 early` / `7 late` | Measured shift, at least 2 picks (below that it's inside the noise) |
+| `par` | Measured, and this league drafts them about where the market does |
+| `—` | **No fit for this league at all** — not the same as no effect |
+
+That last row is why `bias_shift` is null rather than zero for an unfitted league. Scoring is identical either way (the pick estimate stays at ADP), but the board *prints* this number, and a column of zeroes would assert "your league drafts everyone exactly at market" — a measurement nobody took.
+
 ### Sorting the board
 
 Column headers are sortable — click to sort, click again to reverse. First click is descending for quantities where bigger is better and ascending for ADP (pick 1 is best) and names. Two details that matter:

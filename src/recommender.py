@@ -206,6 +206,9 @@ RESULT_COLUMNS = [
     # "your league loves quarterbacks". `bias_reason` is composed server-side so
     # notebooks and interface describe an effect identically.
     "bias_shift", "bias_pos_shift", "bias_team_shift", "bias_reason",
+    # This player's own draft record in this league, where there is enough of
+    # one to report. Evidence shown beside the estimate, never folded into it.
+    "bias_player_shift", "bias_player_n",
     "avg_last_year", "games_last_year", "points_last_year",
     "targets_last_year", "rush_att_last_year", "pass_att_last_year",
     "predicted_vorp", "ci_low", "ci_high", "reliability", "position_rmse",

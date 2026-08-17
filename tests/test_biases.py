@@ -46,7 +46,30 @@ class TestApplyLeagueBias:
         # assigns league_pick_est = adp when there's no fit at all.
         out = apply_league_bias(pool(), {})
         assert out["league_pick_est"].tolist() == [20.0, 40.0, 999.0]
-        assert out["bias_shift"].tolist() == [0.0, 0.0, 0.0]
+
+    def test_an_unfitted_league_reports_no_shift_rather_than_zero(self):
+        """The Reach column's dash.
+
+        Zero would read as "your league drafts everyone at market", which is a
+        measurement nobody took. Scoring is unaffected either way - the pick
+        estimate stays at ADP - but the number is reported to the user.
+        """
+        out = apply_league_bias(pool(), {})
+        assert out["bias_shift"].isna().all()
+        assert out["bias_pos_shift"].isna().all()
+        assert out["bias_team_shift"].isna().all()
+        assert out["bias_reason"].isna().all()
+
+    def test_a_fitted_league_keeps_its_real_zeroes(self):
+        """A position with no measurable habit genuinely shifts by nothing.
+
+        That's a finding, not an absence, and must stay distinguishable from
+        the case above.
+        """
+        out = apply_league_bias(pool(), {"position": {"QB": -10.0}})
+        assert out.loc[0, "bias_shift"] == pytest.approx(-10.0)
+        assert out.loc[1, "bias_shift"] == 0.0        # WR: measured, no effect
+        assert not out["bias_shift"].isna().any()
 
     def test_position_shift_is_additive(self):
         out = apply_league_bias(pool(), {"position": {"QB": -10.0}})
@@ -93,8 +116,67 @@ class TestApplyLeagueBias:
 
     def test_player_effects_are_off_by_default(self):
         bias = {"player": {1: -25.0}}
-        assert apply_league_bias(pool(), bias).loc[0, "bias_shift"] == 0.0
+        # Nothing applied, so nothing measured to report - see the dash test above.
+        assert pd.isna(apply_league_bias(pool(), bias).loc[0, "bias_shift"])
         assert apply_league_bias(pool(), bias, include_player=True).loc[0, "bias_shift"] == -25.0
+
+
+class TestPlayerHistoryIsEvidenceNotScore:
+    """The Reach column's dot: this player's own record here.
+
+    It's reported so a drafter can see what backs the estimate, and kept out of
+    the estimate because two or three drafts against a ~19-pick spread is not
+    enough to move a pick prediction with.
+    """
+
+    HISTORY = {"player_history": {1: {"mean": -30.0, "n": 3}}}
+
+    def test_history_is_reported(self):
+        out = apply_league_bias(pool(), self.HISTORY)
+        assert out["bias_player_shift"].tolist()[0] == -30.0
+        assert out["bias_player_n"].tolist()[0] == 3
+
+    def test_history_does_not_move_the_pick_estimate(self):
+        out = apply_league_bias(pool(), self.HISTORY)
+        assert out["league_pick_est"].tolist() == [20.0, 40.0, 999.0]
+
+    def test_history_alone_is_not_a_measured_league(self):
+        """Player rows exist but nothing is applied, so Reach still shows a dash.
+
+        Otherwise the 25 players with a record would read as measured while
+        everyone else read as "par", from the same empty fit.
+        """
+        out = apply_league_bias(pool(), self.HISTORY)
+        assert out["bias_shift"].isna().all()
+
+    def test_history_shows_beside_a_real_fit(self):
+        out = apply_league_bias(pool(), {**self.HISTORY, "position": {"QB": -10.0}})
+        assert out.loc[0, "bias_shift"] == pytest.approx(-10.0)   # what's applied
+        assert out.loc[0, "bias_player_shift"] == -30.0           # what backs it
+
+    def test_players_without_a_record_report_nothing(self):
+        """Missing, not zero - "never measured" isn't "measured as no effect".
+
+        It leaves here as NaN, which pandas produces for a float column with
+        holes; `recommend` turns that into JSON null on the way out, and the UI
+        distinguishes null from 0 to decide whether to show the dot at all.
+        """
+        out = apply_league_bias(pool(), self.HISTORY)
+        assert out["bias_player_shift"].isna().tolist() == [False, True, True]
+        assert (out["bias_player_shift"].fillna(0) != 0).tolist() == [True, False, False]
+
+    def test_a_fit_with_no_player_table_still_returns_the_columns(self):
+        """The response shape can't depend on which league you're looking at."""
+        out = apply_league_bias(pool(), {"position": {"QB": -10.0}})
+        assert out["bias_player_shift"].isna().all()
+        assert out["bias_player_n"].isna().all()
+
+    def test_load_exposes_only_strict_filter_players(self):
+        """The unfiltered table has n=1 deltas of 100+ picks - pure noise."""
+        loaded = load_league_bias(engine)
+        history = loaded.get("player_history", {})
+        assert all(v["n"] >= 2 for v in history.values()), "n=1 rows must not reach the UI"
+        assert set(history) == set(loaded.get("player", {}))
 
 
 class TestBiasReason:

@@ -89,6 +89,25 @@ def test_recommend_returns_scoring_components_for_explanation():
     assert body["roster_state"]["RB"]["need"] == 2
 
 
+def test_recommend_returns_reach_fields_as_json_null_not_nan():
+    """The Reach column has to tell "no measured history" from "no effect".
+
+    Both arrive as a missing float in pandas, and NaN is not valid JSON - it
+    would either 500 the endpoint or reach the browser as a value that is
+    neither null nor a number, which the column would render as a real finding.
+    """
+    sid = client.post("/session", json={}).json()["session_id"]
+    rows = client.post("/recommend", json={
+        "session_id": sid, "current_pick": 1, "next_pick": 15, "topn": 5,
+    }).json()["results"]
+    for r in rows:
+        for field in ("bias_shift", "bias_player_shift", "bias_player_n"):
+            assert field in r, field
+            assert r[field] is None or isinstance(r[field], (int, float)), r[field]
+            # NaN is the one float that isn't equal to itself.
+            assert r[field] == r[field], f"{field} came back NaN"
+
+
 def test_recommend_reports_which_season_of_adp_it_used():
     # The fixture has both 2025 and 2026 ADP, so the requested year wins.
     sid = client.post("/session", json={}).json()["session_id"]

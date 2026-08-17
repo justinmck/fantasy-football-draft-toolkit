@@ -400,6 +400,18 @@ def load_league_bias(engine) -> dict:
     if len(ply) and "passes_strict_filter" in ply.columns:
         out["player"] = {int(r.player_id): float(r.mean)
                          for r in ply.itertuples() if r.passes_strict_filter}
+        # The same players, with the sample size attached, for *display*. The
+        # board's Reach column answers "how far does this league move this
+        # player", which is modelled from position and NFL team; this is the
+        # narrower, more direct fact - "and he personally has gone this much
+        # early, this many times" - and the UI shows it beside the estimate
+        # rather than folding it in. Kept to the strict filter for the reason
+        # in `apply_league_bias`: an n=1 delta of -103 picks is noise wearing a
+        # number's clothing.
+        out["player_history"] = {
+            int(r.player_id): {"mean": float(r.mean), "n": int(r.n)}
+            for r in ply.itertuples() if r.passes_strict_filter
+        }
     if len(meta_df):
         out["meta"].update({k: v for k, v in meta_df.iloc[0].to_dict().items()
                             if not pd.isna(v)})
@@ -488,9 +500,40 @@ def apply_league_bias(df: pd.DataFrame, bias: dict, include_player: bool = False
     # Nobody goes before pick 1: a quarterback with ADP 3 and a -9.9 shift must
     # not produce a negative pick estimate.
     out["league_pick_est"] = (adp + shift).clip(lower=1.0)
+
+    # With nothing fitted for this league, the shifts are absent rather than
+    # zero. Both leave `league_pick_est` at ADP, so the scoring is identical
+    # either way - but the board reports these numbers, and a column of zeroes
+    # would state "your league drafts everyone exactly at market", which is a
+    # measurement nobody took. A league that *was* fitted keeps its real zeroes:
+    # a position with no measurable habit genuinely shifts by nothing.
+    # `player_map` counts only when it is actually being applied, which is what
+    # `include_player` decides - otherwise an experiment-only fit would look
+    # like a measured league here.
+    measured = bool(pos_map or team_map or player_map)
+    if not measured:
+        shift = pos_shift = team_shift = pd.Series(np.nan, index=out.index)
+
     out["bias_shift"] = shift.astype(float)
     out["bias_pos_shift"] = pos_shift.astype(float)
     out["bias_team_shift"] = team_shift.astype(float)
+
+    # This player's own record in this league, when there is enough of one to
+    # report. Display-only: it is deliberately NOT part of `bias_shift` (see the
+    # docstring), so the number the board scores with and the number shown as
+    # evidence stay distinguishable.
+    history = bias.get("player_history", {}) or {}
+    if history and "player_id" in out.columns:
+        ids = out["player_id"]
+        out["bias_player_shift"] = [
+            (history.get(int(i), {}) or {}).get("mean") if pd.notna(i) else None for i in ids
+        ]
+        out["bias_player_n"] = [
+            (history.get(int(i), {}) or {}).get("n") if pd.notna(i) else None for i in ids
+        ]
+    else:
+        out["bias_player_shift"] = None
+        out["bias_player_n"] = None
 
     positions = out["position"] if "position" in out.columns else pd.Series(None, index=out.index)
     teams = out["pro_team"] if "pro_team" in out.columns else pd.Series(None, index=out.index)
