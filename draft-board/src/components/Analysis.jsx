@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { fmt, fmtAdp } from "../theme";
+import ShareButton, { drawRankedCard } from "./share";
 import { PositionChip } from "./primitives";
 
 /**
@@ -30,12 +31,15 @@ import { PositionChip } from "./primitives";
 // primitives
 // ---------------------------------------------------------------------------
 
-const Section = ({ id, icon, eyebrow, title, blurb, children }) => (
+const Section = ({ id, icon, eyebrow, title, blurb, action, children }) => (
   <section id={id} className="card scroll-mt-20 p-5 sm:p-6">
     {eyebrow && <div className="label mb-1.5 text-emerald-400/70">{eyebrow}</div>}
     <div className="mb-2 flex items-start gap-2">
       <span className="mt-0.5 shrink-0 text-emerald-400">{icon}</span>
       <h2 className="text-lg font-semibold tracking-tight text-slate-100">{title}</h2>
+      {/* Share sits on the title row of the sections worth sending, so it
+          reads as part of the finding rather than a toolbar over the page. */}
+      {action && <div className="ml-auto">{action}</div>}
     </div>
     {blurb && <div className="mb-5 max-w-3xl text-sm leading-relaxed text-slate-400">{blurb}</div>}
     {children}
@@ -290,7 +294,8 @@ function RunGate({ leagueName, status, onRun, job, error }) {
   );
 }
 
-export default function Analysis({ apiUrl, leagueId, leagueName, sessionId, authHeaders = {} }) {
+export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
+                                  sessionId, authHeaders = {} }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [status, setStatus] = useState(null);
@@ -419,10 +424,10 @@ export default function Analysis({ apiUrl, leagueId, leagueName, sessionId, auth
       <div className="mt-5 space-y-5">
         <DataSection data={data} />
         <ReplacementSection data={data} />
-        <DraftPerformanceSection data={data} />
+        <DraftPerformanceSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
         <RoundsSection data={data} />
         <LeagueBiasSection data={data} />
-        <MarketSection data={data} />
+        <MarketSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
         <AccuracySection data={data} />
         <PositionReliabilitySection data={data} />
         <RookieSection data={data} />
@@ -647,12 +652,53 @@ const NeedsHistory = ({ id, icon, eyebrow, title, what }) => (
                   Once it has played a season, this section {what}.</>} />
 );
 
-function DraftPerformanceSection({ data }) {
+function DraftPerformanceSection({ data, leagueName, myTeamName }) {
   const dp = data.draft_performance || {};
   const corr = dp.correlation;
   const verdict = correlationVerdict(corr);
   const teams = dp.teams || [];
   const maxVorp = Math.max(...teams.map((t) => Math.abs(t.avg_vorp || 0)), 1);
+
+  // The shareable version of this section. Same numbers, composed for a group
+  // chat: the league and season named, the reader's own team marked, and the
+  // correlation stated in words underneath so the ranking isn't quoted without
+  // the caveat that comes with it.
+  const isMine = (t) => !!myTeamName && t.team_name === myTeamName;
+  const league = leagueName || "This league";
+  const shareTitle = `Who drafted best — ${data.year}`;
+  const shareFooter =
+    corr?.r != null
+      ? `Drafting well tracked finishing well: r = ${fmt(corr.r, 2)} across ${corr.n} teams.`
+      : null;
+  const shareNote = "Average VORP of every player drafted, scored on what they actually went on to do.";
+
+  const shareCard = () =>
+    drawRankedCard({
+      eyebrow: league,
+      title: shareTitle,
+      rows: teams.map((t) => ({
+        label: t.team_name,
+        sub: `finished ${ordinal(t.final_standing)}`,
+        value: t.avg_vorp,
+        valueText: `${t.avg_vorp > 0 ? "+" : ""}${fmt(t.avg_vorp, 1)}`,
+        highlight: isMine(t),
+      })),
+      footer: shareFooter,
+      note: shareNote,
+    });
+
+  const shareText = [
+    `${league} — who drafted best, ${data.year}`,
+    "",
+    ...teams.map((t, i) =>
+      `${String(i + 1).padStart(2)}. ${t.team_name}${isMine(t) ? " (me)" : ""} — ` +
+      `${t.avg_vorp > 0 ? "+" : ""}${fmt(t.avg_vorp, 1)} avg VORP, finished ${ordinal(t.final_standing)}`
+    ),
+    "",
+    shareFooter,
+    shareNote,
+    "via Justin's Draft Assistant",
+  ].filter(Boolean).join("\n");
 
   // A blank chart under "did drafting matter?" reads as "no" rather than as
   // "not measurable here", which is the opposite of what's true.
@@ -673,6 +719,8 @@ function DraftPerformanceSection({ data }) {
       icon={<Crown size={17} />}
       eyebrow="NB03 — the premise"
       title="Did drafting well actually matter?"
+      action={<ShareButton draw={shareCard} text={shareText}
+                           filename={`who-drafted-best-${data.year}`} />}
       blurb={
         <>
           This is the question the entire tool rests on. If the draft didn't predict the season,
@@ -1063,20 +1111,60 @@ const PlayerTable = ({ rows, deltaLabel }) =>
     </Table>
   );
 
-const MarketSection = ({ data }) =>
-  !(data.steals_and_reaches?.steals || []).length &&
-  !(data.steals_and_reaches?.reaches || []).length ? (
-    <NeedsHistory
-      id="market" icon={<Gem size={17} />} eyebrow="NB03 — where the crowd was wrong"
-      title="Steals and reaches"
-      what="lists the picks that returned far more or far less than their draft slot was worth"
-    />
-  ) : (
+function MarketSection({ data, leagueName, myTeamName }) {
+  const steals = data.steals_and_reaches?.steals || [];
+  const reaches = data.steals_and_reaches?.reaches || [];
+
+  if (!steals.length && !reaches.length) {
+    return (
+      <NeedsHistory
+        id="market" icon={<Gem size={17} />} eyebrow="NB03 — where the crowd was wrong"
+        title="Steals and reaches"
+        what="lists the picks that returned far more or far less than their draft slot was worth"
+      />
+    );
+  }
+
+  // Shared as the steals alone: "look what I got in the ninth round" travels,
+  // and a chat message listing everyone's worst picks alongside is a different
+  // and less welcome thing to send.
+  const league = leagueName || "This league";
+  const top = steals.slice(0, 8);
+  const shareCard = () =>
+    drawRankedCard({
+      eyebrow: `${league} · ${data.year}`,
+      title: "Best value of the draft",
+      rows: top.map((p) => ({
+        label: p.player_name,
+        sub: `${p.position} · pick ${p.pick} · ${p.team_name}`,
+        value: p.vorp,
+        valueText: `${fmt(p.vorp, 0)} VORP`,
+        highlight: !!myTeamName && p.team_name === myTeamName,
+      })),
+      footer: "Value over replacement, against where the market said they'd go.",
+      note: "Steals are late picks that paid off — the thing the board is trying to find a season early.",
+    });
+
+  const shareText = [
+    `${league} — best value of the ${data.year} draft`,
+    "",
+    ...top.map((p, i) =>
+      `${String(i + 1).padStart(2)}. ${p.player_name} (${p.position}) — pick ${p.pick}, ` +
+      `ADP ${fmtAdp(p.adp)}, ${fmt(p.vorp, 0)} VORP — ${p.team_name}` +
+      (myTeamName && p.team_name === myTeamName ? " (me)" : "")
+    ),
+    "",
+    "via Justin's Draft Assistant",
+  ].join("\n");
+
+  return (
   <Section
     id="market"
     icon={<Gem size={17} />}
     eyebrow="NB03 — where the crowd was wrong"
     title={`Steals and reaches, ${data.year}`}
+    action={<ShareButton draw={shareCard} text={shareText}
+                         filename={`best-value-${data.year}`} />}
     blurb={
       <>
         Draft delta is pick number minus ADP, so a positive number means a player lasted longer than
@@ -1086,16 +1174,17 @@ const MarketSection = ({ data }) =>
     }
   >
     <Sub>Fell past their ADP and delivered anyway</Sub>
-    <PlayerTable rows={data.steals_and_reaches?.steals} deltaLabel="Fell by" />
+    <PlayerTable rows={steals} deltaLabel="Fell by" />
     <Sub>Taken ahead of ADP and returned the least</Sub>
-    <PlayerTable rows={data.steals_and_reaches?.reaches} deltaLabel="Rose by" />
+    <PlayerTable rows={reaches} deltaLabel="Rose by" />
     <Note>
       Reaching early is the expensive mistake — you pay a premium <em>and</em> forfeit the player you
       could have had. That asymmetry is what the board's pick-timing multiplier exists to manage: it
       estimates whether someone will survive to your next turn instead of guessing.
     </Note>
   </Section>
-);
+  );
+}
 
 // --- 6. projection accuracy ---------------------------------------------
 

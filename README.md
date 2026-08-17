@@ -247,6 +247,19 @@ The things that make it feel like a product rather than a dev server:
 - **Keyboard and screen-reader basics.** One emerald focus ring on every control (the browser default blue is invisible on this background), `aria-sort` on the sortable headers, and labels on the icon-only buttons.
 - **It fits a phone.** The header collapses to icons, the NFL team drops out of each row, and long names truncate rather than pushing the Score column off the screen.
 
+### Sharing a finding
+
+"Who drafted best" and "steals and reaches" each carry a **Share** button offering *copy as image*, *copy as text*, and *download*. The point is the group chat: the whole reason to know you out-drafted everyone is telling them.
+
+The image is **drawn on a canvas from the data**, not screenshotted from the page. Two reasons that's worth the code:
+
+1. A screenshot pastes as a crop of a dark dashboard at whatever size the window happened to be, with clipped edges. A drawn card is composed for where it's going — fixed size, big type, one message, and a wordmark so it still says where the numbers came from three chats later.
+2. No dependency. Every DOM-to-image library is a few hundred kilobytes plus caveats about the fonts and CSS it can't parse.
+
+Your own team is marked — highlighted **and labelled `(you)` in words**, since the highlight has to survive being screenshotted, recompressed and read by someone colour-blind. Bars diverge from a zero line rather than growing from a common left edge: the values are signed, and drawing them all rightward made the *worst* team's bar the second-longest on the card, with length saying "lots" while the number said "lots of the wrong thing". The correlation is restated under the ranking, so the leaderboard doesn't travel without the caveat attached to it.
+
+Text is offered alongside, because much of this is a ranked list, a ranked list reads fine as text, and text survives being quoted and replied to.
+
 ### The Reach column
 
 How far off the market's price your league drafts a player, in picks: **"11 early"** means they've gone about eleven picks ahead of their ADP here, so waiting for the market's number loses them; **"7 late"** means they've lasted longer. Sortable — one click surfaces the biggest reaches, which is the list of players who won't be there when the market says they will. In McFL that's Jalen Hurts at 20 early, Drake Maye at 16, Dallas Goedert at 15 — the quarterback and Philadelphia effects, made concrete per player.

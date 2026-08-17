@@ -2269,6 +2269,9 @@ export default function DraftBoard() {
               apiUrl={API_URL}
               leagueId={leagueId}
               leagueName={sync.league?.name}
+              // So a shared card can mark which row is yours. Matched on name
+              // because the history tables key on team name, not team id.
+              myTeamName={sync.team?.name}
               sessionId={sessionId}
               authHeaders={authHeaders()}
             />
