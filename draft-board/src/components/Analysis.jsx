@@ -3,6 +3,8 @@ import {
   Activity,
   AlertTriangle,
   BarChart3,
+  ChevronLeft,
+  ChevronRight,
   Crown,
   Database,
   Fingerprint,
@@ -301,6 +303,10 @@ export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
   const [status, setStatus] = useState(null);
   const [job, setJob] = useState(null);
   const [runError, setRunError] = useState(null);
+  // null means "whichever season this league last drafted in" - the server
+  // resolves that, since it knows which seasons actually have a draft.
+  const [year, setYear] = useState(null);
+  const [switching, setSwitching] = useState(false);
 
   const get = (path) => fetch(`${apiUrl}${path}`, { headers: authHeaders });
 
@@ -327,16 +333,27 @@ export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiUrl, leagueId]);
 
-  const fetchAnalysis = React.useCallback(() => {
+  const fetchAnalysis = React.useCallback((forYear) => {
     const qs = new URLSearchParams();
     if (leagueId) qs.set("league_id", leagueId);
     if (sessionId) qs.set("session_id", sessionId);   // carries the league's lineup
+    if (forYear) qs.set("year", forYear);
     return get(`/analysis?${qs}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
-      .then(setData)
+      .then((d) => { setData(d); setYear(d.year); })
       .catch((e) => setErr(String(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiUrl, leagueId, sessionId]);
+
+  // Switching season keeps the current page on screen and dims it, rather than
+  // dropping back to the loading state. Every season has the same sections in
+  // the same order, so blanking the page throws away the reader's scroll
+  // position and their place in a comparison they're part-way through making.
+  const showYear = React.useCallback((y) => {
+    if (y === year) return;
+    setSwitching(true);
+    fetchAnalysis(y).finally(() => setSwitching(false));
+  }, [year, fetchAnalysis]);
 
   const run = (opts = {}) => {
     setRunError(null);
@@ -420,8 +437,23 @@ export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
           graded against projections and actual scoring and doesn't need them.
         </div>
       )}
+      {/* Above the contents, because it governs everything under it: the
+          retrospective sections all describe one season, and this is which. */}
+      {data.seasons?.length > 1 && (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl
+          border border-white/10 bg-white/[0.02] px-4 py-3">
+          <YearSwitcher seasons={data.seasons} year={data.year} onPick={showYear} busy={switching} />
+          {/* Two different things happen when this changes, and saying which
+              is which stops the projection numbers looking unresponsive. */}
+          <span className="max-w-sm text-xs leading-relaxed text-slate-600">
+            Sections naming a season show that one. The projection and market sections pool every
+            season up to it, so they widen as you move forward.
+          </span>
+        </div>
+      )}
       <Contents />
-      <div className="mt-5 space-y-5">
+      {/* Dimmed rather than replaced while a season loads - see showYear. */}
+      <div className={`mt-5 space-y-5 transition-opacity ${switching ? "opacity-40" : ""}`}>
         <DataSection data={data} />
         <ReplacementSection data={data} />
         <DraftPerformanceSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
@@ -441,6 +473,68 @@ export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
 }
 
 // ---------------------------------------------------------------------------
+
+/**
+ * Season navigation for the retrospective half of the page.
+ *
+ * The analysis used to show whichever season the league last drafted in and
+ * nothing else, which is a strange thing to do with six seasons of history
+ * sitting in the database — "did drafting matter?" is a much better question
+ * asked of six drafts than of one, and the answer moves year to year.
+ */
+function YearSwitcher({ seasons, year, onPick, busy }) {
+  if (!seasons?.length) return null;
+  const i = seasons.indexOf(year);
+  const step = (d) => {
+    const next = seasons[i + d];
+    if (next != null) onPick(next);
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="label shrink-0">Season</span>
+
+      {/* Arrows as well as chips: stepping back one year at a time is how you
+          actually read a trend, and it's one target instead of aiming at a
+          different chip each time. */}
+      <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-slate-900 p-1">
+        <button
+          onClick={() => step(-1)}
+          disabled={i <= 0 || busy}
+          aria-label="Earlier season"
+          className="rounded p-1 text-slate-500 transition hover:text-slate-200 disabled:opacity-25"
+        >
+          <ChevronLeft size={14} />
+        </button>
+
+        {seasons.map((y) => (
+          <button
+            key={y}
+            onClick={() => onPick(y)}
+            aria-current={y === year ? "true" : undefined}
+            disabled={busy}
+            className={`tabular rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
+              y === year ? "bg-white/10 text-white" : "text-slate-500 hover:text-slate-300"
+            }`}
+          >
+            {y}
+          </button>
+        ))}
+
+        <button
+          onClick={() => step(1)}
+          disabled={i < 0 || i >= seasons.length - 1 || busy}
+          aria-label="Later season"
+          className="rounded p-1 text-slate-500 transition hover:text-slate-200 disabled:opacity-25"
+        >
+          <ChevronRight size={14} />
+        </button>
+      </div>
+
+      {busy && <span className="text-xs text-slate-500">Loading…</span>}
+    </div>
+  );
+}
 
 const Intro = ({ data, leagueName }) => (
   <div className="card p-5 sm:p-6">
@@ -586,7 +680,7 @@ function ReplacementSection({ data }) {
       id="vorp"
       icon={<Ruler size={17} />}
       eyebrow="NB03 — the measuring stick"
-      title="Replacement level: what VORP is actually over"
+      title={`Replacement level: what VORP is actually over, ${data.year}`}
       blurb={
         <>
           Every number on the draft board is a value <em>over replacement</em>, so the whole thing
@@ -718,7 +812,7 @@ function DraftPerformanceSection({ data, leagueName, myTeamName }) {
       id="draft"
       icon={<Crown size={17} />}
       eyebrow="NB03 — the premise"
-      title="Did drafting well actually matter?"
+      title={`Did drafting well actually matter? ${data.year}`}
       action={<ShareButton draw={shareCard} text={shareText}
                            filename={`who-drafted-best-${data.year}`} />}
       blurb={
@@ -744,17 +838,33 @@ function DraftPerformanceSection({ data, leagueName, myTeamName }) {
             />
             <Figure value={corr.n} label="teams in the sample" />
           </Figures>
-          <Verdict>
-            A {verdict.strength}{verdict.significant ? ", statistically significant" : ""} relationship.
-            The sign is negative because 1st is the best finish, so drafting better went with
-            finishing higher. {corr.n <= 14 && (
-              <span className="opacity-70">
-                Hold it loosely all the same: one season of {corr.n} teams is a small sample, and
-                this is a correlation, not a controlled experiment — good drafters likely also
-                manage their waiver wire well.
-              </span>
-            )}
-          </Verdict>
+          {/* Now that any season can be selected, the null result is a real
+              case and not a hypothetical: McFL's 2020 draft has r = -0.05 at
+              p = 0.87. Reporting the sign of that as "drafting better went
+              with finishing higher" would be reading a direction out of noise,
+              which is exactly the mistake this page exists to argue against. */}
+          {verdict.significant ? (
+            <Verdict>
+              A {verdict.strength}, statistically significant relationship. The sign is negative
+              because 1st is the best finish, so drafting better went with finishing higher.{" "}
+              {corr.n <= 14 && (
+                <span className="opacity-70">
+                  Hold it loosely all the same: one season of {corr.n} teams is a small sample, and
+                  this is a correlation, not a controlled experiment — good drafters likely also
+                  manage their waiver wire well.
+                </span>
+              )}
+            </Verdict>
+          ) : (
+            <Verdict tone="warn">
+              <strong>No relationship worth reading in this season.</strong> At p ={" "}
+              {corr.p < 0.001 ? "< 0.001" : fmt(corr.p, 3)}, a correlation this size is what {corr.n}{" "}
+              teams produce by chance, so the sign of it means nothing — the best-drafting team here
+              is not evidence that drafting well paid off. Seasons vary, and a single one of{" "}
+              {corr.n} teams has little power to detect anything; check the other years before
+              concluding the draft doesn't matter in this league.
+            </Verdict>
+          )}
         </>
       )}
 
@@ -802,7 +912,7 @@ function RoundsSection({ data }) {
       id="rounds"
       icon={<Layers size={17} />}
       eyebrow="NB03 — where value lives"
-      title="How fast draft capital decays"
+      title={`How fast draft capital decays, ${data.year}`}
       blurb={
         <>
           Average VORP returned by each round, with the share of picks in that round that beat

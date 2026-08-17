@@ -42,6 +42,19 @@ def test_analysis_accepts_year_override():
     assert res.json()["year"] == 2021
 
 
+def test_analysis_cache_is_keyed_on_the_year():
+    """The season switcher hits this endpoint once per year on the same
+    database. A cache keyed only on the database's identity would serve the
+    first year asked for to every subsequent request, and the page would look
+    frozen while the chips moved."""
+    first = client.get("/analysis", params={"year": 2021}).json()
+    second = client.get("/analysis", params={"year": 2022}).json()
+    again = client.get("/analysis", params={"year": 2021}).json()
+    assert first["year"] == 2021
+    assert second["year"] == 2022
+    assert again["year"] == 2021
+
+
 def test_analysis_payload_is_json_safe():
     """No NaN anywhere: it isn't valid JSON and would 500 the endpoint, which
     is exactly the bug the recommender already carries a regression test for."""

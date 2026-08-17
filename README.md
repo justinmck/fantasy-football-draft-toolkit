@@ -247,6 +247,14 @@ The things that make it feel like a product rather than a dev server:
 - **Keyboard and screen-reader basics.** One emerald focus ring on every control (the browser default blue is invisible on this background), `aria-sort` on the sortable headers, and labels on the icon-only buttons.
 - **It fits a phone.** The header collapses to icons, the NFL team drops out of each row, and long names truncate rather than pushing the Score column off the screen.
 
+### Moving between seasons
+
+The retrospective sections describe one season, and a **Season** switcher above the contents chooses which — chips for every season this league has stored, plus arrows for stepping a year at a time, which is how you actually read a trend. Sections that name a season in their title follow it; projection accuracy and the ADP benchmark pool every season *up to* the selected one, so they widen as you move forward. The page dims rather than blanks while a season loads, because every season has the same sections in the same order and blanking throws away the reader's place in a comparison they're part-way through.
+
+Requesting a season the league didn't play falls back to its most recent one rather than rendering an empty page — McFL skipped 2023, and Sigmas' 2025 draft was never completed in ESPN.
+
+This immediately earned its keep: McFL's draft-versus-finish correlation runs **r = −0.05 (p = 0.87) in 2020** and **−0.79 in 2022**. The 2020 case is a genuine null, so it now gets its own verdict — *"No relationship worth reading in this season… a correlation this size is what 12 teams produce by chance, so the sign of it means nothing"* — instead of the old copy, which would have reported the direction of noise as if drafting had paid off.
+
 ### Sharing a finding
 
 "Who drafted best" and "steals and reaches" each carry a **Share** button offering *copy as image*, *copy as text*, and *download*. The point is the group chat: the whole reason to know you out-drafted everyone is telling them.
