@@ -22,6 +22,29 @@
   .tabular {
     font-variant-numeric: tabular-nums;
   }
+
+  /* One visible focus ring for every control, in the app's own accent rather
+     than the browser's default blue - which is invisible against this
+     background on several of them. `:focus-visible` rather than `:focus` so it
+     appears for keyboard users without outlining every button that's clicked. */
+  :where(button, a, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid theme(colors.emerald.400 / 70%);
+    outline-offset: 2px;
+    border-radius: 0.375rem;
+  }
+
+  ::selection {
+    background: theme(colors.emerald.400 / 25%);
+    color: theme(colors.slate.50);
+  }
+
+  /* Long lists of names and reason chips shouldn't be selected by a stray
+     drag while someone is clicking through the board at speed. Inputs and the
+     numbers people copy out stay selectable. */
+  button, th {
+    -webkit-user-select: none;
+    user-select: none;
+  }
 }
 
 @layer components {

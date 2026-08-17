@@ -236,6 +236,17 @@ A failed sync returns 200 with `status: "auth"` or `"stale"` rather than an erro
 
 **Rehearsal.** `notebooks/export_draft_fixture.py` builds `tests/fixtures/espn_draft_2025.json` from the `drafts` table — which has no `memberId` and no SWID, so there is nothing to scrub, by construction rather than by redaction. `tests/test_espn_draft.py` replays the real 2025 draft through the pipeline pick by pick and asserts every pick is detected once, ownership matches, the final roster is full with 7 bench, batched polling lands identically to single-stepping, re-applying is inert, and a rewind rebuilds correctly.
 
+### The app shell
+
+The things that make it feel like a product rather than a dev server:
+
+- **Its own icon.** A trophy mark matching the header, as an SVG favicon with a 32px PNG fallback and an `apple-touch-icon` — so saving the board to a phone's home screen for draft day gives a real app icon. `site.webmanifest` completes that: name, standalone display, and a theme colour that matches the page so the browser chrome and the app don't meet at a seam.
+- **The tab title tracks the draft.** `You're up · McFL`, or `7 picks away · McFL`. Drafts run in a background tab while people read rankings, and being on the clock is the one fact worth surfacing from the tab strip — the difference between making a pick and being autodrafted.
+- **No white flash.** `index.html` paints the app's own background and a pulsing mark before any JavaScript parses, and the app removes it on mount. Previously the browser showed a white canvas for the length of the bundle download, which on draft day reads as the tool having crashed.
+- **A crash is recoverable.** An error boundary replaces React's blank page with an explanation and a reload button — and says the true thing, which is that picks live on the server, so reloading restores the board exactly.
+- **Keyboard and screen-reader basics.** One emerald focus ring on every control (the browser default blue is invisible on this background), `aria-sort` on the sortable headers, and labels on the icon-only buttons.
+- **It fits a phone.** The header collapses to icons, the NFL team drops out of each row, and long names truncate rather than pushing the Score column off the screen.
+
 ### The Reach column
 
 How far off the market's price your league drafts a player, in picks: **"11 early"** means they've gone about eleven picks ahead of their ADP here, so waiting for the market's number loses them; **"7 late"** means they've lasted longer. Sortable — one click surfaces the biggest reaches, which is the list of players who won't be there when the market says they will. In McFL that's Jalen Hurts at 20 early, Drake Maye at 16, Dallas Goedert at 15 — the quarterback and Philadelphia effects, made concrete per player.

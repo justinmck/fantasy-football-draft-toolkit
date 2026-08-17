@@ -708,16 +708,23 @@ const PlayerRow = React.memo(function PlayerRow({
         ${expanded ? "bg-white/[0.04]" : ""}
         ${highlight ? "border-l-2 border-l-emerald-400/70 bg-emerald-500/[0.04]" : ""}`}
     >
-      <td className="py-2.5 pl-4 pr-2 text-right">
+      <td className="py-2.5 pl-3 pr-1 text-right sm:pl-4 sm:pr-2">
         <span className="tabular text-xs text-slate-600">{rank}</span>
       </td>
       <td className="py-2.5 pr-3">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           {highlight && (
             <Trophy size={11} className="shrink-0 text-emerald-400" aria-label="Board's top pick" />
           )}
-          <span className="truncate font-medium text-slate-100">{player.player_name}</span>
-          <span className="shrink-0 text-xs text-slate-600">{player.pro_team}</span>
+          {/* min-w-0 is what actually lets `truncate` work: a flex item's
+              min-width defaults to its content, so without it a long name
+              widens the column instead of ellipsing, and pushes Score off the
+              right edge of a phone. */}
+          <span className="min-w-0 truncate font-medium text-slate-100">{player.player_name}</span>
+          {/* The NFL team is the first thing to drop on a narrow screen - it's
+              still in the expanded row and the detail panel, and Score is not
+              negotiable. */}
+          <span className="hidden shrink-0 text-xs text-slate-600 sm:inline">{player.pro_team}</span>
           {isRookie && (
             <Sparkles
               size={11}
@@ -757,10 +764,10 @@ const PlayerRow = React.memo(function PlayerRow({
           <Meter value={player.confidence} tone={conf?.tone || "neutral"} />
         </div>
       </td>
-      <td className="tabular py-2.5 pr-3 text-right font-semibold text-emerald-400">
+      <td className="tabular py-2.5 pr-2 text-right font-semibold text-emerald-400 sm:pr-3">
         {fmt(player.utility, 0)}
       </td>
-      <td className="py-2.5 pl-2 pr-4" onClick={(e) => e.stopPropagation()}>
+      <td className="py-2.5 pl-1 pr-3 sm:pl-2 sm:pr-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-end gap-1">
           {!readOnly && (
             <div className="flex gap-1 opacity-60 transition-opacity group-hover:opacity-100">
@@ -772,12 +779,17 @@ const PlayerRow = React.memo(function PlayerRow({
               </Button>
             </div>
           )}
-          <ChevronDown
-            size={14}
+          <button
             onClick={() => onToggle(player.player_id)}
-            className={`shrink-0 cursor-pointer text-slate-600 transition-transform
-              ${expanded ? "rotate-180 text-slate-300" : ""}`}
-          />
+            aria-expanded={expanded}
+            aria-label={`${expanded ? "Collapse" : "Expand"} ${player.player_name}`}
+            className="shrink-0 rounded p-0.5 text-slate-600 transition hover:text-slate-300"
+          >
+            <ChevronDown
+              size={14}
+              className={`transition-transform ${expanded ? "rotate-180 text-slate-300" : ""}`}
+            />
+          </button>
         </div>
       </td>
     </tr>
@@ -1241,6 +1253,9 @@ function SortHeader({ column, sort, onSort }) {
 
   return (
     <th
+      // Announced to screen readers, which otherwise get a column of plain
+      // text with no indication that any of it is sorted or sortable.
+      aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
       className={`py-2.5 pr-3 text-[11px] font-medium uppercase tracking-wider ${
         column.align === "right" ? "text-right" : "text-left"
       } ${column.cls}`}
@@ -1438,9 +1453,18 @@ function RosterPanel({ rosterState, depth, picksRemaining, benchSlots, benchFill
 // ---- Draft log ----
 const DraftLog = ({ draftLog }) => (
   <div className="card p-4">
-    <h2 className="mb-3 text-sm font-semibold text-slate-200">Full draft log</h2>
+    <div className="mb-3 flex items-baseline justify-between gap-2">
+      <h2 className="text-sm font-semibold text-slate-200">Full draft log</h2>
+      {draftLog.length > 0 && (
+        <span className="tabular text-[11px] text-slate-600">{draftLog.length} picks</span>
+      )}
+    </div>
     {draftLog.length === 0 ? (
-      <div className="text-xs text-slate-500">No picks yet.</div>
+      // An empty panel invites "is this working?". Saying what will fill it,
+      // and that it fills itself, answers that before it's asked.
+      <div className="rounded-lg border border-dashed border-white/10 px-3 py-4 text-center text-xs leading-relaxed text-slate-600">
+        Every pick lands here as it happens — yours and everyone else's.
+      </div>
     ) : (
       <ul className="scroll-slim max-h-64 space-y-0.5 overflow-y-auto pr-1">
         {[...draftLog].slice(-40).reverse().map((p) => (
@@ -1886,6 +1910,29 @@ export default function DraftBoard() {
     return () => { cancelled = true; };
   }, [authState]);
 
+  // The tab title carries the one fact worth knowing from another tab: whether
+  // you're on the clock. Drafts run in the background while people read news
+  // and check rankings, and "You're up" in the tab strip is the difference
+  // between making a pick and being autodrafted.
+  useEffect(() => {
+    const base = "Justin's Draft Assistant";
+    const league = sync.league?.name;
+    if (!sync.connected || !league) {
+      document.title = base;
+      return;
+    }
+    const away = pickCtx?.picksUntilMyTurn;
+    const where = isMyTurn
+      ? "You're up"
+      : away === 1
+        ? "1 pick away"
+        : away != null
+          ? `${away} picks away`
+          : `Pick ${currentPick}`;
+    document.title = `${where} · ${league}`;
+    return () => { document.title = base; };
+  }, [sync.connected, sync.league?.name, isMyTurn, pickCtx?.picksUntilMyTurn, currentPick]);
+
   // Reopening the app lands on the last league's board rather than the picker.
   // Runs once, only with a league to restore, and gives up quietly to the
   // picker if that league is gone from the account.
@@ -2100,14 +2147,17 @@ export default function DraftBoard() {
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b border-white/5 bg-slate-950/85 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3 px-4 py-3">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4">
           <button
             onClick={goHome}
             title="Back to your leagues"
             className="flex items-center gap-2 rounded-lg px-1.5 py-1 transition hover:bg-white/5"
           >
-            <Trophy className="text-emerald-400" size={18} />
-            <span className="font-semibold tracking-tight">Justin's Draft Assistant</span>
+            <Trophy className="shrink-0 text-emerald-400" size={18} />
+            <span className="hidden font-semibold tracking-tight sm:inline">
+              Justin's Draft Assistant
+            </span>
+            <span className="font-semibold tracking-tight sm:hidden">Draft Assistant</span>
           </button>
 
           {mode !== "offline" && (
@@ -2135,11 +2185,15 @@ export default function DraftBoard() {
                   if (t.id === "analysis") setAnalysisSeen(true);
                   setTab(t.id);
                 }}
-                className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                title={t.label}
+                aria-label={t.label}
+                aria-current={tab === t.id ? "page" : undefined}
+                className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors sm:px-2.5 ${
                   tab === t.id ? "bg-white/10 text-white" : "text-slate-500 hover:text-slate-300"
                 }`}
               >
-                {t.icon} {t.label}
+                {t.icon}
+                <span className="hidden sm:inline">{t.label}</span>
               </button>
             ))}
           </div>
@@ -2160,12 +2214,15 @@ export default function DraftBoard() {
             )}
             {tab === "board" && (
               <>
-                <Button onClick={() => setShowLegend((v) => !v)} title="What do these columns mean?">
-                  <Info size={12} /> Explain
+                <Button onClick={() => setShowLegend((v) => !v)} title="What do these columns mean?"
+                        aria-label="What do these columns mean?" aria-expanded={showLegend}>
+                  <Info size={12} />
+                  <span className="hidden sm:inline">Explain</span>
                   <ChevronDown size={12} className={showLegend ? "rotate-180 transition" : "transition"} />
                 </Button>
-                <Button onClick={() => window.location.reload()} title="Reset board">
-                  <RefreshCw size={12} /> Reset
+                <Button onClick={() => window.location.reload()} title="Reset board" aria-label="Reset board">
+                  <RefreshCw size={12} />
+                  <span className="hidden sm:inline">Reset</span>
                 </Button>
               </>
             )}
@@ -2303,9 +2360,16 @@ export default function DraftBoard() {
           <div className="card overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-sm">
+                {/* Not sticky, deliberately: the table sits inside two
+                    clipping ancestors (the card's rounded overflow and the
+                    horizontal-scroll wrapper), and `position: sticky` resolves
+                    against the nearest of those rather than the page - it pins
+                    the header over the first row instead of to the viewport.
+                    Making it work means giving the list its own fixed-height
+                    scroller, which is a bigger change than it's worth here. */}
                 <thead>
                   <tr className="bg-white/[0.03] text-slate-500">
-                    <th className="w-10 py-2.5 pl-4 pr-2 text-right text-[11px] font-medium uppercase tracking-wider">#</th>
+                    <th className="w-8 py-2.5 pl-3 pr-1 text-right text-[11px] font-medium uppercase tracking-wider sm:w-10 sm:pl-4 sm:pr-2">#</th>
                     {SORT_COLUMNS.map((c) => (
                       <SortHeader
                         key={c.key}
@@ -2314,7 +2378,7 @@ export default function DraftBoard() {
                         onSort={setSort}
                       />
                     ))}
-                    <th className="py-2.5 pl-2 pr-4" />
+                    <th className="py-2.5 pl-1 pr-3 sm:pl-2 sm:pr-4" />
                   </tr>
                 </thead>
                 <tbody>
@@ -2341,8 +2405,23 @@ export default function DraftBoard() {
                   ))}
                   {!loading && filtered.length === 0 && (
                     <tr>
-                      <td colSpan={10} className="py-12 text-center text-sm text-slate-500">
-                        No players match your filters.
+                      <td colSpan={10} className="px-4 py-14 text-center">
+                        <Search size={18} className="mx-auto mb-2 text-slate-700" />
+                        <div className="text-sm text-slate-400">No players match your filters</div>
+                        {/* Says which filters, since two are active at once
+                            often enough that "no results" alone is a puzzle. */}
+                        <div className="mt-1 text-xs text-slate-600">
+                          {query ? <>Nothing named “{query}”</> : "Nothing left"}
+                          {posFilter !== "ALL" && <> at {posFilter}</>}.
+                          {(query || posFilter !== "ALL") && (
+                            <button
+                              onClick={() => { setQueryInput(""); setQuery(""); setPosFilter("ALL"); }}
+                              className="ml-1.5 text-slate-400 underline underline-offset-2 hover:text-slate-200"
+                            >
+                              Clear filters
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )}

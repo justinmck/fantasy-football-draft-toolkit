@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Justin's Draft Assistant">
+  <!-- Reads at 16px, which is the only size that really matters for a tab:
+       one solid shape, one accent, no hairlines. The trophy is the same mark
+       the app's header uses, so the tab and the page agree. -->
+  <rect width="64" height="64" rx="14" fill="#020617"/>
+  <rect x="0.75" y="0.75" width="62.5" height="62.5" rx="13.25" fill="none"
+        stroke="#34d399" stroke-opacity="0.25" stroke-width="1.5"/>
+  <g fill="none" stroke="#34d399" stroke-width="4.5"
+     stroke-linecap="round" stroke-linejoin="round">
+    <!-- Cup -->
+    <path d="M22 15h20v11a10 10 0 0 1-20 0z"/>
+    <!-- Handles -->
+    <path d="M22 18h-5a5 5 0 0 0 5 8"/>
+    <path d="M42 18h5a5 5 0 0 1-5 8"/>
+    <!-- Stem and base -->
+    <path d="M32 36v8"/>
+    <path d="M24 49h16"/>
+  </g>
+</svg>
