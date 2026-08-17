@@ -82,8 +82,17 @@ UNFILLED = -1
 
 # Never formatted, never interpolated. A 401 from ESPN means the stored cookies
 # are stale, and the only safe thing to say about it is that.
-AUTH_MESSAGE = "ESPN rejected the stored credentials. Refresh SWID and ESPN_S2 in .env."
+AUTH_MESSAGE = "ESPN rejected these credentials. Sign in again with fresh cookies."
 UNAVAILABLE_MESSAGE = "Could not reach ESPN."
+# The two cookies fail differently, and saying which one is wrong is the whole
+# difference between a fixable error and a shrug. The SWID is in the fan
+# endpoint's URL path, so it alone gets someone a league list; reading a
+# league's own data is what actually needs `espn_s2`. Entering the SWID in both
+# boxes therefore *looks* like it worked and then quietly shows nothing.
+S2_MESSAGE = (
+    "The SWID worked, but espn_s2 didn't. It's a long value - a few hundred "
+    "characters - not the same GUID as the SWID. Copy the whole espn_s2 cookie."
+)
 
 
 class EspnAuthError(RuntimeError):

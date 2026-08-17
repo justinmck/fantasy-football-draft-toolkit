@@ -319,6 +319,72 @@ class TestLeaguesEndpoint:
         assert res.status_code == 502 and res.json()["detail"] == AUTH_MESSAGE
 
 
+class TestUnreadableSettingsAreNotUnscheduledDrafts:
+    """"ESPN wouldn't tell us" and "there's no date" are different facts.
+
+    Collapsing both into a null `draft_at` is what made a wrong espn_s2 look
+    like three leagues that simply hadn't scheduled their drafts - a dead end,
+    since nothing on screen pointed at the credentials.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _creds(self, monkeypatch):
+        monkeypatch.setattr(api, "load_credentials",
+                            lambda: EspnCredentials("", SWID_SENTINEL, S2_SENTINEL))
+        monkeypatch.setattr(api, "list_leagues",
+                            lambda creds, year: espn_draft.parse_fan_leagues(FAN, year))
+
+    def _client_raising(self, exc):
+        class C:
+            def __init__(self, *a, **k):
+                pass
+
+            def settings(self):
+                raise exc
+        return C
+
+    def test_every_league_failing_is_reported_as_stale_credentials(self, monkeypatch):
+        monkeypatch.setattr(api, "EspnDraftClient",
+                            self._client_raising(EspnAuthError(AUTH_MESSAGE)))
+        body = client.get("/espn/leagues").json()
+        assert body["credentials_stale"] is True
+        assert all(l["unreadable"] for l in body["leagues"])
+        # Still listed - the SWID worked, which is precisely the confusing part.
+        assert len(body["leagues"]) == 3
+
+    def test_a_readable_league_means_the_credentials_are_fine(self, monkeypatch):
+        class C:
+            def __init__(self, creds, year, league_id=None):
+                self.league_id = league_id
+
+            def settings(self):
+                if self.league_id != "1224888142":
+                    raise EspnUnavailable("Could not reach ESPN.")
+                return espn_draft.parse_settings(
+                    settings_for("Sigma Fantasy", date=1787612400000))
+        monkeypatch.setattr(api, "EspnDraftClient", C)
+        body = client.get("/espn/leagues").json()
+        assert body["credentials_stale"] is False
+        by_id = {l["league_id"]: l for l in body["leagues"]}
+        assert by_id["1224888142"]["scheduled"] is True
+        assert by_id["1224888142"]["unreadable"] is False
+        # The others failed to answer, which is not the same as having no date.
+        assert by_id["780575"]["unreadable"] is True
+
+    def test_a_genuinely_unscheduled_league_is_not_flagged(self, monkeypatch):
+        class C:
+            def __init__(self, *a, **k):
+                pass
+
+            def settings(self):
+                return espn_draft.parse_settings(settings_for("McFL"))   # no date
+        monkeypatch.setattr(api, "EspnDraftClient", C)
+        body = client.get("/espn/leagues").json()
+        assert body["credentials_stale"] is False
+        assert all(l["unreadable"] is False for l in body["leagues"])
+        assert all(l["scheduled"] is False for l in body["leagues"])
+
+
 class TestBiasIsScopedToItsLeague:
     """The bias was measured on one league's drafters.
 

@@ -12,7 +12,14 @@ from starlette.testclient import TestClient
 import src.api as api
 import src.auth as auth
 from src.api import app
-from src.espn_draft import AUTH_MESSAGE, EspnAuthError, EspnCredentials, EspnUnavailable, LeagueRef
+from src.espn_draft import (
+    AUTH_MESSAGE,
+    S2_MESSAGE,
+    EspnAuthError,
+    EspnCredentials,
+    EspnUnavailable,
+    LeagueRef,
+)
 
 client = TestClient(app)
 SWID = "{SENTINEL-1111-2222-3333-444444444444}"
@@ -25,12 +32,27 @@ def isolated_token_file(tmp_path, monkeypatch):
     monkeypatch.setattr(auth, "TOKEN_FILE", tmp_path / "device_tokens.json")
 
 
+class _FakeClient:
+    """Stands in for the settings read that proves espn_s2 works."""
+    raises = None
+
+    def __init__(self, creds, year, league_id=None):
+        self.creds = creds
+
+    def settings(self):
+        if _FakeClient.raises:
+            raise _FakeClient.raises
+        return object()
+
+
 @pytest.fixture
 def espn_ok(monkeypatch):
+    _FakeClient.raises = None
     monkeypatch.setattr(auth, "list_leagues", lambda creds, year: [
         LeagueRef(league_id="780575", name="McFL", season=year),
         LeagueRef(league_id="197229335", name="Sigmas", season=year),
     ])
+    monkeypatch.setattr(auth, "EspnDraftClient", _FakeClient)
 
 
 class TestConnect:
@@ -67,6 +89,31 @@ class TestConnect:
             raise EspnUnavailable("Could not reach ESPN.")
         monkeypatch.setattr(auth, "list_leagues", boom)
         assert client.post("/auth/connect", json={"swid": SWID, "espn_s2": S2}).status_code == 503
+
+    def test_a_good_swid_with_a_bad_s2_is_rejected_at_sign_in(self, espn_ok):
+        """The failure that looked like three unscheduled leagues.
+
+        The fan endpoint carries the SWID in its path and is satisfied by it
+        alone, so entering the SWID in both boxes passed sign-in, listed every
+        league by name, and then failed every per-league read. Sign-in now
+        proves the second cookie too.
+        """
+        _FakeClient.raises = EspnAuthError(AUTH_MESSAGE)
+        r = client.post("/auth/connect", json={"swid": SWID, "espn_s2": SWID})
+        assert r.status_code == 502
+        assert r.json()["detail"] == S2_MESSAGE
+        assert "espn_s2" in r.json()["detail"]   # names the cookie to fix
+
+    def test_a_rejected_pair_is_not_stored(self, espn_ok):
+        _FakeClient.raises = EspnAuthError(AUTH_MESSAGE)
+        client.post("/auth/connect", json={"swid": SWID, "espn_s2": SWID})
+        assert auth._read() == {}
+
+    def test_an_unreachable_settings_call_is_not_blamed_on_the_cookie(self, espn_ok):
+        """ESPN being down is not the user's cookie being wrong."""
+        _FakeClient.raises = EspnUnavailable("Could not reach ESPN.")
+        assert client.post("/auth/connect",
+                           json={"swid": SWID, "espn_s2": S2}).status_code == 503
 
     def test_valid_cookies_with_no_leagues_is_explained(self, monkeypatch):
         monkeypatch.setattr(auth, "list_leagues", lambda creds, year: [])

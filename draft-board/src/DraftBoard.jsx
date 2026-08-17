@@ -124,15 +124,29 @@ function countdownTo(ms, now = Date.now()) {
   return `in ${m}m`;
 }
 
-const DraftWhenChip = ({ draftAt, scheduled, className = "" }) =>
-  scheduled && draftAt ? (
-    <span
-      className={`shrink-0 rounded-md bg-sky-500/15 px-2 py-1 text-[11px] text-sky-300 ${className}`}
-      title={`Draft scheduled for ${fmtDraftDate(draftAt)}`}
-    >
-      {fmtDraftDate(draftAt)}
-    </span>
-  ) : (
+const DraftWhenChip = ({ draftAt, scheduled, unreadable, className = "" }) => {
+  if (scheduled && draftAt)
+    return (
+      <span
+        className={`shrink-0 rounded-md bg-sky-500/15 px-2 py-1 text-[11px] text-sky-300 ${className}`}
+        title={`Draft scheduled for ${fmtDraftDate(draftAt)}`}
+      >
+        {fmtDraftDate(draftAt)}
+      </span>
+    );
+  // "ESPN wouldn't tell us" is not "there's no draft date". Saying the second
+  // when the first is true is how a bad cookie came to look like three
+  // unscheduled leagues.
+  if (unreadable)
+    return (
+      <span
+        className={`shrink-0 rounded-md bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300/90 ${className}`}
+        title="Couldn't read this league's settings - usually an expired or incomplete sign-in."
+      >
+        Date unavailable
+      </span>
+    );
+  return (
     <span
       className={`shrink-0 rounded-md bg-white/5 px-2 py-1 text-[11px] text-slate-500 ${className}`}
       title="ESPN has no draft date for this league yet."
@@ -140,13 +154,14 @@ const DraftWhenChip = ({ draftAt, scheduled, className = "" }) =>
       Not scheduled
     </span>
   );
+};
 
 // ---- League switcher ----
 //
 // Switching used to mean going home first. The name in the header is the menu,
 // so the league you're looking at and the control that changes it are the same
 // thing.
-function LeagueMenu({ leagues, currentId, currentName, onSwitch, onSignOut }) {
+function LeagueMenu({ leagues, currentId, currentName, onSwitch, onReconnect, onSignOut }) {
   const [open, setOpen] = useState(false);
   const box = useRef(null);
 
@@ -199,17 +214,28 @@ function LeagueMenu({ leagues, currentId, currentName, onSwitch, onSignOut }) {
                 <span className={`flex-1 truncate text-xs ${active ? "text-emerald-300" : "text-slate-300"}`}>
                   {l.name}
                 </span>
-                <DraftWhenChip draftAt={l.draft_at} scheduled={l.scheduled} />
+                <DraftWhenChip draftAt={l.draft_at} scheduled={l.scheduled} unreadable={l.unreadable} />
               </button>
             );
           })}
-          <button
-            onClick={() => { setOpen(false); onSignOut(); }}
-            className="w-full border-t border-white/5 px-3 py-2 text-left text-xs text-slate-500
-              transition hover:bg-white/5 hover:text-slate-300"
-          >
-            Sign out of ESPN
-          </button>
+          <div className="border-t border-white/5">
+            {/* Refreshing the cookies is the routine action - ESPN's expire
+                every few weeks - so it sits above signing out, not behind it. */}
+            <button
+              onClick={() => { setOpen(false); onReconnect(); }}
+              className="w-full px-3 py-2 text-left text-xs text-slate-400
+                transition hover:bg-white/5 hover:text-slate-200"
+            >
+              Update ESPN credentials
+            </button>
+            <button
+              onClick={() => { setOpen(false); onSignOut(); }}
+              className="w-full px-3 pb-2 text-left text-xs text-slate-500
+                transition hover:bg-white/5 hover:text-slate-300"
+            >
+              Sign out
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -222,7 +248,7 @@ function LeagueMenu({ leagues, currentId, currentName, onSwitch, onSignOut }) {
 // token. Only that token is stored on the device, so a script on this page
 // can't read the ESPN session cookies and they don't travel on every request.
 
-function SignInScreen({ onSignIn, busy, error }) {
+function SignInScreen({ onSignIn, busy, error, notice }) {
   const [swid, setSwid] = useState("");
   const [s2, setS2] = useState("");
   const [how, setHow] = useState(false);
@@ -242,6 +268,12 @@ function SignInScreen({ onSignIn, busy, error }) {
           Connect your ESPN account to load your leagues, follow your draft live, and analyse how
           your league drafts.
         </p>
+
+        {notice && (
+          <div className="mb-5 rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-200">
+            {notice}
+          </div>
+        )}
 
         <form
           onSubmit={(e) => { e.preventDefault(); onSignIn(swid.trim(), s2.trim()); }}
@@ -291,6 +323,13 @@ function SignInScreen({ onSignIn, busy, error }) {
             <li>1. Sign in at <span className="text-slate-300">fantasy.espn.com</span> in this browser.</li>
             <li>2. Open developer tools → Application → Cookies → espn.com.</li>
             <li>3. Copy the values of <span className="text-slate-300">SWID</span> and <span className="text-slate-300">espn_s2</span>.</li>
+            {/* The mistake that costs an afternoon: they look interchangeable in
+                the cookie list, and pasting the SWID into both still lists your
+                leagues, because only the SWID is needed for that. */}
+            <li className="pt-1 text-slate-500">
+              They're two different values. SWID is a GUID in braces; espn_s2 is a few hundred
+              characters long.
+            </li>
           </ol>
         )}
 
@@ -304,7 +343,8 @@ function SignInScreen({ onSignIn, busy, error }) {
 }
 
 // ---- Session setup ----
-function SetupScreen({ onStart, starting, error, leagues, leaguesError, onSignOut }) {
+function SetupScreen({ onStart, starting, error, leagues, leaguesError,
+                      credentialsStale, onReconnect }) {
   const [teams, setTeams] = useState(14);
   const [mySlot, setMySlot] = useState(1);
   const [rounds, setRounds] = useState(DEFAULT_ROUNDS);
@@ -334,9 +374,27 @@ function SetupScreen({ onStart, starting, error, leagues, leaguesError, onSignOu
 
         {!manual && (
           <>
+            {credentialsStale && (
+              /* Every league failed to answer, which the SWID alone can't
+                 cause - so the fix is new cookies, offered right here rather
+                 than left to be discovered. */
+              <div className="mb-3 rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-200">
+                Your leagues are listed, but none of them will load their settings — draft dates,
+                rosters and the live board all need the <code>espn_s2</code> cookie, and this one
+                isn't working.
+                <button onClick={onReconnect}
+                        className="mt-2 block font-semibold text-amber-100 underline underline-offset-2">
+                  Update your ESPN credentials
+                </button>
+              </div>
+            )}
             {leaguesError ? (
               <div className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2.5 text-xs leading-relaxed text-rose-300">
-                Couldn't reach ESPN. Check SWID and ESPN_S2 in <code>.env</code>, or set up manually.
+                Couldn't reach ESPN.{" "}
+                <button onClick={onReconnect} className="underline underline-offset-2">
+                  Sign in again
+                </button>{" "}
+                or set up manually.
               </div>
             ) : leagues === null ? (
               <div className="py-3 text-sm text-slate-500">Finding your leagues…</div>
@@ -365,7 +423,7 @@ function SetupScreen({ onStart, starting, error, leagues, leaguesError, onSignOu
                             : "No draft history — market ADP timing only"}
                         </span>
                       </span>
-                      <DraftWhenChip draftAt={lg.draft_at} scheduled={lg.scheduled} />
+                      <DraftWhenChip draftAt={lg.draft_at} scheduled={lg.scheduled} unreadable={lg.unreadable} />
                     </button>
                   ))}
                 </div>
@@ -376,12 +434,21 @@ function SetupScreen({ onStart, starting, error, leagues, leaguesError, onSignOu
                 {error}
               </div>
             )}
-            <button
-              onClick={() => setManual(true)}
-              className="mt-5 w-full text-xs text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
-            >
-              Set up manually instead
-            </button>
+            <div className="mt-5 flex items-center justify-center gap-3 text-xs text-slate-500">
+              <button
+                onClick={onReconnect}
+                className="underline-offset-2 hover:text-slate-300 hover:underline"
+              >
+                Update ESPN credentials
+              </button>
+              <span className="text-slate-700">·</span>
+              <button
+                onClick={() => setManual(true)}
+                className="underline-offset-2 hover:text-slate-300 hover:underline"
+              >
+                Set up manually instead
+              </button>
+            </div>
           </>
         )}
 
@@ -1378,6 +1445,9 @@ export default function DraftBoard() {
   const [teamsList, setTeamsList] = useState([]);
   const [leagues, setLeagues] = useState(null);      // null = still loading
   const [leaguesError, setLeaguesError] = useState(false);
+  // Set when every league refuses to load its settings, which the SWID alone
+  // can't cause - it means espn_s2 is wrong or expired.
+  const [credentialsStale, setCredentialsStale] = useState(false);
   const [adpYear, setAdpYear] = useState(null);
   const [leagueId, setLeagueId] = useState(null);
 
@@ -1388,6 +1458,7 @@ export default function DraftBoard() {
   const [authState, setAuthState] = useState(deviceToken ? "unknown" : "out");
   const [signingIn, setSigningIn] = useState(false);
   const [signInError, setSignInError] = useState(null);
+  const [signInNotice, setSignInNotice] = useState(null);
   // Set while the remembered league is being reconnected, so the app shows a
   // restoring state instead of the picker it is about to skip.
   const [restoring, setRestoring] = useState(false);
@@ -1520,7 +1591,11 @@ export default function DraftBoard() {
     let cancelled = false;
     apiGet("/espn/leagues")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
-      .then((d) => !cancelled && setLeagues(d.leagues || []))
+      .then((d) => {
+        if (cancelled) return;
+        setLeagues(d.leagues || []);
+        setCredentialsStale(!!d.credentials_stale);
+      })
       .catch(() => !cancelled && setLeaguesError(true));
     return () => { cancelled = true; };
   }, [authState]);
@@ -1681,6 +1756,8 @@ export default function DraftBoard() {
       deviceToken = data.token;
       saveDevice({ token: data.token });
       setLeagues(data.leagues || []);
+      setCredentialsStale(false);
+      setSignInNotice(null);
       setAuthState("in");
     } catch (e) {
       setSignInError(e.message || String(e));
@@ -1689,6 +1766,9 @@ export default function DraftBoard() {
     }
   }, []);
 
+  // Re-enter the cookies without losing anything else. Separate from signing
+  // out because the common case isn't "log me out", it's "these have expired" -
+  // ESPN's cookies are short-lived, so this is a routine action, not a rare one.
   const handleSignOut = useCallback(async () => {
     try {
       await apiPost("/auth/forget");
@@ -1703,6 +1783,18 @@ export default function DraftBoard() {
     setSync({ connected: false, status: null, ageSeconds: null, version: -1, team: null });
     setSyncCtx(null);
   }, []);
+
+  const handleReconnect = useCallback(
+    (notice) => {
+      setSignInNotice(
+        typeof notice === "string"
+          ? notice
+          : "Enter your current ESPN cookies. They expire every few weeks, so this is normal."
+      );
+      handleSignOut();
+    },
+    [handleSignOut]
+  );
 
   // Validate a remembered token before trusting it. Cookies expire and the
   // store can be cleared server-side, and finding that out here - rather than
@@ -1918,7 +2010,10 @@ export default function DraftBoard() {
   }
 
   if (authState === "out") {
-    return <SignInScreen onSignIn={handleSignIn} busy={signingIn} error={signInError} />;
+    return (
+      <SignInScreen onSignIn={handleSignIn} busy={signingIn} error={signInError}
+                    notice={signInNotice} />
+    );
   }
 
   if (mode === "setup") {
@@ -1929,7 +2024,8 @@ export default function DraftBoard() {
         error={setupError}
         leagues={leagues}
         leaguesError={leaguesError}
-        onSignOut={handleSignOut}
+        credentialsStale={credentialsStale}
+        onReconnect={handleReconnect}
       />
     );
   }
@@ -1953,6 +2049,7 @@ export default function DraftBoard() {
               currentId={leagueId}
               currentName={sync.league?.name}
               onSwitch={switchLeague}
+              onReconnect={handleReconnect}
               onSignOut={handleSignOut}
             />
           )}

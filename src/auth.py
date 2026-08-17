@@ -27,7 +27,13 @@ import secrets
 import time
 from pathlib import Path
 
-from src.espn_draft import EspnCredentials, list_leagues
+from src.espn_draft import (
+    S2_MESSAGE,
+    EspnAuthError,
+    EspnCredentials,
+    EspnDraftClient,
+    list_leagues,
+)
 
 log = logging.getLogger(__name__)
 
@@ -97,11 +103,26 @@ def forget(token: str | None) -> bool:
 
 
 def verify(swid: str, espn_s2: str, year: int) -> list:
-    """Prove the cookies work before storing them.
+    """Prove *both* cookies work before storing them.
 
-    Calling the fan endpoint does double duty: a bad cookie fails here, at
+    Calling the fan endpoint does double duty: a bad SWID fails here, at
     sign-in, where the message can be clear - rather than later as a mysterious
     empty board - and the same call returns the league list the picker needs,
     so signing in costs one request rather than two.
+
+    But the fan endpoint carries the SWID in its URL path and is satisfied by
+    it alone, so it cannot tell us anything about `espn_s2`. A pair with a good
+    SWID and a junk `espn_s2` passed sign-in, listed every league by name, and
+    then failed on every per-league read - which surfaced as three leagues all
+    claiming their draft wasn't scheduled. Reading one league's settings is the
+    cheapest call that genuinely needs the second cookie, so it's the one that
+    decides whether this sign-in is accepted.
     """
-    return list_leagues(EspnCredentials(league_id="", swid=swid, espn_s2=espn_s2), year)
+    creds = EspnCredentials(league_id="", swid=swid, espn_s2=espn_s2)
+    leagues = list_leagues(creds, year)
+    if leagues:
+        try:
+            EspnDraftClient(creds, year, league_id=leagues[0].league_id).settings()
+        except EspnAuthError:
+            raise EspnAuthError(S2_MESSAGE) from None
+    return leagues

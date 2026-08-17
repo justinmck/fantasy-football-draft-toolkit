@@ -306,20 +306,30 @@ def espn_leagues(year: int | None = None,
         # rather than making the user pick blind and find out afterwards.
         # Three sequential calls at ~100ms; a league that fails to answer is
         # still listed, just without its date.
-        draft_at, scheduled = None, False
+        draft_at, scheduled, unreadable = None, False, False
         try:
             settings = EspnDraftClient(creds, year, league_id=lg.league_id).settings()
             draft_at, scheduled = settings.draft_at, settings.scheduled
         except (EspnAuthError, EspnUnavailable):
             log.warning("could not read settings for league %s", lg.league_id)
+            # "No date set" and "we couldn't read the settings" are completely
+            # different facts, and collapsing them into one silent None is what
+            # made a bad espn_s2 look like three unscheduled drafts. The UI says
+            # "date unavailable" for this, never "not scheduled".
+            unreadable = True
         out.append({
             "league_id": lg.league_id, "name": lg.name, "season": lg.season,
-            "draft_at": draft_at, "scheduled": scheduled,
+            "draft_at": draft_at, "scheduled": scheduled, "unreadable": unreadable,
             "has_history": _league_has_history(lg.league_id, fitted),
         })
     return {
         "year": year,
         "leagues": out,
+        # Every league failing to answer is a credentials problem, not three
+        # coincidences: the SWID alone is enough to list leagues, so this is
+        # what a wrong espn_s2 looks like from here. The UI offers a re-sign-in
+        # instead of showing an account that appears to work but can't load.
+        "credentials_stale": bool(out) and all(l["unreadable"] for l in out),
         # Which league the persisted bias fit came from, so the UI can say
         # "measured on McFL" rather than implying it applies everywhere.
         "bias_league_id": fitted,
