@@ -13,7 +13,7 @@ NOTEBOOKS_DIR = Path(__file__).resolve().parents[1] / "notebooks"
 if str(NOTEBOOKS_DIR) not in sys.path:
     sys.path.insert(0, str(NOTEBOOKS_DIR))
 
-from utils import clean_adp, position_from_eligible_slots  # noqa: E402
+from utils import clean_adp, position_from_eligible_slots, strip_account_ids  # noqa: E402
 
 
 def test_wide_receiver_not_misread_as_running_back():
@@ -138,3 +138,46 @@ def test_clean_adp_coerces_em_dash_placeholders_to_missing(tmp_path):
     df = clean_adp(csv)
     assert pd.isna(df.loc[0, "ESPN"])
     assert df["avg"].dtype.kind == "f"
+
+
+class TestStripAccountIds:
+    """ESPN account GUIDs must never reach a CSV.
+
+    `memberId` on a draft pick is the drafter's SWID, and a SWID alone is enough
+    to enumerate every league that person is in - the fan endpoint serves it
+    with no session cookie at all. Six seasons of a dozen real leaguemates'
+    ids were committed to a public repo before this guard existed.
+    """
+
+    def test_drops_the_named_column(self):
+        df = pd.DataFrame({
+            "player_id": [1, 2],
+            "memberId": ["{REDACTED-ESPN-MEMBER-ID}",
+                         "{REDACTED-ESPN-MEMBER-ID}"],
+        })
+        assert list(strip_account_ids(df).columns) == ["player_id"]
+
+    def test_drops_a_guid_column_under_any_other_name(self):
+        """Name matching alone would miss a renamed or newly-added field."""
+        df = pd.DataFrame({
+            "team_id": [1, 2],
+            "whoever": ["{REDACTED-ESPN-MEMBER-ID}",
+                        "{REDACTED-ESPN-MEMBER-ID}"],
+        })
+        assert list(strip_account_ids(df).columns) == ["team_id"]
+
+    def test_keeps_everything_else(self):
+        """Team names and ids are the columns the analysis actually runs on."""
+        df = pd.DataFrame({"team_id": [12], "team_name": ["Ambler Thighs"],
+                           "overallPickNumber": [1]})
+        assert strip_account_ids(df).equals(df)
+
+    def test_an_all_null_member_id_still_goes(self):
+        """2025 had 74 autodrafted picks, which carry no member id at all -
+        so the column is mostly empty and must still be dropped by name."""
+        df = pd.DataFrame({"player_id": [1, 2], "memberId": [None, None]})
+        assert list(strip_account_ids(df).columns) == ["player_id"]
+
+    def test_a_column_of_ordinary_strings_is_not_mistaken_for_ids(self):
+        df = pd.DataFrame({"note": ["keeper", "traded"], "player_id": [1, 2]})
+        assert list(strip_account_ids(df).columns) == ["note", "player_id"]

@@ -8,3 +8,10 @@ notes
 .pytest_cache/
 # Credential store - see src/auth.py
 data/device_tokens.json
+
+# Runtime database. The app writes to this at draft time, and it accumulates
+# real league history - team and manager names - as it goes. Committing it
+# guarantees dirty trees and merge conflicts, and publishes third parties'
+# names. Rebuild it from the notebooks, or ship a reference copy instead.
+data/fantasy_data.db
+data/runtime/

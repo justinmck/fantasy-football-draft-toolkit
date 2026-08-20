@@ -147,15 +147,48 @@ def add_projection_and_actual_vorp(df, teams=TEAMS, roster_needs=None):
     return out.drop(columns="baseline")
 
 
+# ESPN identifies an account by a GUID in braces. It arrives as `memberId` on
+# draft picks and as `owners`/`primaryOwner` on teams, and it is the same value
+# as that person's SWID - which is enough on its own to enumerate every league
+# they are in (the fan endpoint accepts it with no session cookie at all).
+#
+# Six seasons of these, for a dozen real leaguemates, were committed to a public
+# repo before anyone noticed. Stripping them here rather than in each notebook
+# cell means every raw CSV is covered by construction, including frames added
+# later. Nothing in `src/` reads them: ownership is decided by `teamId`, because
+# autodrafted picks carry no member id at all.
+_SWID_COLUMNS = ("memberId", "owners", "primaryOwner")
+_SWID_RE = re.compile(r"^\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
+                      r"[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?$")
+
+
+def strip_account_ids(df):
+    """Drop any column holding ESPN account GUIDs, by name or by content."""
+    drop = [c for c in df.columns if c in _SWID_COLUMNS]
+    for col in df.columns:
+        if col in drop:
+            continue
+        values = df[col].dropna().astype(str)
+        # Content check as well as name, so a renamed or newly-added column
+        # can't smuggle the same identifier through under another heading.
+        if len(values) and values.str.match(_SWID_RE).mean() > 0.5:
+            drop.append(col)
+    return df.drop(columns=drop) if drop else df
+
+
 def save_to_data_raw(df, filename, year):
     """
-    Saves a DataFrame to the project's data/raw folder, 
+    Saves a DataFrame to the project's data/raw folder,
     even if the code is run from the notebooks directory.
+
+    ESPN account ids are stripped first - see `strip_account_ids`.
 
     Parameters:
     df (pd.DataFrame): The DataFrame to save.
     filename (str): The CSV filename (e.g., "player_stats.csv").
     """
+    df = strip_account_ids(df)
+
     # Step up one directory (from notebooks to project root if needed)
     project_root = os.path.abspath(os.path.join(os.getcwd(), ".."))
 
