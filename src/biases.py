@@ -424,7 +424,7 @@ def load_league_bias(engine, league_id: str | None = None) -> dict:
                          for r in ply.itertuples() if r.passes_strict_filter}
         # The same players, with the sample size attached, for *display*. The
         # board's Reach column answers "how far does this league move this
-        # player", which is modelled from position and NFL team; this is the
+        # player", which is modeled from position and NFL team; this is the
         # narrower, more direct fact - "and he personally has gone this much
         # early, this many times" - and the UI shows it beside the estimate
         # rather than folding it in. Kept to the strict filter for the reason
@@ -437,7 +437,7 @@ def load_league_bias(engine, league_id: str | None = None) -> dict:
     if len(meta_df):
         out["meta"].update({k: v for k, v in meta_df.iloc[0].to_dict().items()
                             if not pd.isna(v)})
-    # Normalised to a string: the id is written from the environment (a string)
+    # Normalized to a string: the id is written from the environment (a string)
     # but round-trips through SQLite, which may hand it back as an integer.
     if out["meta"].get("league_id"):
         out["meta"]["league_id"] = str(out["meta"]["league_id"]).strip()

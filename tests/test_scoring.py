@@ -547,7 +547,7 @@ class TestDepthNeeds:
         d = scoring.depth_needs()
         assert d["RB"] > d["WR"] > d["TE"] > d["QB"] > d["K"] > d["DST"]
 
-    def test_normalised_to_one_at_the_peak(self):
+    def test_normalized_to_one_at_the_peak(self):
         assert scoring.depth_needs()["RB"] == pytest.approx(1.0)
 
     def test_kicker_and_defense_depth_is_near_worthless(self):
@@ -593,7 +593,7 @@ class TestNeedWeightsWithBench:
         full = need_weights(FULL_ROSTER, picks_remaining=7, depth={}, bench_remaining=7)
         assert w["DST"] > full["RB"]
 
-    def test_omitting_bench_args_reproduces_previous_behaviour(self):
+    def test_omitting_bench_args_reproduces_previous_behavior(self):
         assert need_weights(FULL_ROSTER, picks_remaining=7) == {
             p: 1.0 for p in ("QB", "RB", "WR", "TE", "K", "DST")
         }

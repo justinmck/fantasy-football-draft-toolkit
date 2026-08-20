@@ -58,7 +58,7 @@ class Principal:
 def user_id_for(swid: str) -> str:
     """A stable, non-reversible id for an ESPN account.
 
-    Normalised first: ESPN is inconsistent about the braces and the case, and
+    Normalized first: ESPN is inconsistent about the braces and the case, and
     the same account arriving as two different ids would silently split one
     person's sessions in half.
     """

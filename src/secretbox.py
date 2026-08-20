@@ -2,7 +2,7 @@
 
 **What this does and does not buy.** The server has to decrypt these to use
 them, so a compromised *application* can read them regardless — this is not a
-defence against that, and pretending otherwise would be worse than not doing it.
+defense against that, and pretending otherwise would be worse than not doing it.
 
 What it does defend is a database file that *leaves the machine*: a git commit,
 a backup, a laptop snapshot, an `scp` of `data/`. That is not hypothetical here.

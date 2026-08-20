@@ -161,7 +161,7 @@ def _ctx(engine, league_id=None, roster_need=None) -> _Ctx:
     """Accept either a context or a bare engine.
 
     Given an engine this builds a throwaway context, so a standalone call is no
-    slower than it was — it just doesn't share anything with its neighbours.
+    slower than it was — it just doesn't share anything with its neighbors.
     """
     return engine if isinstance(engine, _Ctx) else _Ctx(engine, league_id, roster_need)
 
@@ -274,7 +274,7 @@ def dataset_provenance(engine) -> dict:
 def load_draft_season(engine, year: int) -> pd.DataFrame:
     """Drafted players for `year`, with VORP on the live board's scale.
 
-    Four sections need this same frame, so it's memoised on the request context
+    Four sections need this same frame, so it's memoized on the request context
     when there is one. A copy is handed out rather than the cached frame itself
     — none of the current callers mutate it, but a shared DataFrame is the kind
     of landmine that only goes off later, and copying ~1,200 rows is free.
@@ -401,7 +401,7 @@ def _projection_actuals(engine, years: list[int]) -> pd.DataFrame:
     grading a projection against the *actual* baseline would confuse "the
     projection was wrong" with "the league scored more that year".
 
-    Memoised on the request context: `projection_accuracy` and `adp_benchmark`
+    Memoized on the request context: `projection_accuracy` and `adp_benchmark`
     both need this over the same year list, and it is the single most expensive
     thing in the payload — twelve baseline computations across six seasons.
     """

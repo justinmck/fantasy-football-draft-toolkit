@@ -5,7 +5,7 @@ at runtime. Two problems with that, and they compound:
 
 1. It carried two real leagues' **team and manager names**, plus
    `league_bias_manager`, which pairs named individuals with a measured
-   behavioural profile. None of those people agreed to be in a repo.
+   behavioral profile. None of those people agreed to be in a repo.
 2. Being both tracked and written-to guaranteed a dirty tree, merge conflicts
    between anyone running it, and — demonstrably — eight commits of accumulated
    runtime data, 6.6 MB each.

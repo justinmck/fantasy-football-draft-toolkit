@@ -81,7 +81,7 @@ const Figures = ({ children, cols = 3 }) => (
   <div className={`grid gap-3 sm:grid-cols-2 lg:grid-cols-${cols}`}>{children}</div>
 );
 
-/** Signed bar growing from a shared centre line, for +/- quantities. */
+/** Signed bar growing from a shared center line, for +/- quantities. */
 const DivergingBar = ({ value, max }) => {
   const half = Math.min(Math.abs(value) / (max || 1), 1) * 50;
   const positive = value >= 0;
@@ -196,7 +196,7 @@ function RunGate({ leagueName, status, onRun, job, error }) {
       <div className="card p-6 sm:p-8">
         <div className="label mb-1.5 text-accent-hover">Analysis</div>
         <h1 className="text-xl font-semibold tracking-tight text-ink">
-          Analyse {leagueName || "this league"}
+          Analyze {leagueName || "this league"}
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-ink-muted">
           This reads your league's completed drafts and finished seasons out of ESPN and grades
@@ -638,7 +638,7 @@ function DataSection({ data }) {
             <code className="text-ink-muted">eligibleSlots</code> (every slot they're allowed to
             fill, which is a property of the player). This project originally recorded the former as{" "}
             <code className="text-ink-muted">position</code>, so about 76% of every season arrived
-            labelled "BE" or "0" and was silently dropped by every downstream position filter — and
+            labeled "BE" or "0" and was silently dropped by every downstream position filter — and
             the quarter that survived was biased toward players good enough to hold a named starting
             slot. Deriving from <code className="text-ink-muted">eligibleSlots</code> recovers 99.97%
             of rows and agrees with the old labels wherever they were already right. It roughly

@@ -123,7 +123,7 @@ def seasons_for_league(engine, league_id: str) -> list[int]:
 
 
 def add_bias_league_id(engine, default_league_id: str | None = None) -> dict:
-    """Give the fitted-bias tables a league_id, labelling existing rows honestly.
+    """Give the fitted-bias tables a league_id, labeling existing rows honestly.
 
     The default comes from `league_bias_meta.league_id` rather than from the
     environment: the fit itself recorded which league it measured, which is the

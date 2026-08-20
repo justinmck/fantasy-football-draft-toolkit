@@ -374,7 +374,7 @@ function SignInScreen({ onSignIn, busy, error, notice }) {
           <h1 className="text-xl font-semibold tracking-tight">Justin's Draft Assistant</h1>
         </div>
         <p className="mb-6 text-sm leading-relaxed text-ink-muted">
-          Connect your ESPN account to load your leagues, follow your draft live, and analyse how
+          Connect your ESPN account to load your leagues, follow your draft live, and analyze how
           your league drafts.
         </p>
 
@@ -739,7 +739,7 @@ const MeterRow = ({ icon, label, value, meter, tone, caption }) => (
 );
 
 // ---- Board row ----
-// Memoised: up to ~300 of these render at once, and typing, sorting, filtering
+// Memoized: up to ~300 of these render at once, and typing, sorting, filtering
 // and expanding a row all used to re-render every one of them. The handlers are
 // shared across rows and take the player as an argument, so this component
 // supplies its own identity when calling them.
@@ -760,7 +760,7 @@ function ReachCell({ player }) {
   const own = player.bias_player_shift;
   const ownN = player.bias_player_n;
   // Negative shift = drafted earlier here than the market says. That's the
-  // direction that costs you a player, so it's the one that gets a colour.
+  // direction that costs you a player, so it's the one that gets a color.
   const early = n < 0;
   const picks = Math.abs(n);
 
@@ -854,7 +854,7 @@ const PlayerRow = React.memo(function PlayerRow({
         </div>
       </td>
       {/* FantasyPros prints a positional *rank* here as plain text - "RB1",
-          "WR2" - not a coloured pill. It carries strictly more information: the
+          "WR2" - not a colored pill. It carries strictly more information: the
           third running back off the board and the thirtieth are the same chip
           and very different picks. */}
       <td className="tabular py-2 pr-3 text-ink-muted">
@@ -951,12 +951,9 @@ function CountdownClock({ draftAt, now }) {
     { label: "secs", value: total % 60 },
   ];
   // Leading zero units are noise twelve days out; drop them until one matters.
+  // Seconds always stay: a countdown that doesn't count is just a date.
   const firstSignificant = units.findIndex((u) => u.value > 0);
-  let shown = units.slice(firstSignificant === -1 ? 2 : Math.min(firstSignificant, 2));
-  // Seconds only inside the final hour, which is also the only time the clock
-  // ticks that fast. Showing a seconds digit that moves twice a minute reads as
-  // a broken page rather than a slow one.
-  if (total >= 3600) shown = shown.filter((u) => u.label !== "secs");
+  const shown = units.slice(firstSignificant === -1 ? 2 : Math.min(firstSignificant, 2));
 
   return (
     <div className="flex flex-wrap items-end gap-x-5 gap-y-2">
@@ -975,15 +972,15 @@ function CountdownClock({ draftAt, now }) {
 function DraftDay({ league, pickCtx, order, teamsList, rosterState, picksRemaining, myTeamId }) {
   const [now, setNow] = useState(Date.now());
   const draftAt = league?.draft_at;
-  // Every second inside the last hour, every thirty otherwise. A seconds
-  // display that only moves twice a minute reads as broken, and a page that
-  // re-renders every second for twelve days is pure waste.
+  // Every second, always. This used to drop to a 30s tick outside the final
+  // hour to save renders, which meant the seconds digit moved twice a minute
+  // and looked broken - so it was hidden, and then the countdown didn't count.
+  // Re-rendering four spans once a second is not a cost worth optimising.
   useEffect(() => {
     if (!draftAt) return;
-    const near = draftAt - Date.now() < 3600_000;
-    const id = setInterval(() => setNow(Date.now()), near ? 1000 : 30000);
+    const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [draftAt, now < draftAt - 3600_000]);
+  }, [draftAt]);
 
   const names = useMemo(() => {
     const m = new Map();
@@ -1740,7 +1737,7 @@ export default function DraftBoard() {
             const low = Number(r.ci_low);
             // Offline has the model interval but not the position-reliability
             // table, so confidence here is the model term only - narrower than
-            // the live figure. Labelled as approximate in the offline banner.
+            // the live figure. Labeled as approximate in the offline banner.
             const conf =
               Number.isFinite(point) && point > 0 && Number.isFinite(low)
                 ? Math.max(0, Math.min(1, low / point))
@@ -2148,7 +2145,7 @@ export default function DraftBoard() {
 
   // Identity-stable row handlers. They take the player (or id) as an argument
   // rather than closing over it, which is what lets one function serve every
-  // row and lets memoised rows skip re-rendering when an unrelated one changes.
+  // row and lets memoized rows skip re-rendering when an unrelated one changes.
   const handleToggle = useCallback(
     (id) => setExpandedId((cur) => (cur === id ? null : id)),
     []

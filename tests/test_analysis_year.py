@@ -3,7 +3,7 @@
 The Analysis tab used to show one season - whichever the league last drafted
 in - so the year argument was barely exercised. With a season switcher on the
 page it decides what every retrospective section says, and the rule it follows
-matters: honour the request when the league played that season, fall back
+matters: honor the request when the league played that season, fall back
 rather than render an empty page when it didn't.
 """
 import sqlite3

@@ -1,5 +1,5 @@
 {
-  "_comment": "Hand-written and entirely synthetic. No real SWID appears here. Shaped to exercise the three things resolve_my_team_id has to get right: brace/case normalisation, membership matching on a co-owned team, and NOT matching on primaryOwner.",
+  "_comment": "Hand-written and entirely synthetic. No real SWID appears here. Shaped to exercise the three things resolve_my_team_id has to get right: brace/case normalization, membership matching on a co-owned team, and NOT matching on primaryOwner.",
   "members": [
     {"id": "{AAAAAAAA-1111-2222-3333-BBBBBBBBBBBB}", "displayName": "testuser"},
     {"id": "{CCCCCCCC-4444-5555-6666-DDDDDDDDDDDD}", "displayName": "coowner"},

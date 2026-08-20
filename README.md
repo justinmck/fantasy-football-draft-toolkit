@@ -76,7 +76,7 @@ How much a bench spot is worth is derived rather than guessed, from two things:
 | **How often the position's starters miss games** | Measured over 2020–2025 on the top `starters_needed(pos)` players by season points — the same replacement-level tier the VORP baseline uses. RB 10.2%, TE 8.6%, WR 7.6%, QB 4.3%, K 2.3%, DST 1.2%. |
 | **How many of them you start** | Starting two RBs plus a share of FLEX is ~2.4× the injury exposure of a single QB, so the same per-player miss rate implies far more depth need. |
 
-Multiplied and normalised, that gives **RB 1.00, WR 0.75, TE 0.49, QB 0.18, K 0.10, DST 0.05** — a backup RB is worth about twenty times a backup DST. Three guards keep it honest: the term is capped below `NEED_WEIGHT` so a backup can never outrank filling a hole in the lineup; it decays as `1 / (1 + already_held)` so the board won't stack six running backs; and it's zero when there's no bench room left. `bench_remaining()` also reserves a pick for every still-open starting slot before counting anything as spare.
+Multiplied and normalized, that gives **RB 1.00, WR 0.75, TE 0.49, QB 0.18, K 0.10, DST 0.05** — a backup RB is worth about twenty times a backup DST. Three guards keep it honest: the term is capped below `NEED_WEIGHT` so a backup can never outrank filling a hole in the lineup; it decays as `1 / (1 + already_held)` so the board won't stack six running backs; and it's zero when there's no bench room left. `bench_remaining()` also reserves a pick for every still-open starting slot before counting anything as spare.
 
 Rates are recomputed by `notebooks/compute_availability.py` into the `position_availability` table, read behind an existence check with measured defaults in `src/scoring.py` — so this is an optional refinement, not a required pipeline step.
 
@@ -294,7 +294,7 @@ Three properties of ESPN's payload drive the design, each verified against the l
 
 - **The pre-draft response is not empty.** It already carries every pick slot — 224 for a 14-team, 16-round draft — each with `playerId: -1` and its `teamId` assigned. The full snake order is knowable *before* the draft starts, so `current_pick`/`next_pick` are derived from the real order rather than guessed, which also survives traded picks and keepers. The "has this pick happened" test is `playerId != -1`; anything checking `if picks:` concludes the draft finished before it began.
 - **It returns the whole pick list every time, not a delta.** Session state is therefore a pure function of the latest payload: a missed poll costs nothing. That is why the frontend polls a pull-through endpoint with no background worker, and why reconciliation needs only two paths — apply the tail when the completed picks still start with everything already applied, otherwise rebuild by replaying. Undo, reordering, duplicates and manual divergence all collapse into the rebuild.
-- **It honours `If-None-Match`**, so most polls are a 0-byte 304. Polling is every 5s, paused when the tab is hidden, stopped when the draft completes or a cookie expires.
+- **It honors `If-None-Match`**, so most polls are a 0-byte 304. Polling is every 5s, paused when the tab is hidden, stopped when the draft completes or a cookie expires.
 
 **Two things this deliberately does not do.** It doesn't use `espn-api`'s `League.draft` — that gates on `draftDetail.drafted`, a *completion* flag, so it returns nothing for the entire live draft (it also duplicates on refresh and raises `NameError` on `refresh_draft(refresh__teams=True)`). And `src/espn_draft.py` never imports `espn_api` even transitively, because its `ESPNAccessDenied` formats `espn_s2` and `swid` into the exception message; a test asserts the module stays out of `sys.modules`, which is a structural guarantee rather than a promise to be careful.
 
@@ -308,7 +308,7 @@ A failed sync returns 200 with `status: "auth"` or `"stale"` rather than an erro
 
 The things that make it feel like a product rather than a dev server:
 
-- **Its own icon.** A trophy mark matching the header, as an SVG favicon with a 32px PNG fallback and an `apple-touch-icon` — so saving the board to a phone's home screen for draft day gives a real app icon. `site.webmanifest` completes that: name, standalone display, and a theme colour that matches the page so the browser chrome and the app don't meet at a seam.
+- **Its own icon.** A trophy mark matching the header, as an SVG favicon with a 32px PNG fallback and an `apple-touch-icon` — so saving the board to a phone's home screen for draft day gives a real app icon. `site.webmanifest` completes that: name, standalone display, and a theme color that matches the page so the browser chrome and the app don't meet at a seam.
 - **The tab title tracks the draft.** `You're up · McFL`, or `7 picks away · McFL`. Drafts run in a background tab while people read rankings, and being on the clock is the one fact worth surfacing from the tab strip — the difference between making a pick and being autodrafted.
 - **No white flash.** `index.html` paints the app's own background and a pulsing mark before any JavaScript parses, and the app removes it on mount. Previously the browser showed a white canvas for the length of the bundle download, which on draft day reads as the tool having crashed.
 - **A crash is recoverable.** An error boundary replaces React's blank page with an explanation and a reload button — and says the true thing, which is that picks live on the server, so reloading restores the board exactly.
@@ -332,7 +332,7 @@ The image is **drawn on a canvas from the data**, not screenshotted from the pag
 1. A screenshot pastes as a crop of a dark dashboard at whatever size the window happened to be, with clipped edges. A drawn card is composed for where it's going — fixed size, big type, one message, and a wordmark so it still says where the numbers came from three chats later.
 2. No dependency. Every DOM-to-image library is a few hundred kilobytes plus caveats about the fonts and CSS it can't parse.
 
-Your own team is marked — highlighted **and labelled `(you)` in words**, since the highlight has to survive being screenshotted, recompressed and read by someone colour-blind. Bars diverge from a zero line rather than growing from a common left edge: the values are signed, and drawing them all rightward made the *worst* team's bar the second-longest on the card, with length saying "lots" while the number said "lots of the wrong thing". The correlation is restated under the ranking, so the leaderboard doesn't travel without the caveat attached to it.
+Your own team is marked — highlighted **and labeled `(you)` in words**, since the highlight has to survive being screenshotted, recompressed and read by someone color-blind. Bars diverge from a zero line rather than growing from a common left edge: the values are signed, and drawing them all rightward made the *worst* team's bar the second-longest on the card, with length saying "lots" while the number said "lots of the wrong thing". The correlation is restated under the ranking, so the leaderboard doesn't travel without the caveat attached to it.
 
 Text is offered alongside, because much of this is a ranked list, a ranked list reads fine as text, and text survives being quoted and replied to.
 
@@ -410,9 +410,9 @@ What actually mattered, in order:
 - **An `/analysis` response cache keyed on the database file's mtime and size.** The endpoint previously carried a comment explaining why it refused to cache; that reasoning was right, so the key satisfies it rather than overriding it — the moment a notebook writes, the key changes and the entry is dropped. Fails open (no caching) for non-file database URLs.
 - **`GZipMiddleware`.** `/recommend` ships up to 300 players × 34 columns of highly repetitive JSON on every pick; it compresses about 6:1.
 - **scipy imported at module level.** The lazy import inside `_pearson` cost 1.2 s on the first request and bought nothing — scipy is a hard dependency that scikit-learn pulls in anyway. It stays a dependency rather than being hand-rolled: only `pearsonr` is used, and while `r` is a numpy one-liner, the p-value needs an incomplete beta at `df = n−2`, and `draft_performance` correlates over 14 teams — exactly where a normal approximation is wrong.
-- **Frontend:** the Analysis tab is `React.lazy`-loaded into its own chunk and kept mounted once visited (unmounting threw away the payload, so every switch back refetched); `PlayerRow` is memoised with identity-stable handlers; the search box is debounced 150 ms, splitting the bound input from the value the filter reads.
+- **Frontend:** the Analysis tab is `React.lazy`-loaded into its own chunk and kept mounted once visited (unmounting threw away the payload, so every switch back refetched); `PlayerRow` is memoized with identity-stable handlers; the search box is debounced 150 ms, splitting the bound input from the value the filter reads.
 
-Deliberately **not** done: virtualising the player table. 300 memoised rows is fine, and every library for it breaks `<table>` semantics, the sticky header, and the expand-in-place row.
+Deliberately **not** done: virtualising the player table. 300 memoized rows is fine, and every library for it breaks `<table>` semantics, the sticky header, and the expand-in-place row.
 
 ### Tests
 
@@ -441,7 +441,7 @@ Worth stating up front, because it changes the sample size behind every number b
 
 `players_stats.position` was populated from ESPN's `lineupSlot` — the roster slot a player
 occupied — rather than from their actual position. That is a weekly roster decision, not a
-property of the player, so most rows arrived labelled `BE` (bench), `RB/WR/TE` (started at flex),
+property of the player, so most rows arrived labeled `BE` (bench), `RB/WR/TE` (started at flex),
 or a raw unmapped slot id `0`. Across all seasons: 1800 rows as `0`, 519 as `BE`, and only 608
 carrying a real position.
 
@@ -524,9 +524,9 @@ The question NB04 asks is: *given only information available before the season s
 | `+ usage` | 0.552 |
 | `+ is_rookie` | 0.552 |
 
-**Nothing beats `proj_vorp` alone.** This is a real finding, not a modelling failure: ESPN's projection already incorporates last season's usage, so feeding it back in is redundant, and the residual error is dominated by injury, snap-share change, coaching decisions and touchdown variance — none of which exist in July. The full set is kept for the deployed model because these differences are within noise on a single holdout season and pruning on that basis would be overfitting to 2025 specifically.
+**Nothing beats `proj_vorp` alone.** This is a real finding, not a modeling failure: ESPN's projection already incorporates last season's usage, so feeding it back in is redundant, and the residual error is dominated by injury, snap-share change, coaching decisions and touchdown variance — none of which exist in July. The full set is kept for the deployed model because these differences are within noise on a single holdout season and pruning on that basis would be overfitting to 2025 specifically.
 
-One consequence: an earlier version of this README claimed `avg_last_year` surviving as a predictor justified the `RECENCY_WEIGHT` term in `score()`. **The ablation withdraws that claim** — adding `avg_last_year` moves holdout R² by −0.002. The weight may still be defensible as a draft-day tiebreaker, but it is no longer validated by this notebook and should be labelled a preference rather than a finding.
+One consequence: an earlier version of this README claimed `avg_last_year` surviving as a predictor justified the `RECENCY_WEIGHT` term in `score()`. **The ablation withdraws that claim** — adding `avg_last_year` moves holdout R² by −0.002. The weight may still be defensible as a draft-day tiebreaker, but it is no longer validated by this notebook and should be labeled a preference rather than a finding.
 
 **Uncertainty.** NB04 bootstraps the training data (300 resamples, refit each time) and reports a 90% interval (5th–95th percentile) alongside each point estimate, in the notebook and in the exported `players.json`.
 
@@ -581,13 +581,13 @@ Writes `league_bias_position` / `_proteam` / `_manager` / `_player` / `_meta` (p
 
 **What this replaced.** The previous implementation fitted `k = median(actual_pick / market_adp)` and applied `k × adp + offset`. On real data `k` came out to exactly 1.0 — a knob that looked like it did something and didn't. Worse, it grouped by `drafts.position`, which is ESPN's *lineup slot*: 358 of 800 training rows were `"BE"` and were silently discarded by a `.get(pos, 0.0)`, so the RB offset was fitted only on RBs who happened to start at RB, systematically excluding the late and bench picks where reaching actually shows up. Same lineup-slot-versus-position bug documented above for `players_stats`.
 
-**In the board.** A reason chip sits directly after the urgency chip (it explains that number): "League reaches here", "Goes early here", "Lasts longer here", with the arithmetic and the timing-only caveat in the tooltip. The detail panel shows `ADP 42 → your league ≈ 32 (−10)`. The ADP column keeps showing the **market** number — putting a league-adjusted value under a header labelled "ADP" would be the same dishonesty the custom-sort banner exists to prevent.
+**In the board.** A reason chip sits directly after the urgency chip (it explains that number): "League reaches here", "Goes early here", "Lasts longer here", with the arithmetic and the timing-only caveat in the tooltip. The detail panel shows `ADP 42 → your league ≈ 32 (−10)`. The ADP column keeps showing the **market** number — putting a league-adjusted value under a header labeled "ADP" would be the same dishonesty the custom-sort banner exists to prevent.
 
 ### Known limitations
 
 - All of the above (regression, bias correction) is trained on one league's history. It won't generalize to other leagues' scoring settings or draft tendencies out of the box. The bias fit in particular is 996 picks from 14 managers — enough for the position and top team effects, not enough to trust anything smaller.
 - **Only one league's bias fit is stored at a time.** The `league_bias_*` tables are replaced wholesale, so fitting league B discards league A's fit. It's tolerable because the app fits the league you're looking at and `league_bias_meta.league_id` records which one that was — the Analysis tab and the board both check it and fall back to market ADP rather than attributing one league's habits to another — but re-running is the only way back.
-- `players_stats` is per league, which makes the recommender's join one-to-many unless a league is named. It resolves to one league's rows (the one being drafted, or the fullest stored league for a brand-new one); a database predating the `league_id` migration is left unfiltered, which is the old behaviour exactly.
+- `players_stats` is per league, which makes the recommender's join one-to-many unless a league is named. It resolves to one league's rows (the one being drafted, or the fullest stored league for a brand-new one); a database predating the `league_id` migration is left unfiltered, which is the old behavior exactly.
 - Sample size across seasons is small; the holdout evaluation is a single season, not a stable long-run estimate. The ADP benchmark is thinner still — three seasons, two of them consecutive — so a narrow win either way there should be read as noise.
 - 2023 is unusable for anything projection-based (`projected_points = 0.0` for 392 of 480 rows) and is excluded from NB04 and NB05 rather than reported with an anomalous R². Recovering it would need a re-pull from ESPN.
 - Rookies still have no prior-season stats to draw on; `is_rookie` marks them explicitly so the model treats a zero as *unknown* rather than as *produced nothing*, but it doesn't supply the missing information — it only stops the model misreading its absence.

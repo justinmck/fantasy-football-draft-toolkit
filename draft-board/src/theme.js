@@ -1,7 +1,7 @@
 // Shared visual vocabulary for the draft board.
 //
 // The board is a dense, glanceable table that gets read under time pressure
-// during a live draft, so colour carries meaning here rather than decoration:
+// during a live draft, so color carries meaning here rather than decoration:
 // position identity, how urgent a pick is, and how much to trust a number.
 
 // One hue per position. FantasyPros doesn't tint its POS column at all - it

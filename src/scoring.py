@@ -74,7 +74,7 @@ def position_from_eligible_slots(slots):
     week). Only the latter identifies position.
 
     This project originally recorded `lineupSlot` into the `position` column,
-    which meant ~76% of every season's rows landed in `players_stats` labelled
+    which meant ~76% of every season's rows landed in `players_stats` labeled
     "0" or "BE" and were then silently dropped by every downstream
     `position.isin(POSITIONS)` filter. Deriving from `eligibleSlots` instead
     recovers 99.97% of rows and agrees with the existing labels on 100% of
@@ -280,7 +280,7 @@ def depth_needs(
     roster_needs: dict | None = None,
     missed_game_rate: dict | None = None,
 ) -> dict:
-    """Relative value of a *bench* spot at each position, normalised to [0, 1].
+    """Relative value of a *bench* spot at each position, normalized to [0, 1].
 
     Two things decide how much depth a position is worth, and both are read from
     data rather than picked:
@@ -291,7 +291,7 @@ def depth_needs(
       roughly 2.4x the injury exposure of a single QB, so the same per-player
       miss rate implies far more depth need.
 
-    Multiplying the two and normalising so the highest position sits at 1.0
+    Multiplying the two and normalizing so the highest position sits at 1.0
     gives, for a standard 14-team roster: RB 1.00, WR 0.74, TE 0.49, QB 0.18,
     K 0.10, DST 0.05. A backup RB is worth roughly twenty times a backup DST,
     which matches how drafts are actually played.
@@ -372,7 +372,7 @@ def roster_urgency(roster_state: dict, picks_remaining: int | None) -> float:
     1.0 in the roomy case and rises smoothly toward 2.0 as the two converge.
 
     `picks_remaining=None` (caller didn't say) returns 1.0, which reduces this
-    to the original need-only behaviour.
+    to the original need-only behavior.
     """
     if not picks_remaining or picks_remaining <= 0:
         return 1.0
@@ -404,7 +404,7 @@ def need_weights(
     draft where over a third of the picks are bench.
 
     Leaving `depth`/`bench_remaining` unset omits the bench term entirely, which
-    reproduces the previous starters-only behaviour exactly.
+    reproduces the previous starters-only behavior exactly.
     """
     urgency = roster_urgency(roster_state, picks_remaining)
     opens = open_slots(roster_state)
@@ -481,7 +481,7 @@ def adp_pressure(league_pick_est: float, current_pick: int, next_pick: int) -> f
 
     Superseded by `availability_pressure` (which `score()` now uses by
     default), but retained unchanged - same as `vorp` alongside `vorp_z` - so
-    the old and new timing behaviour can be compared rather than one silently
+    the old and new timing behavior can be compared rather than one silently
     replacing the other. Pass `pressure_fn=adp_pressure` to `score()` to get
     the previous ranking back.
     """
@@ -529,7 +529,7 @@ def model_confidence(df: pd.DataFrame) -> pd.Series:
     the expectation, 0.0 means the floor is zero value.
 
     Deliberately a *ratio*, not the raw interval width: width scales with the
-    size of the projection, so an absolute penalty would just re-penalise good
+    size of the projection, so an absolute penalty would just re-penalize good
     players. The ratio is scale-free and applies to any value column.
 
     Returns 1.0 (neutral) where the intervals aren't available, or where the

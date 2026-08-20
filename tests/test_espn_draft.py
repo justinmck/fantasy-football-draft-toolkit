@@ -458,7 +458,7 @@ class TestReplay:
         assert sync.version == start + 1
 
     def test_payload_is_json_safe(self, draft_payload, engine):
-        """None must serialise as null; NaN has 500ed this API before."""
+        """None must serialize as null; NaN has 500ed this API before."""
         _, _, seen = self._run(draft_payload, engine, step=8)
         blob = json.dumps(seen)
         assert "NaN" not in blob and "Infinity" not in blob

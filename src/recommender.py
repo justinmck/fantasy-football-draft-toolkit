@@ -241,7 +241,7 @@ def recommend(engine, year, session, current_pick, next_pick, bias, topn=10,
         next_pick,
         # Lets need weighting escalate as the drafter runs out of picks; None
         # when the session doesn't know the draft length, which reduces need
-        # weighting to its previous, non-urgency behaviour.
+        # weighting to its previous, non-urgency behavior.
         picks_remaining=session.picks_remaining(),
         risk_aversion=risk_aversion,
         # Bench context: which positions the drafter already has spare bodies

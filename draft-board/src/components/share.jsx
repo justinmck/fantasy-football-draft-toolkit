@@ -120,7 +120,7 @@ export function drawRankedCard({ eyebrow, title, rows, footer, note }) {
   const barW = 330;
   const valueX = W - PAD;
 
-  // A signed quantity has to grow from a centre line. Drawing every bar
+  // A signed quantity has to grow from a center line. Drawing every bar
   // rightward from a common left edge made the *worst* team's bar the second
   // longest on the card - length said "lots" while the number said "lots of
   // the wrong thing". With no negatives present there is nothing to diverge
@@ -147,8 +147,8 @@ export function drawRankedCard({ eyebrow, title, rows, footer, note }) {
     ctx.fillText(String(i + 1), PAD + 22, mid + 8);
     ctx.textAlign = "left";
 
-    // "(you)" in words rather than colour alone: the highlight has to survive
-    // being screenshotted, recompressed, and read by someone colour-blind.
+    // "(you)" in words rather than color alone: the highlight has to survive
+    // being screenshotted, recompressed, and read by someone color-blind.
     ctx.fillStyle = INK.text;
     ctx.font = FONT(r.highlight ? 700 : 500, 26);
     const label = fit(ctx, r.label, r.highlight ? 190 : 250);
@@ -171,7 +171,7 @@ export function drawRankedCard({ eyebrow, title, rows, footer, note }) {
     ctx.fill();
 
     const w = Math.max(3, (Math.abs(v) / max) * halfW);
-    // Colour carries the sign too, so the direction is legible at thumbnail
+    // Color carries the sign too, so the direction is legible at thumbnail
     // size before any number is read.
     ctx.fillStyle = negative
       ? (r.highlight ? INK.negative : INK.bar)

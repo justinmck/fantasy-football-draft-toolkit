@@ -65,7 +65,7 @@ def other_client():
 def _allow_leagues(monkeypatch, *league_ids):
     """Make `assert_league` accept these ids without calling ESPN.
 
-    Clears the cache first: reachability is memoised per user, so a test that
+    Clears the cache first: reachability is memoized per user, so a test that
     changes which leagues exist would otherwise be answered from the previous
     call's set. In production the TTL handles this; here it has to be explicit.
     """
@@ -304,7 +304,7 @@ class TestNoCredentialLeak:
             assert "espn_s2" not in body
 
     def test_sync_payload_is_json_safe(self, connected, client):
-        """None must serialise as null - position, player_name and filled_slot
+        """None must serialize as null - position, player_name and filled_slot
         are all nullable here, and NaN has 500ed this API before."""
         sid, fake, _ = connected
         fake.upto = 60

@@ -1,4 +1,4 @@
-"""Pull one league's completed-season history, so it can be analysed.
+"""Pull one league's completed-season history, so it can be analyzed.
 
 The Analysis tab needs three things per league: who drafted whom, how each team
 finished, and what every player actually scored *under that league's scoring

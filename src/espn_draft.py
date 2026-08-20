@@ -21,7 +21,7 @@ Three things about ESPN's payload drive the whole design:
    That is what makes a simple pull-through poll correct, and why there is no
    background worker here.
 
-3. **It honours `If-None-Match`.** Nothing changes between picks, so the large
+3. **It honors `If-None-Match`.** Nothing changes between picks, so the large
    majority of polls return 304 with an empty body.
 
 Why this does not use the `espn_api` package

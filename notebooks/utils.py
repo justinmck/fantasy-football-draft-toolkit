@@ -507,7 +507,7 @@ _COMBINED_PLAYER_RE = re.compile(r"^(?P<name>.+?)\s+(?P<team>[A-Z/]{2,4})\s*\((?
 
 
 def _split_combined_player_column(df):
-    """Normalise FantasyPros' 2026+ "Player (Bye)" column into the
+    """Normalize FantasyPros' 2026+ "Player (Bye)" column into the
     player_name / team_name / bye columns every earlier season already has."""
     combined = df["Player (Bye)"].astype(str).str.strip()
     parts = combined.str.extract(_COMBINED_PLAYER_RE)
@@ -558,7 +558,7 @@ def clean_adp(csv):
     # Seperate position and rank
     df["position"] = df["POS"].str.extract(r'([A-Za-z]+)')
     df["pos_rank"] = df["POS"].str.extract(r'(\d+)').astype(float)
-    # Map Defences
+    # Map Defenses
     df = team_name_to_dst(df)
     return df
 

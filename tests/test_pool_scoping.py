@@ -92,7 +92,7 @@ class TestFallbacks:
         """Fixtures and pre-migration databases must keep working."""
         engine = _engine(with_league_column=False)
         assert resolve_stats_league(engine, 2025, "780575") is None
-        # The query runs unfiltered, which is the old behaviour exactly. A
+        # The query runs unfiltered, which is the old behavior exactly. A
         # pre-migration database holds one league, so that's one row per
         # player; this fixture holds two leagues' rows with nothing to tell
         # them apart, and duplicating is the honest result of that.
