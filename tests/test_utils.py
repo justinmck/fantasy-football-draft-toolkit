@@ -152,8 +152,12 @@ class TestStripAccountIds:
     def test_drops_the_named_column(self):
         df = pd.DataFrame({
             "player_id": [1, 2],
-            "memberId": ["{REDACTED-ESPN-MEMBER-ID}",
-                         "{REDACTED-ESPN-MEMBER-ID}"],
+            # Synthetic, matching the convention in tests/fixtures. Real ids
+            # were used here originally, which is exactly the mistake this
+            # helper exists to prevent - and the history rewrite redacted them
+            # out from under the test.
+            "memberId": ["{AAAAAAAA-1111-2222-3333-BBBBBBBBBBBB}",
+                         "{CCCCCCCC-4444-5555-6666-DDDDDDDDDDDD}"],
         })
         assert list(strip_account_ids(df).columns) == ["player_id"]
 
@@ -161,8 +165,8 @@ class TestStripAccountIds:
         """Name matching alone would miss a renamed or newly-added field."""
         df = pd.DataFrame({
             "team_id": [1, 2],
-            "whoever": ["{REDACTED-ESPN-MEMBER-ID}",
-                        "{REDACTED-ESPN-MEMBER-ID}"],
+            "whoever": ["{EEEEEEEE-7777-8888-9999-FFFFFFFFFFFF}",
+                        "{AAAAAAAA-1111-2222-3333-BBBBBBBBBBBB}"],
         })
         assert list(strip_account_ids(df).columns) == ["team_id"]
 

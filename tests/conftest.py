@@ -157,7 +157,7 @@ from src.api import app  # noqa: E402
 # meaningful rather than accidentally passing.
 SWID_A = "{AAAAAAAA-1111-2222-3333-AAAAAAAAAAAA}"
 S2_A = "s2-for-user-a-" + "x" * 40
-SWID_B = "{REDACTED-ESPN-MEMBER-ID}"
+SWID_B = "{BBBBBBBB-2222-3333-4444-BBBBBBBBBBBB}"
 S2_B = "s2-for-user-b-" + "y" * 40
 
 

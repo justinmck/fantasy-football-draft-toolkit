@@ -179,7 +179,7 @@ class TestOwnership:
     @pytest.mark.parametrize("swid", [
         "{AAAAAAAA-1111-2222-3333-BBBBBBBBBBBB}",
         "AAAAAAAA-1111-2222-3333-BBBBBBBBBBBB",
-        "{REDACTED-ESPN-MEMBER-ID}",
+        "{aaaaaaaa-1111-2222-3333-bbbbbbbbbbbb}",
         "  {AAAAAAAA-1111-2222-3333-BBBBBBBBBBBB}  ",
     ])
     def test_swid_matches_across_brace_and_case_spellings(self, mteam_payload, swid):
@@ -187,7 +187,7 @@ class TestOwnership:
         assert resolve_my_team_id(mteam_payload, swid) == 8
 
     def test_unknown_swid_returns_none(self, mteam_payload):
-        assert resolve_my_team_id(mteam_payload, "{REDACTED-ESPN-MEMBER-ID}") is None
+        assert resolve_my_team_id(mteam_payload, "{99999999-0000-0000-0000-999999999999}") is None
 
     def test_empty_swid_returns_none(self, mteam_payload):
         assert resolve_my_team_id(mteam_payload, "") is None
