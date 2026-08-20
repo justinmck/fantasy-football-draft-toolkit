@@ -370,21 +370,43 @@ def _has_table(engine, name: str) -> bool:
         return conn.execute(q, {"n": name}).first() is not None
 
 
-def load_league_bias(engine) -> dict:
-    """Read the persisted fit, or fall back to the measured constants.
+def load_league_bias(engine, league_id: str | None = None) -> dict:
+    """Read one league's persisted fit, or fall back to the measured constants.
 
-    Called at API import instead of `fit_league_bias`, because fitting needs
-    `teams`, `players` and `players_stats.pro_team` — none of which a partially
-    built database (or the test fixture) has — and because a permutation test
-    does not belong on the boot path.
+    Read rather than fitted, because fitting needs `teams`, `players` and
+    `players_stats.pro_team` — none of which a partially built database (or the
+    test fixture) has — and because a permutation test does not belong on a
+    request path.
+
+    With no league named and several stored, this returns the neutral default
+    rather than guessing. Picking one arbitrarily would label a league's
+    drafters with another league's habits, which is the exact error the
+    league_id scoping exists to prevent — the same refusal `fit_league_bias`
+    and `league_analysis` already make.
     """
+    from src.migrations import fitted_leagues
+
     if not _has_table(engine, "league_bias_position"):
         return dict(DEFAULT_LEAGUE_BIAS)
+
+    if league_id is None:
+        stored = fitted_leagues(engine)
+        if len(stored) != 1:
+            return dict(DEFAULT_LEAGUE_BIAS)
+        league_id = stored[0]
+    league_id = str(league_id).strip()
 
     def read(name):
         if not _has_table(engine, name):
             return pd.DataFrame()
-        return pd.read_sql(text(f"SELECT * FROM {name}"), engine)
+        # A database from before the migration has no league_id to filter on;
+        # read it whole rather than returning nothing.
+        with engine.begin() as conn:
+            cols = {r[1] for r in conn.execute(text(f"PRAGMA table_info({name})"))}
+        if "league_id" not in cols:
+            return pd.read_sql(text(f"SELECT * FROM {name}"), engine)
+        return pd.read_sql(text(f"SELECT * FROM {name} WHERE league_id = :lid"),
+                           engine, params={"lid": league_id})
 
     pos = read("league_bias_position")
     team = read("league_bias_proteam")
@@ -545,20 +567,29 @@ def apply_league_bias(df: pd.DataFrame, bias: dict, include_player: bool = False
 
 
 def persist_league_bias(engine, fit: dict, league_id: str, permutations: int = 0) -> None:
-    """Write a fit to the tables `load_league_bias` reads.
+    """Write one league's fit, leaving every other league's rows untouched.
 
-    Shared by `notebooks/compute_league_bias.py` and the API's analysis job, so
-    a fit produced either way is stored identically - the same rule that keeps
-    VORP in one place.
+    Delete-then-append scoped to `league_id`, which is the same shape
+    `store_season` in src/espn_history.py already uses, and for the same reason.
 
-    Rows are replaced wholesale per table rather than per league. That is a
-    real limitation: fitting league B discards league A's stored fit. It is
-    acceptable only because the app fits the league you are looking at, and
-    `league_id` in `league_bias_meta` says which one that was, so nothing is
-    ever silently attributed to the wrong league.
+    It replaces `to_sql(if_exists="replace")`, which dropped and recreated each
+    table on every write. With no league_id column that meant fitting league B
+    destroyed league A's fit outright - and since `league_bias_manager` carries
+    real team names, it also served A's leaguemates to B. On a single-user
+    laptop that was merely lossy; with more than one user it is cross-tenant
+    data destruction.
+
+    The migration is called here, not only at boot: `replace` drops the table,
+    so a column added at startup would be gone by the next write and the DELETE
+    below would have nothing to filter on.
     """
     import pandas as pd
     from datetime import datetime, timezone
+
+    from src.migrations import BIAS_TABLES, add_bias_league_id
+
+    add_bias_league_id(engine)
+    lid = str(league_id)
 
     tables = fit.get("tables") or {}
     mapping = {
@@ -569,15 +600,11 @@ def persist_league_bias(engine, fit: dict, league_id: str, permutations: int = 0
         "position_season": "league_bias_position_season",
         "proteam_season": "league_bias_proteam_season",
     }
-    for key, table in mapping.items():
-        frame = tables.get(key)
-        if frame is not None and len(frame):
-            frame.to_sql(table, engine, if_exists="replace", index=False)
 
     meta = fit.get("meta") or {}
-    pd.DataFrame([{
+    meta_row = pd.DataFrame([{
         "fit_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "league_id": str(league_id),
+        "league_id": lid,
         "years": meta.get("years"),
         "adp_cutoff": meta.get("adp_cutoff"),
         "n_picks": meta.get("n_picks", 0),
@@ -586,4 +613,21 @@ def persist_league_bias(engine, fit: dict, league_id: str, permutations: int = 0
         "k_proteam": round(meta.get("k_proteam", 0.0), 2),
         "k_manager": round(meta.get("k_manager", 0.0), 2),
         "permutations": permutations,
-    }]).to_sql("league_bias_meta", engine, if_exists="replace", index=False)
+    }])
+
+    # Clear this league's rows first, so re-running is idempotent rather than
+    # doubling them - the property `store_season` also guarantees.
+    with engine.begin() as conn:
+        for table in (*BIAS_TABLES, "league_bias_meta"):
+            if _has_table(engine, table):
+                conn.execute(text(f"DELETE FROM {table} WHERE league_id = :lid"),
+                             {"lid": lid})
+
+    for key, table in mapping.items():
+        frame = tables.get(key)
+        if frame is not None and len(frame):
+            frame.assign(league_id=lid).to_sql(table, engine, if_exists="append",
+                                               index=False)
+
+    # One row per league now, not one row total - that is the point.
+    meta_row.to_sql("league_bias_meta", engine, if_exists="append", index=False)

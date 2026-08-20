@@ -436,8 +436,13 @@ class TestBiasIsScopedToItsLeague:
         monkeypatch.setattr(api, "EspnDraftClient",
                             lambda creds, year, **kw: EspnDraftClient(
                                 creds, year, fetch=fetch, league_id=kw.get("league_id")))
-        monkeypatch.setattr(api, "BIAS", {"position": {"QB": -11.1}, "pro_team": {},
-                                          "player": {}, "meta": {"league_id": "780575"}})
+        # Only league 780575 has a fit; every other league gets nothing. This
+        # is now per-league lookup rather than one module-level snapshot.
+        fits = {"780575": {"position": {"QB": -11.1}, "pro_team": {}, "player": {},
+                           "meta": {"league_id": "780575"}}}
+        monkeypatch.setattr(api, "bias_for_league",
+                            lambda lid: fits.get(str(lid), {}))
+        monkeypatch.setattr(api, "_league_has_history", lambda lid, *a: str(lid) in fits)
         sid = client.post("/session", json={"teams": 14, "rounds": 16}).json()["session_id"]
         res = client.post("/espn/connect",
                           json={"session_id": sid, "league_id": league_id})

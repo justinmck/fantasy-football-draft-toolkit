@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+from collections import OrderedDict
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,7 +25,7 @@ from src.scoring import RISK_AVERSION
 from src.biases import fit_league_bias, load_league_bias, persist_league_bias
 from src.espn_history import available_seasons, pull_season, store_season
 from src.jobs import find_active, get_for as get_job_for, start
-from src.migrations import add_league_id, seasons_for_league
+from src.migrations import add_bias_league_id, add_league_id, fitted_leagues, seasons_for_league
 from src.espn_draft import (
     ESPN_SYNCS, DraftSync, EspnAuthError, EspnDraftClient, EspnUnavailable,
     all_teams, list_leagues, resolve_my_team_id, team_display,
@@ -48,14 +49,35 @@ try:
     # Additive and idempotent: gives the league-scoped tables a league_id and
     # labels pre-existing rows with the configured league. Safe every boot.
     add_league_id(engine, os.getenv("LEAGUE_ID"))
+    # Same contract: additive, idempotent, and safe on every boot.
+    add_bias_league_id(engine)
 except Exception as exc:  # pragma: no cover - depends on DB permissions
     log.warning("could not prepare database: %s", exc)
 
-# Read the persisted fit rather than computing it here. Fitting at import would
-# need `teams`, `players` and `players_stats.pro_team`, which a partially built
-# database (and the test fixture) doesn't have - and it would put a permutation
-# test on the boot path. See notebooks/compute_league_bias.py.
-BIAS = load_league_bias(engine)
+# The fit is loaded per league, on demand. It used to be a module-level
+# `BIAS = load_league_bias(engine)` read once at import, which meant every
+# user's board was scored from one boot-time snapshot of one league's habits,
+# and stayed stale until restart after any analysis run rewrote the tables.
+_BIAS_CACHE: "OrderedDict[tuple, dict]" = OrderedDict()
+_BIAS_MAX = 32
+
+
+def bias_for_league(league_id: str | None) -> dict:
+    """This league's fitted bias, cached until the database changes.
+
+    Keyed on `_db_version()` as well as the league, so a completed analysis run
+    invalidates it the moment it writes - the same fingerprint the analysis
+    payload cache already uses.
+    """
+    key = (str(league_id or ""), _db_version())
+    hit = _BIAS_CACHE.get(key)
+    if hit is None:
+        hit = load_league_bias(engine, league_id)
+        _BIAS_CACHE[key] = hit
+        _BIAS_CACHE.move_to_end(key)
+        while len(_BIAS_CACHE) > _BIAS_MAX:
+            _BIAS_CACHE.popitem(last=False)
+    return hit
 
 @app.get("/health")
 def health(): return {"ok": True}
@@ -162,18 +184,14 @@ _MIN_POLL_SECONDS = 3.0
 _BACKOFF = (3.0, 10.0, 30.0)
 
 
-def _league_has_history(league_id, fitted_league_id) -> bool:
-    """Was the persisted bias fitted on this league?
+def _league_has_history(league_id, fitted_league_id=None) -> bool:
+    """Is there a stored bias fit for this league?
 
-    Both sides are stringified because the id arrives as a string from the API
-    and may have been stored as an integer by the fit script.
+    Was "is this the one league the fit came from", which only made sense while
+    a single fit could exist. Now every fitted league has its own rows, so the
+    question is simply whether this one is among them.
     """
-    if not fitted_league_id:
-        # No fit on record: the constants in src/biases.py are McFL's, and
-        # there is nothing to check them against. Treat as applicable, matching
-        # the single-league behaviour this app has always had.
-        return True
-    return str(league_id) == str(fitted_league_id)
+    return str(league_id) in set(fitted_leagues(engine))
 
 
 def _bias_for(session_id: str):
@@ -190,9 +208,10 @@ def _bias_for(session_id: str):
     """
     sync = ESPN_SYNCS.get(session_id)
     if sync is None or sync.league_id is None:
-        return BIAS
-    fitted = (BIAS.get("meta") or {}).get("league_id")
-    return BIAS if _league_has_history(sync.league_id, fitted) else None
+        # Manual session: no league to scope to, so fall back to whatever a
+        # single-league database has, or the neutral default.
+        return bias_for_league(None)
+    return bias_for_league(sync.league_id)
 
 
 def _sync_or_404(session_id: str) -> DraftSync:
@@ -205,7 +224,6 @@ def _sync_or_404(session_id: str) -> DraftSync:
 def _sync_payload(s, sync: DraftSync, new_picks=None) -> dict:
     ctx = sync.context()
     settings = sync.settings
-    fitted_league = (BIAS.get("meta") or {}).get("league_id")
     return {
         "connected": True,
         "status": sync.status,
@@ -219,7 +237,7 @@ def _sync_payload(s, sync: DraftSync, new_picks=None) -> dict:
             # Whether this league is the one the bias was measured on. The UI
             # says so rather than quietly applying one league's habits to
             # another's drafters.
-            "has_history": _league_has_history(sync.league_id, fitted_league),
+            "has_history": _league_has_history(sync.league_id),
         },
         "age_seconds": (round(time.time() - sync.last_ok, 1) if sync.last_ok else None),
         "version": sync.version,
@@ -312,7 +330,6 @@ def espn_leagues(year: int | None = None, p: Principal = Depends(require_espn)):
     except EspnUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
-    fitted = (BIAS.get("meta") or {}).get("league_id")
     out = []
     for lg in leagues:
         # One settings fetch each so the picker can show when every draft is,
@@ -333,7 +350,7 @@ def espn_leagues(year: int | None = None, p: Principal = Depends(require_espn)):
         out.append({
             "league_id": lg.league_id, "name": lg.name, "season": lg.season,
             "draft_at": draft_at, "scheduled": scheduled, "unreadable": unreadable,
-            "has_history": _league_has_history(lg.league_id, fitted),
+            "has_history": _league_has_history(lg.league_id),
         })
     return {
         "year": year,
@@ -343,9 +360,9 @@ def espn_leagues(year: int | None = None, p: Principal = Depends(require_espn)):
         # what a wrong espn_s2 looks like from here. The UI offers a re-sign-in
         # instead of showing an account that appears to work but can't load.
         "credentials_stale": bool(out) and all(l["unreadable"] for l in out),
-        # Which league the persisted bias fit came from, so the UI can say
-        # "measured on McFL" rather than implying it applies everywhere.
-        "bias_league_id": fitted,
+        # Per-league now: each row above carries its own `has_history`, so
+        # there is no single "the fit came from here" to report.
+        "bias_league_id": None,
     }
 
 
@@ -502,9 +519,9 @@ def analysis_status(league_id: str, year: int | None = None,
         "league_id": league_id,
         "seasons": seasons,
         "has_history": bool(seasons),
-        # Fitted on whichever league was processed; the tab labels the shared
-        # reliability tables as reference when it isn't this one.
-        "reference_league_id": (BIAS.get("meta") or {}).get("league_id"),
+        # This league's own fit, or None. The tab labels the shared reliability
+        # tables as a general reference when there isn't one.
+        "reference_league_id": league_id if _league_has_history(league_id) else None,
         "job": running.to_dict() if running else None,
     }
 
@@ -545,9 +562,10 @@ def analysis_run(body: AnalysisRunBody, p: Principal = Depends(require_espn)):
         fit = fit_league_bias(engine, league_id=league_id, permutations=0)
         persist_league_bias(engine, fit, league_id)
 
-        # The payload is keyed on the database file's identity, which just
-        # changed - drop it so the tab doesn't read the pre-pull version.
+        # Both caches are keyed on the database file's identity, which just
+        # changed - clearing is belt and braces alongside the fingerprint.
         _ANALYSIS_CACHE.clear()
+        _BIAS_CACHE.clear()
         return {"seasons": sorted(written), "skipped": skipped,
                 "written": {str(k): v for k, v in written.items()},
                 "picks_fitted": fit["meta"].get("n_picks", 0)}

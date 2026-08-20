@@ -31,6 +31,19 @@ log = logging.getLogger(__name__)
 # which league. Order matters only for readability.
 LEAGUE_SCOPED_TABLES = ("drafts", "teams", "players_stats")
 
+# The fitted-bias tables. `league_bias_meta` already carries a league_id; these
+# six never did, and `persist_league_bias` wrote them with
+# `if_exists="replace"` - so fitting one league dropped every other league's
+# rows, and served their manager names to the wrong people.
+BIAS_TABLES = (
+    "league_bias_position",
+    "league_bias_proteam",
+    "league_bias_manager",
+    "league_bias_player",
+    "league_bias_position_season",
+    "league_bias_proteam_season",
+)
+
 LEAGUE_INDEXES = [
     ("idx_drafts_league_year", "drafts", "drafts(league_id, year)"),
     ("idx_teams_league_year", "teams", "teams(league_id, year)"),
@@ -107,3 +120,57 @@ def seasons_for_league(engine, league_id: str) -> list[int]:
             {"lid": str(league_id)},
         )
         return [int(r[0]) for r in rows if r[0] is not None]
+
+
+def add_bias_league_id(engine, default_league_id: str | None = None) -> dict:
+    """Give the fitted-bias tables a league_id, labelling existing rows honestly.
+
+    The default comes from `league_bias_meta.league_id` rather than from the
+    environment: the fit itself recorded which league it measured, which is the
+    only trustworthy source. They genuinely differ here - the last fit on this
+    database was a second league, not the one in LEAGUE_ID.
+
+    Idempotent, and called from `persist_league_bias` as well as at boot,
+    because `to_sql(if_exists="replace")` *drops and recreates* a table. A
+    migration that ran only at startup would be silently undone by the next
+    write, and the DELETE that scopes the write would then have no column to
+    filter on.
+    """
+    added, backfilled = [], {}
+    with engine.begin() as conn:
+        default = default_league_id
+        if default is None and _table_exists(conn, "league_bias_meta"):
+            row = conn.execute(
+                text("SELECT league_id FROM league_bias_meta "
+                     "WHERE league_id IS NOT NULL LIMIT 1")).first()
+            default = str(row[0]).strip() if row and row[0] is not None else None
+
+        for table in BIAS_TABLES:
+            if not _table_exists(conn, table):
+                continue
+            if "league_id" not in _columns(conn, table):
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN league_id TEXT"))
+                added.append(table)
+            if default:
+                res = conn.execute(
+                    text(f"UPDATE {table} SET league_id = :lid WHERE league_id IS NULL"),
+                    {"lid": default})
+                if res.rowcount:
+                    backfilled[table] = res.rowcount
+            conn.execute(text(
+                f"CREATE INDEX IF NOT EXISTS idx_{table}_league "
+                f"ON {table}(league_id)"))
+    return {"added": added, "backfilled": backfilled}
+
+
+def fitted_leagues(engine) -> list[str]:
+    """Every league that has a stored bias fit."""
+    with engine.begin() as conn:
+        if not _table_exists(conn, "league_bias_meta"):
+            return []
+        if "league_id" not in _columns(conn, "league_bias_meta"):
+            return []
+        rows = conn.execute(text(
+            "SELECT DISTINCT league_id FROM league_bias_meta "
+            "WHERE league_id IS NOT NULL ORDER BY league_id"))
+        return [str(r[0]).strip() for r in rows if r[0] is not None]
