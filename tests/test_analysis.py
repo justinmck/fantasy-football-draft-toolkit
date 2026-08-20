@@ -46,7 +46,12 @@ def test_analysis_endpoint_ok_without_draft_history(client):
     assert body["draft_performance"]["teams"] == []
     assert body["draft_performance"]["correlation"] is None
     assert body["steals_and_reaches"]["steals"] == []
-    assert body["projection_value"]["correlation"] is None
+    # The new league sections must degrade the same way rather than raising.
+    assert body["career_performance"]["managers"] == []
+    assert body["expectations"]["teams"] == []
+    # `projection_value` was removed: the tab replaced it with
+    # `projection_accuracy` and nothing had read it since.
+    assert "projection_value" not in body
 
 
 def test_analysis_still_returns_reliability_tables(client):

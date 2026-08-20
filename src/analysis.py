@@ -59,6 +59,7 @@ SELECT
     s.points,
     s.projected_points,
     s.games_played,
+    d.team_id,
     t.team_name,
     t.final_standing,
     a.position,
@@ -372,6 +373,115 @@ def draft_performance(engine, year: int) -> dict:
     }
 
 
+def career_performance(engine, seasons: list[int]) -> dict:
+    """Every manager's draft record across all stored seasons.
+
+    The page could only ever ask "who drafted best in 2025?", which is a
+    question about one year of luck as much as skill. With six seasons stored,
+    "who is actually good at this" is both answerable and the thing people
+    argue about.
+
+    **Grouped on `team_id`, never `team_name`.** Fourteen franchises in this
+    league have used eighteen names. Two of them collide on a space -
+    "Gerald Pea's Football Team" (id 11, later "B Mac") and "GeraldPea's
+    Football Team" (id 12, formerly "Jean Machine") are different people - so
+    grouping by name would merge two managers and split two others, inventing
+    four who never existed. `src/biases.py` already documents this hazard for
+    the manager fit; it applies identically here.
+
+    Each franchise is labeled with its most recent name, since that is who
+    everyone in the league calls them now.
+    """
+    frames = []
+    for year in seasons:
+        df = load_draft_season(engine, year)
+        if not df.empty:
+            frames.append(df.assign(year=year))
+    if not frames:
+        return {"seasons": [], "managers": []}
+
+    allp = pd.concat(frames, ignore_index=True)
+    if "team_id" not in allp.columns:      # pre-migration database
+        return {"seasons": [], "managers": []}
+
+    # Per manager-season first, so a season counts once however many picks it had.
+    per_season = (
+        allp.groupby(["team_id", "year"])
+        .agg(avg_vorp=("vorp", "mean"), total_vorp=("vorp", "sum"),
+             picks=("vorp", "size"), final_standing=("final_standing", "first"),
+             team_name=("team_name", "first"))
+        .reset_index()
+    )
+
+    rows = []
+    for team_id, g in per_season.groupby("team_id"):
+        g = g.sort_values("year")
+        best = g.loc[g["avg_vorp"].idxmax()]
+        worst = g.loc[g["avg_vorp"].idxmin()]
+        rows.append({
+            "team_id": int(team_id),
+            # Latest name wins; earlier ones are kept so the UI can say
+            # "formerly ..." rather than silently renaming someone's history.
+            "team_name": g["team_name"].iloc[-1],
+            "former_names": [n for n in dict.fromkeys(g["team_name"]) if n != g["team_name"].iloc[-1]],
+            "seasons_n": int(g["year"].nunique()),
+            "avg_vorp": float(g["avg_vorp"].mean()),
+            "total_vorp": float(g["total_vorp"].sum()),
+            "picks": int(g["picks"].sum()),
+            "titles": int((g["final_standing"] == 1).sum()),
+            "best_year": int(best["year"]), "best_vorp": float(best["avg_vorp"]),
+            "worst_year": int(worst["year"]), "worst_vorp": float(worst["avg_vorp"]),
+            "avg_finish": float(g["final_standing"].mean()),
+            # Per season, for the sparkline: signed against this manager's own
+            # average, so it reads as "a good year for them" not "a good year".
+            "by_season": [{"year": int(r.year), "avg_vorp": float(r.avg_vorp),
+                           "final_standing": int(r.final_standing)}
+                          for r in g.itertuples()],
+        })
+
+    rows.sort(key=lambda r: r["avg_vorp"], reverse=True)
+    return {"seasons": sorted({int(y) for y in allp["year"].unique()}), "managers": rows}
+
+
+_EXPECTATIONS_SQL = """
+SELECT team_id, team_name, draft_projected_rank, final_standing,
+       wins, losses, points_for
+FROM teams
+WHERE league_id = :league_id AND year = :year
+"""
+
+
+def expectations(engine, year: int) -> dict:
+    """ESPN's own preseason ranking against where each team actually finished.
+
+    A projection nobody grades, sitting unused in the `teams` table. It is a
+    different question from "did they draft well": you can draft badly and
+    still beat a low bar.
+
+    `draft_projected_rank` is missing for 12 of 76 rows in this database, so a
+    team without one is reported as unknown rather than dropped or - much
+    worse - treated as rank 0, which would read as the best projection anyone
+    ever had.
+    """
+    ctx = _ctx(engine)
+    if not _has_table(ctx, "teams") or not ctx.league_id:
+        return {"year": year, "teams": [], "missing": 0}
+    df = pd.read_sql(text(_EXPECTATIONS_SQL), _engine_of(engine),
+                     params={"year": year, "league_id": ctx.league_id})
+    if df.empty:
+        return {"year": year, "teams": [], "missing": 0}
+
+    df["draft_projected_rank"] = pd.to_numeric(df["draft_projected_rank"], errors="coerce")
+    df.loc[df["draft_projected_rank"] <= 0, "draft_projected_rank"] = pd.NA
+    missing = int(df["draft_projected_rank"].isna().sum())
+    # Positive = finished better than projected. Sign chosen so the number
+    # reads the way people say it: "+6" is "six places better than expected".
+    df["beat_by"] = df["draft_projected_rank"] - df["final_standing"]
+    df = df.sort_values(["beat_by", "final_standing"], ascending=[False, True],
+                        na_position="last")
+    return {"year": year, "teams": _records(df), "missing": missing}
+
+
 def steals_and_reaches(engine, year: int, n: int = 8) -> dict:
     """Where the market was most wrong, in both directions.
 
@@ -610,6 +720,10 @@ def league_analysis(engine, year: int | None = None, league_id: str | None = Non
         "replacement_levels": replacement_levels(engine, year),
         "draft_value_by_round": draft_value_by_round(engine, year),
         "draft_performance": draft_performance(engine, year),
+        # Across every stored season, not just the selected one. This is the
+        # question the page now opens with.
+        "career_performance": career_performance(engine, seasons),
+        "expectations": expectations(engine, year),
         "steals_and_reaches": steals_and_reaches(engine, year),
         "projection_accuracy": projection_accuracy(engine, year),
         "adp_benchmark": adp_benchmark(engine, year),
@@ -630,18 +744,6 @@ def league_analysis(engine, year: int | None = None, league_id: str | None = Non
         "model_report": _read_table(engine, "model_report", order_by="cv_rmse ASC"),
         "model_ablation": _read_table(engine, "model_ablation", order_by="step ASC"),
         "feature_vif": _read_table(engine, "feature_vif", order_by="vif DESC"),
-        # Kept for the previous payload shape; the tab now reads
-        # `projection_accuracy` for the same question in VORP terms.
-        "projection_value": _projection_value_legacy(engine, year),
     }
 
 
-def _projection_value_legacy(engine, year: int) -> dict:
-    """Projected vs. actual *points* for drafted players, overall and by position."""
-    df = load_draft_season(engine, year)
-    if df.empty or "projected_points" not in df.columns:
-        return {"correlation": None, "by_position": []}
-    rows = [{"position": pos, **(_pearson(g["projected_points"], g["points"]) or {})}
-            for pos, g in df.groupby("position")]
-    rows.sort(key=lambda r: (r.get("r") is None, -(r.get("r") or 0)))
-    return {"correlation": _pearson(df["projected_points"], df["points"]), "by_position": rows}
