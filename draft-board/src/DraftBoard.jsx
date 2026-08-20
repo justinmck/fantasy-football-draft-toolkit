@@ -81,12 +81,39 @@ const authHeaders = () => (deviceToken ? { "X-Device-Token": deviceToken } : {})
 
 const apiGet = (path) => fetch(`${API_URL}${path}`, { headers: authHeaders() });
 
+// A rejected fetch is the backend not being there at all - a different problem
+// from any status code, and the one the sign-in screen used to report as a bare
+// "Failed to fetch". Tagged so callers can say which it was.
+const NETWORK_ERROR =
+  `Can't reach the backend at ${API_URL}.`;
+
+function networkError() {
+  const e = new Error(NETWORK_ERROR);
+  e.kind = "network";
+  return e;
+}
+
+/** True when the backend answers at all. Never throws. */
+async function backendIsUp() {
+  try {
+    const res = await fetch(`${API_URL}/health`, { cache: "no-store" });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function apiPost(path, body) {
-  const res = await fetch(`${API_URL}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  let res;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    throw networkError();
+  }
   if (!res.ok) {
     // The detail is the whole value of the auth errors - "check your cookies"
     // versus "ESPN is down" send someone to different places.
@@ -248,10 +275,44 @@ function LeagueMenu({ leagues, currentId, currentName, onSwitch, onReconnect, on
 // token. Only that token is stored on the device, so a script on this page
 // can't read the ESPN session cookies and they don't travel on every request.
 
+/**
+ * The backend isn't running.
+ *
+ * Every other screen degrades gracefully when this happens - the board falls
+ * back to the offline snapshot, the league list says it couldn't reach ESPN.
+ * Sign-in is the one place that can't degrade, because there is nothing to
+ * show without a server, so it has to explain itself instead.
+ */
+const BackendDown = () => (
+  <div className="rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-200">
+    <strong>The backend isn't running.</strong> Your ESPN details are fine — there's just nothing
+    at <code className="text-amber-100">{API_URL}</code> to send them to. Start it with:
+    <code className="mt-1.5 block rounded bg-black/30 px-2 py-1 text-[11px] text-amber-100">
+      uvicorn src.api:app
+    </code>
+    <span className="mt-1.5 block text-amber-300/70">then reload this page.</span>
+  </div>
+);
+
 function SignInScreen({ onSignIn, busy, error, notice }) {
   const [swid, setSwid] = useState("");
   const [s2, setS2] = useState("");
   const [how, setHow] = useState(false);
+  // null = still checking. Probed on mount so the screen can say the backend
+  // is down *before* someone pastes two cookies into a form that cannot
+  // possibly work - which is exactly how this failure presented: valid
+  // credentials, a form that looked fine, and "Failed to fetch".
+  const [backendUp, setBackendUp] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    backendIsUp().then((ok) => !cancelled && setBackendUp(ok));
+    return () => { cancelled = true; };
+  }, []);
+
+  // The probe can pass and the backend still die before submit, so a network
+  // failure reported back through `error` counts too.
+  const backendDown = backendUp === false || error === NETWORK_ERROR;
 
   const field =
     "mt-1.5 h-10 w-full rounded-lg border border-white/10 bg-slate-900 px-3 font-mono text-xs " +
@@ -296,7 +357,11 @@ function SignInScreen({ onSignIn, busy, error, notice }) {
             />
           </label>
 
-          {error && (
+          {backendDown && <BackendDown />}
+
+          {/* Suppressed when the backend is down - BackendDown already says it,
+              and better than a raw error string would. */}
+          {error && !backendDown && (
             <div className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs leading-relaxed text-rose-300">
               {error}
             </div>
@@ -304,7 +369,7 @@ function SignInScreen({ onSignIn, busy, error, notice }) {
 
           <button
             type="submit"
-            disabled={busy || !swid.trim() || !s2.trim()}
+            disabled={busy || backendDown || !swid.trim() || !s2.trim()}
             className="h-11 w-full rounded-lg bg-emerald-500 text-sm font-semibold text-slate-950
               transition hover:bg-emerald-400 disabled:opacity-50"
           >
