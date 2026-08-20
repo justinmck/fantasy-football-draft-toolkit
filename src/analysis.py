@@ -39,6 +39,7 @@ from sqlalchemy import text
 from notebooks.config import CURRENT_SEASON, POSITIONS, ROSTER_NEEDS, TEAMS
 from src.migrations import known_leagues, seasons_for_league
 from src.scoring import (
+    NO_ADP_SENTINEL,
     add_vorp,
     compute_baselines,
     depth_needs,
@@ -443,6 +444,90 @@ def career_performance(engine, seasons: list[int]) -> dict:
     return {"seasons": sorted({int(y) for y in allp["year"].unique()}), "managers": rows}
 
 
+def best_and_worst_picks(engine, seasons: list[int], n: int = 8) -> dict:
+    """The best and worst picks in the league's whole history.
+
+    `steals_and_reaches` answers this for one season. Asked of every season at
+    once it becomes the thing people actually argue about at the next draft -
+    the pick someone is still being mocked for, and the one they will not stop
+    bringing up.
+
+    "Best" is value against where they went, not raw points: a first overall
+    pick scoring well is the system working, not a steal.
+    """
+    frames = []
+    for year in seasons:
+        df = load_draft_season(engine, year)
+        if not df.empty:
+            frames.append(df.assign(year=year))
+    if not frames:
+        return {"best": [], "worst": []}
+
+    allp = pd.concat(frames, ignore_index=True)
+    allp = allp[allp["adp"].notna() & (allp["adp"] < NO_ADP_SENTINEL)]
+    if allp.empty:
+        return {"best": [], "worst": []}
+
+    cols = ["player_name", "team_name", "position", "year", "pick", "adp",
+            "draft_delta", "points", "vorp"]
+    # Best: fell past the market and delivered anyway. Worst: taken early and
+    # didn't. Both keyed on VORP, so "worst" is a genuinely costly pick rather
+    # than a late flier that didn't work out.
+    best = allp[allp["draft_delta"] > 0].nlargest(n, "vorp")
+    worst = allp[allp["draft_delta"] < 0].nsmallest(n, "vorp")
+    return {"best": _records(best[cols]), "worst": _records(worst[cols])}
+
+
+_LUCK_SQL = """
+SELECT team_id, team_name, year, final_standing, points_for, points_against,
+       wins, losses
+FROM teams
+WHERE league_id = :league_id AND points_for IS NOT NULL AND points_for > 0
+"""
+
+
+def luck(engine, seasons: list[int]) -> dict:
+    """Who finished better than their scoring deserved, and who finished worse.
+
+    Fantasy standings are decided by weekly head-to-head, so the team that
+    scores the most points routinely doesn't win. Ranking each season by points
+    and comparing that to the actual finish separates "good team" from "good
+    schedule" - and it is the single most reliable argument starter in any
+    league.
+
+    Averaged across seasons so one unlucky year doesn't define anyone.
+    """
+    ctx = _ctx(engine)
+    if not _has_table(ctx, "teams") or not ctx.league_id:
+        return {"teams": [], "seasons": []}
+    df = pd.read_sql(text(_LUCK_SQL), _engine_of(engine),
+                     params={"league_id": ctx.league_id})
+    if df.empty:
+        return {"teams": [], "seasons": []}
+    if seasons:
+        df = df[df["year"].isin(seasons)]
+    if df.empty:
+        return {"teams": [], "seasons": []}
+
+    # Rank within each season: 1 = most points scored that year.
+    df["points_rank"] = df.groupby("year")["points_for"].rank(ascending=False, method="min")
+    # Positive = finished better than their scoring rank. Same sign convention
+    # as `expectations`, so "+3" reads the same way on both.
+    df["luck"] = df["points_rank"] - df["final_standing"]
+
+    by_team = (
+        df.groupby("team_id")
+        .agg(team_name=("team_name", "last"), seasons_n=("year", "nunique"),
+             avg_points_rank=("points_rank", "mean"),
+             avg_finish=("final_standing", "mean"),
+             luck=("luck", "mean"), points_for=("points_for", "mean"))
+        .reset_index()
+        .sort_values("luck", ascending=False)
+    )
+    return {"teams": _records(by_team),
+            "seasons": sorted(int(y) for y in df["year"].unique())}
+
+
 _EXPECTATIONS_SQL = """
 SELECT team_id, team_name, draft_projected_rank, final_standing,
        wins, losses, points_for
@@ -724,6 +809,8 @@ def league_analysis(engine, year: int | None = None, league_id: str | None = Non
         # question the page now opens with.
         "career_performance": career_performance(engine, seasons),
         "expectations": expectations(engine, year),
+        "best_and_worst_picks": best_and_worst_picks(engine, seasons),
+        "luck": luck(engine, seasons),
         "steals_and_reaches": steals_and_reaches(engine, year),
         "projection_accuracy": projection_accuracy(engine, year),
         "adp_benchmark": adp_benchmark(engine, year),

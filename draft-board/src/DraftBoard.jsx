@@ -370,7 +370,7 @@ function SignInScreen({ onSignIn, busy, error, notice }) {
     <div className="flex min-h-screen items-center justify-center p-6">
       <div className="card w-full max-w-md p-7">
         <div className="mb-1 flex items-center gap-2">
-          <Trophy className="text-accent" size={20} />
+          <Trophy className="text-ink-muted" size={20} />
           <h1 className="text-xl font-semibold tracking-tight">Justin's Draft Assistant</h1>
         </div>
         <p className="mb-6 text-sm leading-relaxed text-ink-muted">
@@ -477,7 +477,7 @@ function SetupScreen({ onStart, starting, error, leagues, leaguesError,
     <div className="flex min-h-screen items-center justify-center p-6">
       <div className="card w-full max-w-md p-7">
         <div className="mb-1 flex items-center gap-2">
-          <Trophy className="text-accent" size={20} />
+          <Trophy className="text-ink-muted" size={20} />
           <h1 className="text-xl font-semibold tracking-tight">Justin's Draft Assistant</h1>
         </div>
         <p className="mb-6 text-sm leading-relaxed text-ink-muted">
@@ -1044,7 +1044,7 @@ function DraftDay({ league, pickCtx, order, teamsList, rosterState, picksRemaini
               <span
                 key={n}
                 className={`tabular rounded-md px-2 py-1 text-xs ${
-                  i === 0 ? "bg-accent/15 text-accent-hover"
+                  i === 0 ? "bg-good/15 text-good"
                           : "bg-surface-raised text-ink-muted"}`}
                 title={i === 0 ? "Your first pick" : `Round ${i + 1}`}
               >
@@ -1096,13 +1096,13 @@ function DraftDay({ league, pickCtx, order, teamsList, rosterState, picksRemaini
               <div
                 key={i}
                 className={`flex items-center gap-3 rounded-md px-2.5 py-1.5 text-sm ${
-                  mine ? "bg-accent/10 ring-1 ring-accent/30" : ""}`}
+                  mine ? "bg-surface-raised ring-1 ring-line-strong" : ""}`}
               >
                 <span className="tabular w-6 text-right text-xs text-ink-ghost">{i + 1}</span>
                 <span className={mine ? "font-semibold text-emerald-200" : "text-ink-muted"}>
                   {t?.name || `Team ${teamId}`}
                 </span>
-                {mine && <span className="text-[11px] text-accent-hover">you</span>}
+                {mine && <span className="text-[11px] text-ink-faint">you</span>}
                 {t?.abbrev && <span className="ml-auto text-[11px] text-ink-ghost">{t.abbrev}</span>}
               </div>
             );
@@ -1194,7 +1194,7 @@ function BoardHeader({
       {/* Row 2: the board's own top three, as equal cards. */}
       {players?.length > 0 && (
         <div className="px-4 py-3">
-          <div className="label mb-2 flex items-center gap-1.5 text-accent-hover">
+          <div className="label mb-2 flex items-center gap-1.5">
             <Trophy size={11} />
             <span title={customSort ? "Unaffected by the table's current sort." : undefined}>
               Board ranking
@@ -1228,7 +1228,7 @@ function TopPickCard({ player, rank, nextPick, readOnly, onOpen, onDraft, onTake
   return (
     <div
       className={`flex min-w-0 flex-col justify-between rounded-lg px-3 py-2.5 transition
-        ${top ? "bg-accent/10 ring-1 ring-accent/30" : "bg-surface-raised hover:bg-surface-hover"}`}
+        ${top ? "bg-good/10 ring-1 ring-good/25" : "bg-surface-raised hover:bg-surface-hover"}`}
     >
       <div className="flex items-start justify-between gap-2">
         <button
@@ -1238,7 +1238,7 @@ function TopPickCard({ player, rank, nextPick, readOnly, onOpen, onDraft, onTake
         >
           <span className="flex items-baseline gap-1.5">
             <span className="tabular text-[11px] text-ink-ghost">{rank}</span>
-            <span className="truncate text-sm font-semibold text-ink hover:text-accent-hover">
+            <span className="truncate text-sm font-semibold text-ink">
               {player.player_name}
             </span>
           </span>
@@ -1320,7 +1320,7 @@ function RecentPicksTicker({ draftLog }) {
             key={p.pick_number}
             className={`flex shrink-0 items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] ${
               p.is_my_pick
-                ? "bg-accent/15 text-accent-hover"
+                ? "bg-good/15 text-good"
                 : p.resolved === false
                 ? "bg-rose-500/10 text-rose-200 ring-1 ring-rose-400/25"
                 : "bg-surface-raised text-ink-muted"
@@ -1394,9 +1394,9 @@ function SortHeader({ column, sort, onSort }) {
 
 const SortArrow = ({ dir }) =>
   dir === "asc" ? (
-    <ArrowUp size={11} className="text-accent" />
+    <ArrowUp size={11} className="text-ink-muted" />
   ) : (
-    <ArrowDown size={11} className="text-accent" />
+    <ArrowDown size={11} className="text-ink-muted" />
   );
 
 // ---- Risk dial ----
@@ -2258,7 +2258,7 @@ export default function DraftBoard() {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="flex items-center gap-2 text-sm text-ink-faint">
-          <Trophy className="text-accent" size={16} />
+          <Trophy className="text-ink-muted" size={16} />
           {restoring ? "Loading your league…" : "Signing you in…"}
         </div>
       </div>
@@ -2299,7 +2299,7 @@ export default function DraftBoard() {
             {/* No mark here: the rail carries it from `md` up, and two
                 trophies on one screen is one too many. Below `md` the rail is
                 hidden, so it comes back. */}
-            <Trophy className="shrink-0 text-accent md:hidden" size={18} />
+            <Trophy className="shrink-0 text-ink-muted md:hidden" size={18} />
             <span className="hidden font-semibold tracking-tight sm:inline">
               Justin's Draft Assistant
             </span>

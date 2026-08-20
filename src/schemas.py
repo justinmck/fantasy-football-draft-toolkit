@@ -44,7 +44,7 @@ class AnalysisRunBody(BaseModel):
     league_id: str = Field(pattern=r"^[0-9]{1,12}$")
     # Which seasons to look for. Defaults cover every season ESPN is likely to
     # still serve; seasons the league didn't exist for are skipped, not errors.
-    since: Optional[int] = Field(default=None, ge=2015, le=2100)
+    since: Optional[int] = Field(default=None, ge=2000, le=2100)
     through: Optional[int] = Field(default=None, ge=2015, le=2100)
 
 

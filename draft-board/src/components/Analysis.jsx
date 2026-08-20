@@ -35,7 +35,7 @@ import { PositionChip } from "./primitives";
 
 const Section = ({ id, icon, eyebrow, title, blurb, action, children }) => (
   <section id={id} className="card scroll-mt-20 p-5 sm:p-6">
-    {eyebrow && <div className="label mb-1.5 text-accent-hover">{eyebrow}</div>}
+    {eyebrow && <div className="label mb-1.5">{eyebrow}</div>}
     <div className="mb-2 flex items-start gap-2">
       <span className="mt-0.5 shrink-0 text-emerald-400">{icon}</span>
       <h2 className="text-lg font-semibold tracking-tight text-ink">{title}</h2>
@@ -154,14 +154,23 @@ function correlationVerdict(corr) {
 // no-history banner names the four sections that grade past drafts, and
 // `PROMISES` carries a `needsHistory` flag per item - it just never drove the
 // order.
+// Three groups, in the order people care about them.
+//
+// The split between all-time and single-season matters more than it looks:
+// the season switcher only governs the middle group, and putting it at the top
+// of the page implied it governed everything. It now lives in that group's
+// header, next to the only sections it changes.
 const SECTIONS = [
-  { group: "Your league", id: "career", label: "Who drafts best" },
-  { group: "Your league", id: "draft", label: "Did drafting matter?" },
-  { group: "Your league", id: "expectations", label: "Beating expectations" },
-  { group: "Your league", id: "market", label: "Steals & reaches" },
-  { group: "Your league", id: "bias", label: "How this league is odd" },
-  { group: "Your league", id: "reachers", label: "Who reaches, and does it pay" },
-  { group: "Your league", id: "rounds", label: "Draft capital" },
+  { group: "All time", id: "career", label: "Who drafts best" },
+  { group: "All time", id: "picks", label: "Best and worst picks ever" },
+  { group: "All time", id: "luck", label: "Who got lucky" },
+  { group: "All time", id: "bias", label: "How this league is odd" },
+
+  { group: "Season", id: "draft", label: "Did drafting matter?" },
+  { group: "Season", id: "expectations", label: "Beating expectations" },
+  { group: "Season", id: "market", label: "Steals & reaches" },
+  { group: "Season", id: "reachers", label: "Who reaches, and does it pay" },
+  { group: "Season", id: "rounds", label: "Draft capital" },
 
   { group: "How it's measured", id: "vorp", label: "Replacement level" },
   { group: "How it's measured", id: "accuracy", label: "Projection accuracy" },
@@ -170,7 +179,6 @@ const SECTIONS = [
   { group: "How it's measured", id: "benchmark", label: "Beating the market" },
   { group: "How it's measured", id: "bench", label: "Bench depth" },
   { group: "How it's measured", id: "model", label: "The model" },
-  { group: "How it's measured", id: "data", label: "The data" },
   { group: "How it's measured", id: "live", label: "The live score" },
 ];
 
@@ -206,7 +214,7 @@ function RunGate({ leagueName, status, onRun, job, error }) {
   return (
     <div className="mx-auto max-w-3xl p-4">
       <div className="card p-6 sm:p-8">
-        <div className="label mb-1.5 text-accent-hover">Analysis</div>
+        <div className="label mb-1.5">Analysis</div>
         <h1 className="text-xl font-semibold tracking-tight text-ink">
           Analyze {leagueName || "this league"}
         </h1>
@@ -451,43 +459,41 @@ export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
       )}
       {/* Above the contents, because it governs everything under it: the
           retrospective sections all describe one season, and this is which. */}
-      {data.seasons?.length > 1 && (
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl
- border border-line bg-surface-panel px-4 py-3">
-          <YearSwitcher seasons={data.seasons} year={data.year} onPick={showYear} busy={switching} />
-          {/* Two different things happen when this changes, and saying which
-              is which stops the projection numbers looking unresponsive. */}
-          <span className="max-w-sm text-xs leading-relaxed text-ink-ghost">
-            Sections naming a season show that one. "Who drafts best" and everything under
-            "How it's measured" pool every season regardless.
-          </span>
-        </div>
-      )}
       <Contents />
       {/* Dimmed rather than replaced while a season loads - see showYear. */}
       {/* Dimmed rather than replaced while a season loads - see showYear. */}
       <div className={`mt-5 space-y-5 transition-opacity ${switching ? "opacity-40" : ""}`}>
-        {/* Your league. Everything here is about the people you draft
-            against, and everything dated follows the season switcher. */}
+        <GroupHeading
+          title="All time"
+          blurb="Every season this league has played, pooled. The questions that don't depend
+                 on which year you're looking at."
+        />
         <CareerSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
+        <PicksSection data={data} myTeamName={myTeamName} />
+        <LuckSection data={data} myTeamName={myTeamName} />
+        <LeagueBiasSection data={data} />
+
+        <GroupHeading
+          title="Season"
+          blurb="One season at a time. Everything in this group follows the year on the right."
+          aside={
+            data.seasons?.length > 1 ? (
+              <YearSwitcher seasons={data.seasons} year={data.year} onPick={showYear}
+                            busy={switching} />
+            ) : null
+          }
+        />
         <DraftPerformanceSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
         <ExpectationsSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
         <MarketSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
-        <LeagueBiasSection data={data} />
         <ReachersSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
         <RoundsSection data={data} />
 
-        {/* How it's measured. Mostly not league-specific, and none of it is
-            what anyone opens this page to find out. */}
-        <div className="!mt-10 border-t border-line pt-6">
-          <div className="label mb-1">How it's measured</div>
-          <p className="mb-5 max-w-3xl text-sm leading-relaxed text-ink-muted">
-            Everything above describes your league. Everything below is the machinery behind those
-            numbers — how replacement level is set, how far the projections can be trusted, and
-            what the live board does with all of it. Most of it pools every season rather than
-            following the switcher.
-          </p>
-        </div>
+        <GroupHeading
+          title="How it's measured"
+          blurb="The machinery behind the numbers above - how replacement level is set, how far
+                 the projections can be trusted, and what the live board does with all of it."
+        />
         <ReplacementSection data={data} />
         <AccuracySection data={data} />
         <PositionReliabilitySection data={data} />
@@ -495,7 +501,6 @@ export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
         <BenchmarkSection data={data} />
         <BenchSection data={data} />
         <ModelSection data={data} />
-        <DataSection data={data} />
         <LiveScoreSection data={data} />
       </div>
     </div>
@@ -568,7 +573,7 @@ function YearSwitcher({ seasons, year, onPick, busy }) {
 
 const Intro = ({ data, leagueName }) => (
   <div className="card p-5 sm:p-6">
-    <div className="label mb-1.5 text-accent-hover">
+    <div className="label mb-1.5">
       {leagueName || "This league"}
       {data.seasons?.length ? ` · ${data.seasons.join(", ")}` : ""}
     </div>
@@ -614,6 +619,24 @@ const Intro = ({ data, leagueName }) => (
  * which would be the same logic written twice and wrong the first time one of
  * them changed.
  */
+/**
+ * The heading above each group of sections.
+ *
+ * `aside` is where the season switcher lives for the one group it actually
+ * governs. It used to sit at the top of the page, above everything, which
+ * implied it changed the career leaderboard and the methodology too - it
+ * changes neither.
+ */
+const GroupHeading = ({ title, blurb, aside }) => (
+  <div className="!mt-10 border-t border-line pt-6 first:!mt-0 first:border-0 first:pt-0">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <h2 className="text-lg font-semibold tracking-tight text-ink">{title}</h2>
+      {aside}
+    </div>
+    {blurb && <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-ink-muted">{blurb}</p>}
+  </div>
+);
+
 const Contents = () => {
   const [present, setPresent] = useState(null);
 
@@ -655,79 +678,6 @@ const Contents = () => {
 
 // --- 1. the data ---------------------------------------------------------
 
-function DataSection({ data }) {
-  const tables = data.dataset?.tables || [];
-  const broken = data.dataset?.broken_projection_years || [];
-  return (
-    <Section
-      id="data"
-      icon={<Database size={17} />}
-      eyebrow="NB01 · NB02 — collection and cleaning"
-      title="The data, and what's wrong with it"
-      blurb={
-        <>
-          League history comes from ESPN's fantasy API: every player-season's actual and projected
-          scoring, every draft pick, final standings, and consensus market ranking (ADP) from the
-          seasons it's on record for. Sizing it matters — the same correlation reads very
-          differently against 14 teams in one season than against thousands of player-seasons.
-        </>
-      }
-    >
-      <Table head={["Table", "What it holds", "Seasons", "Rows"]} align={["left", "left", "left", "right"]}>
-        {tables.map((t) => (
-          <tr key={t.table} className="border-t border-line/60">
-            <td className="py-2 pr-3 font-medium text-ink">{t.label}</td>
-            <td className="py-2 pr-3 text-xs text-ink-faint">{t.blurb}</td>
-            <td className="tabular py-2 pr-3 text-xs text-ink-muted">{t.years || "—"}</td>
-            <td className="tabular py-2 text-right font-semibold text-ink-muted">
-              {t.rows.toLocaleString()}
-            </td>
-          </tr>
-        ))}
-      </Table>
-
-      <Sub>Two data problems worth knowing about</Sub>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-lg border border-line/60 bg-surface-panel p-3.5">
-          <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-amber-300">
-            <AlertTriangle size={12} /> The position column wasn't position
-          </div>
-          <p className="text-xs leading-relaxed text-ink-muted">
-            ESPN exposes both <code className="text-ink-muted">lineupSlot</code> (where a player sat
-            that week — "BE" for bench, "RB/WR/TE" for a flex start) and{" "}
-            <code className="text-ink-muted">eligibleSlots</code> (every slot they're allowed to
-            fill, which is a property of the player). This project originally recorded the former as{" "}
-            <code className="text-ink-muted">position</code>, so about 76% of every season arrived
-            labeled "BE" or "0" and was silently dropped by every downstream position filter — and
-            the quarter that survived was biased toward players good enough to hold a named starting
-            slot. Deriving from <code className="text-ink-muted">eligibleSlots</code> recovers 99.97%
-            of rows and agrees with the old labels wherever they were already right. It roughly
-            quadrupled every sample on this page.
-          </p>
-        </div>
-        <div className="rounded-lg border border-line/60 bg-surface-panel p-3.5">
-          <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-amber-300">
-            <AlertTriangle size={12} /> {broken.join(", ") || "2023"} is excluded
-          </div>
-          <p className="text-xs leading-relaxed text-ink-muted">
-            That season has a genuine extraction gap: projected points were recorded as 0.0 for 392
-            of 480 players. Patrick Mahomes shows 267 actual points against a projection of zero —
-            these aren't legitimate zero projections, they're missing data. Filtering them leaves 88
-            rows that aren't a random sample of the season, so reporting accuracy from them would be
-            reporting an artefact of which rows happened to survive. Every accuracy figure below
-            omits it entirely rather than quietly averaging it in.
-          </p>
-        </div>
-      </div>
-      <Note>
-        One more that only bites at draft time: ADP for an upcoming season isn't published until
-        shortly before the draft, so the live tool falls back to the most recent season on record
-        rather than treating every player as having no market data. The board reports which season
-        its timing signal came from.
-      </Note>
-    </Section>
-  );
-}
 
 // --- 2. replacement level ------------------------------------------------
 
@@ -876,13 +826,13 @@ function CareerSection({ data, leagueName, myTeamName }) {
           <div
             key={m.team_id}
             className={`grid grid-cols-[1.5rem_minmax(0,1fr)_5rem_4.5rem] items-center gap-3
-              rounded px-2 py-1.5 ${isMine(m) ? "bg-accent/10" : ""}`}
+              rounded px-2 py-1.5 ${isMine(m) ? "bg-surface-raised" : ""}`}
           >
             <span className="tabular text-xs text-ink-ghost">{i + 1}</span>
             <div className="min-w-0">
               <div className="flex items-baseline gap-2">
                 <span className="truncate text-sm text-ink">{m.team_name}</span>
-                {isMine(m) && <span className="text-[10px] text-accent">you</span>}
+                {isMine(m) && <span className="text-[10px] text-ink-faint">you</span>}
                 {m.titles > 0 && (
                   <span
                     className="shrink-0 rounded-sm bg-warn/15 px-1 text-[10px] font-bold text-warn"
@@ -914,6 +864,140 @@ function CareerSection({ data, leagueName, myTeamName }) {
         Best single season: {managers[0].best_year} ({fmt(managers[0].best_vorp, 0)} for{" "}
         {managers[0].team_name}). The sparkline is each manager's own six-year shape — a flat line
         is consistency, a spike is one good year carrying a reputation.
+      </Note>
+    </Section>
+  );
+}
+
+function PicksSection({ data, myTeamName }) {
+  const bw = data.best_and_worst_picks || {};
+  const best = bw.best || [];
+  const worst = bw.worst || [];
+  if (!best.length && !worst.length) {
+    return (
+      <NeedsHistory
+        id="picks" icon={<Gem size={17} />} eyebrow="Every season on record"
+        title="Best and worst picks ever"
+        what="finds the picks that returned far more or far less than their slot was worth,
+              across every season the league has played"
+      />
+    );
+  }
+
+  const Row = ({ p, tone }) => {
+    const mine = !!myTeamName && p.team_name === myTeamName;
+    return (
+      <tr className={`border-t border-line/60 ${mine ? "bg-surface-raised" : ""}`}>
+        <td className="tabular py-2 pr-3 text-ink-faint">{p.year}</td>
+        <td className="py-2 pr-3 text-ink">
+          {p.player_name}
+          <span className="ml-1.5 text-[11px] text-ink-faint">{p.position}</span>
+        </td>
+        <td className="tabular py-2 pr-3 text-right text-ink-muted">{p.pick}</td>
+        <td className="tabular py-2 pr-3 text-right text-ink-faint">{fmtAdp(p.adp)}</td>
+        <td className={`tabular py-2 pr-3 text-right font-semibold ${tone}`}>
+          {fmt(p.vorp, 0)}
+        </td>
+        <td className="py-2 pr-3 text-ink-faint">
+          {p.team_name}
+          {mine && <span className="ml-1.5 text-[10px] text-ink-faint">you</span>}
+        </td>
+      </tr>
+    );
+  };
+
+  return (
+    <Section
+      id="picks"
+      icon={<Gem size={17} />}
+      eyebrow="Every season on record"
+      title="Best and worst picks ever"
+      blurb={
+        <>
+          The picks still being brought up at the next draft. "Best" is value against where the
+          player actually went, not raw points — a first overall pick scoring well is the system
+          working, not a steal. "Worst" is the reverse: taken early, and it cost something.
+        </>
+      }
+    >
+      <Sub>Fell past the market and delivered anyway</Sub>
+      <Table head={["Year", "Player", "Pick", "ADP", "VORP", "Drafted by"]}>
+        {best.map((p, i) => <Row key={`b${i}`} p={p} tone="text-good" />)}
+      </Table>
+      <Sub>Taken early, and it hurt</Sub>
+      <Table head={["Year", "Player", "Pick", "ADP", "VORP", "Drafted by"]}>
+        {worst.map((p, i) => <Row key={`w${i}`} p={p} tone="text-bad" />)}
+      </Table>
+      <Note>
+        Both lists are drawn from every season at once, so a single catastrophic pick can sit
+        alongside one from five years earlier — which is rather the point.
+      </Note>
+    </Section>
+  );
+}
+
+function LuckSection({ data, myTeamName }) {
+  const lk = data.luck || {};
+  const teams = lk.teams || [];
+  if (!teams.length) {
+    return (
+      <NeedsHistory
+        id="luck" icon={<Activity size={17} />} eyebrow="Points against placings"
+        title="Who got lucky"
+        what="compares how much each team scored against where they actually finished"
+      />
+    );
+  }
+  const max = Math.max(...teams.map((t) => Math.abs(t.luck || 0)), 1);
+
+  return (
+    <Section
+      id="luck"
+      icon={<Activity size={17} />}
+      eyebrow={`Points against placings · ${(lk.seasons || []).join(", ")}`}
+      title="Who got lucky"
+      blurb={
+        <>
+          Fantasy standings are decided week by week against one opponent, so the team that scores
+          the most points routinely doesn't win. Ranking each season by points and comparing that
+          to the actual finish separates a good team from a good schedule. Positive means
+          finishing better than the scoring deserved.
+        </>
+      }
+    >
+      <Table head={["Manager", "Seasons", "Scored", "Finished", "Luck"]}>
+        {teams.map((t) => {
+          const mine = !!myTeamName && t.team_name === myTeamName;
+          return (
+            <tr key={t.team_id} className={`border-t border-line/60 ${mine ? "bg-surface-raised" : ""}`}>
+              <td className="py-2 pr-3 text-ink">
+                {t.team_name}
+                {mine && <span className="ml-1.5 text-[10px] text-ink-faint">you</span>}
+              </td>
+              <td className="tabular py-2 pr-3 text-right text-ink-faint">{t.seasons_n}</td>
+              <td className="tabular py-2 pr-3 text-right text-ink-muted">
+                {fmt(t.avg_points_rank, 1)}
+              </td>
+              <td className="tabular py-2 pr-3 text-right text-ink-muted">
+                {fmt(t.avg_finish, 1)}
+              </td>
+              <td className="py-2 pr-3">
+                <div className="flex items-center justify-end gap-2">
+                  <span className={`tabular text-sm font-semibold ${
+                    t.luck > 0.5 ? "text-good" : t.luck < -0.5 ? "text-bad" : "text-ink-faint"}`}>
+                    {t.luck > 0 ? "+" : ""}{fmt(t.luck, 1)}
+                  </span>
+                  <div className="w-24"><DivergingBar value={t.luck} max={max} /></div>
+                </div>
+              </td>
+            </tr>
+          );
+        })}
+      </Table>
+      <Note>
+        Both columns are average places across {(lk.seasons || []).length} seasons, so lower is
+        better in each. A team scoring 8th on average and finishing 5th has been getting a kind
+        schedule for years, not winning by a nose once.
       </Note>
     </Section>
   );
@@ -956,10 +1040,10 @@ function ExpectationsSection({ data, leagueName, myTeamName }) {
           const unknown = t.draft_projected_rank == null;
           return (
             <tr key={`${t.team_id}-${t.team_name}`}
-                className={`border-t border-line/60 ${mine ? "bg-accent/10" : ""}`}>
+                className={`border-t border-line/60 ${mine ? "bg-surface-raised" : ""}`}>
               <td className="py-2 pr-3 text-ink">
                 {t.team_name}
-                {mine && <span className="ml-1.5 text-[10px] text-accent">you</span>}
+                {mine && <span className="ml-1.5 text-[10px] text-ink-faint">you</span>}
               </td>
               <td className="tabular py-2 pr-3 text-right text-ink-muted">
                 {unknown ? <span className="text-ink-ghost">—</span> : ordinal(t.draft_projected_rank)}
@@ -1052,10 +1136,10 @@ function ReachersSection({ data, leagueName, myTeamName }) {
           const solid = m.p_perm != null && m.p_perm < 0.05;
           return (
             <tr key={m.team_id ?? m.team_name}
-                className={`border-t border-line/60 ${mine ? "bg-accent/10" : ""}`}>
+                className={`border-t border-line/60 ${mine ? "bg-surface-raised" : ""}`}>
               <td className="py-2 pr-3 text-ink">
                 {m.team_name}
-                {mine && <span className="ml-1.5 text-[10px] text-accent">you</span>}
+                {mine && <span className="ml-1.5 text-[10px] text-ink-faint">you</span>}
               </td>
               <td className="tabular py-2 pr-3 text-right text-ink-faint">{m.n}</td>
               <td className="py-2 pr-3">
@@ -1067,7 +1151,7 @@ function ReachersSection({ data, leagueName, myTeamName }) {
                   {/* Marked only when it survives the permutation test - the
                       rest are tendencies, not findings. */}
                   {solid && (
-                    <span className="text-[10px] text-accent" title={`p = ${fmt(m.p_perm, 3)}`}>
+                    <span className="text-[10px] text-good" title={`p = ${fmt(m.p_perm, 3)}`}>
                       ✓
                     </span>
                   )}

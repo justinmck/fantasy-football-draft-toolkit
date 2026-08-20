@@ -44,6 +44,13 @@ from src.espn_draft import (
 
 log = logging.getLogger(__name__)
 
+# ESPN's fantasy API stops serving league data somewhere around here; older
+# seasons return nothing and are skipped by `available_seasons` rather than
+# failing. Probing a year costs one request, so casting wide is cheap.
+EARLIEST_SEASON = 2010
+# A ceiling on one request's work, not on a league's age.
+MAX_SEASON_SPAN = 20
+
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=API_ORIGINS, allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
@@ -573,12 +580,19 @@ def analysis_run(body: AnalysisRunBody, p: Principal = Depends(require_espn)):
     league_id = assert_league(p, body.league_id, NEXT_SEASON)
     creds = p.creds
 
-    # Clamped, not trusted: an unbounded range is an unbounded number of
-    # outbound ESPN calls on one request. Six seasons is more than any league
-    # in this database has.
-    first = max(int(body.since or 2020), 2015)
+    # Default to the whole of a league's history, not an arbitrary recent
+    # window. This used to start at 2020 and cap the span at six seasons, which
+    # silently truncated any league older than that - "who drafts best" is a
+    # much better question asked of a decade than of five years.
+    #
+    # The cap stays, because an unbounded range is an unbounded number of
+    # outbound ESPN calls from one request. But it is set where it stops abuse
+    # rather than where it stops leagues: probing is one cheap request per
+    # season and finds nothing for years the league didn't exist, so the
+    # expensive part is bounded by seasons that actually exist.
+    first = max(int(body.since or EARLIEST_SEASON), EARLIEST_SEASON)
     last = min(int(body.through or CURRENT_SEASON), CURRENT_SEASON)
-    last = min(last, first + 5)
+    last = min(last, first + MAX_SEASON_SPAN - 1)
 
     def work(report):
         report(0.02, "Checking which seasons exist…")
