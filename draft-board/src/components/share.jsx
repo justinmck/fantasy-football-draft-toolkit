@@ -24,20 +24,29 @@ import { Check, Copy, Download, Share2 } from "lucide-react";
 const SCALE = 2;
 const W = 1000;
 
+// A canvas can't read Tailwind, so this mirrors the tokens in
+// tailwind.config.js by hand. Keep the two in step - this file is easy to
+// forget, and a stale palette here ships in the image people actually send.
 const INK = {
-  bg: "#020617",
-  card: "#0b1220",
-  line: "rgba(255,255,255,0.08)",
-  text: "#f1f5f9",
-  dim: "#94a3b8",
-  faint: "#64748b",
-  accent: "#34d399",
-  accentDim: "rgba(52,211,153,0.25)",
+  bg: "#0a0e14",          // surface
+  card: "#111722",        // surface.panel
+  line: "#222c3a",        // line
+  text: "#e8edf4",        // ink
+  dim: "#94a3b8",         // ink.muted
+  faint: "#64748b",       // ink.faint
+  accent: "#34d399",      // good - a positive value, not the brand
+  accentDim: "rgba(52,211,153,0.28)",
   bar: "rgba(148,163,184,0.35)",
+  rule: "rgba(255,255,255,0.16)",
+  highlight: "rgba(255,255,255,0.05)",
+  track: "rgba(255,255,255,0.05)",
+  negative: "#f87171",    // bad
 };
 
+// Poppins, matching the app. Falls back cleanly if the face hasn't loaded -
+// the card is drawn on demand, well after first paint, so in practice it has.
 const FONT = (weight, size) =>
-  `${weight} ${size}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif`;
+  `${weight} ${size}px Poppins, ui-sans-serif, system-ui, -apple-system, sans-serif`;
 
 /** Trim a string to fit `max` px, ending in an ellipsis rather than mid-word. */
 function fit(ctx, text, max) {
@@ -82,7 +91,7 @@ export function drawRankedCard({ eyebrow, title, rows, footer, note }) {
   ctx.fillStyle = INK.bg;
   ctx.fillRect(0, 0, W, H);
   ctx.fillStyle = INK.card;
-  roundRect(ctx, 16, 16, W - 32, H - 32, 28);
+  roundRect(ctx, 16, 16, W - 32, H - 32, 4);
   ctx.fill();
   ctx.strokeStyle = INK.line;
   ctx.lineWidth = 2;
@@ -127,8 +136,8 @@ export function drawRankedCard({ eyebrow, title, rows, footer, note }) {
     const negative = v < 0;
 
     if (r.highlight) {
-      ctx.fillStyle = "rgba(255,255,255,0.05)";
-      roundRect(ctx, PAD - 16, y - 44, W - PAD * 2 + 32, ROW - 8, 12);
+      ctx.fillStyle = INK.highlight;
+      roundRect(ctx, PAD - 16, y - 44, W - PAD * 2 + 32, ROW - 8, 3);
       ctx.fill();
     }
 
@@ -157,21 +166,21 @@ export function drawRankedCard({ eyebrow, title, rows, footer, note }) {
     }
 
     // Track, then the bar itself, so a short bar still reads as a proportion.
-    ctx.fillStyle = "rgba(255,255,255,0.04)";
-    roundRect(ctx, barX, mid - 8, barW, 16, 8);
+    ctx.fillStyle = INK.track;
+    roundRect(ctx, barX, mid - 8, barW, 16, 3);
     ctx.fill();
 
     const w = Math.max(3, (Math.abs(v) / max) * halfW);
     // Colour carries the sign too, so the direction is legible at thumbnail
     // size before any number is read.
     ctx.fillStyle = negative
-      ? (r.highlight ? "#fb7185" : INK.bar)
+      ? (r.highlight ? INK.negative : INK.bar)
       : (r.highlight ? INK.accent : INK.accentDim);
-    roundRect(ctx, negative ? zeroX - w : zeroX, mid - 8, w, 16, 8);
+    roundRect(ctx, negative ? zeroX - w : zeroX, mid - 8, w, 16, 3);
     ctx.fill();
 
     if (diverging) {
-      ctx.strokeStyle = "rgba(255,255,255,0.18)";
+      ctx.strokeStyle = INK.rule;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(zeroX, mid - 14);
@@ -279,7 +288,7 @@ export default function ShareButton({ draw, text, filename = "draft-analysis" })
   }, [text, flash]);
 
   const item =
-    "flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-slate-300 transition hover:bg-white/5";
+    "flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-ink-muted transition hover:bg-surface-raised";
 
   return (
     <div className="relative shrink-0" ref={box}>
@@ -291,7 +300,7 @@ export default function ShareButton({ draw, text, filename = "draft-analysis" })
         className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs transition ${
           done
             ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
-            : "border-white/10 bg-white/[0.03] text-slate-400 hover:border-white/20 hover:text-slate-200"
+            : "border-line bg-surface-raised text-ink-muted hover:border-line-strong hover:text-ink"
         }`}
       >
         {done ? <Check size={12} /> : <Share2 size={12} />}
@@ -300,15 +309,15 @@ export default function ShareButton({ draw, text, filename = "draft-analysis" })
 
       {open && (
         <div className="absolute right-0 top-full z-30 mt-1.5 w-52 overflow-hidden rounded-xl
-          border border-white/10 bg-slate-900 shadow-xl shadow-black/40">
+ border border-line bg-surface-panel shadow-lg shadow-black/60">
           <button onClick={copyImage} className={item}>
-            <Copy size={12} className="text-slate-500" /> Copy as image
+            <Copy size={12} className="text-ink-faint" /> Copy as image
           </button>
           <button onClick={copyText} className={item}>
-            <Copy size={12} className="text-slate-500" /> Copy as text
+            <Copy size={12} className="text-ink-faint" /> Copy as text
           </button>
-          <button onClick={downloadImage} className={`${item} border-t border-white/5`}>
-            <Download size={12} className="text-slate-500" /> Download image
+          <button onClick={downloadImage} className={`${item} border-t border-line/60`}>
+            <Download size={12} className="text-ink-faint" /> Download image
           </button>
         </div>
       )}

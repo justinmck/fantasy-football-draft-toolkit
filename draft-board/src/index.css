@@ -1,3 +1,12 @@
+/* Poppins is FantasyPros' typeface and the single biggest signal that this is
+   a sports site rather than a generated dashboard. Self-hosted through
+   @fontsource rather than a CDN link, because the app has a deliberate offline
+   fallback and a webfont that 404s would undo it. Four weights, no italics. */
+@import "@fontsource/poppins/400.css";
+@import "@fontsource/poppins/500.css";
+@import "@fontsource/poppins/600.css";
+@import "@fontsource/poppins/700.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -14,7 +23,7 @@
   }
 
   body {
-    @apply bg-slate-950 text-slate-100 antialiased;
+    @apply bg-surface text-ink antialiased;
   }
 
   /* Numbers sit in columns that get scanned vertically during a draft, so they
@@ -23,24 +32,23 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* One visible focus ring for every control, in the app's own accent rather
-     than the browser's default blue - which is invisible against this
-     background on several of them. `:focus-visible` rather than `:focus` so it
-     appears for keyboard users without outlining every button that's clicked. */
+  /* One visible focus ring for every control. `:focus-visible` rather than
+     `:focus` so it appears for keyboard users without outlining every button
+     that's clicked. */
   :where(button, a, input, select, textarea, [tabindex]):focus-visible {
-    outline: 2px solid theme(colors.emerald.400 / 70%);
-    outline-offset: 2px;
-    border-radius: 0.375rem;
+    outline: 2px solid theme(colors.accent.DEFAULT);
+    outline-offset: 1px;
+    border-radius: 2px;
   }
 
   ::selection {
-    background: theme(colors.emerald.400 / 25%);
-    color: theme(colors.slate.50);
+    background: theme(colors.accent.soft);
+    color: theme(colors.ink.DEFAULT);
   }
 
-  /* Long lists of names and reason chips shouldn't be selected by a stray
-     drag while someone is clicking through the board at speed. Inputs and the
-     numbers people copy out stay selectable. */
+  /* Long lists of names shouldn't be selected by a stray drag while someone is
+     clicking through the board at speed. Inputs and the numbers people copy
+     out stay selectable. */
   button, th {
     -webkit-user-select: none;
     user-select: none;
@@ -48,16 +56,40 @@
 }
 
 @layer components {
+  /* Was `rounded-2xl border-white/10 bg-slate-900/60 shadow-lg shadow-black/20`
+     - a translucent, heavily rounded, drop-shadowed card. Now a flat panel with
+     a real border and square corners, which is what every sports data site
+     actually uses. */
   .card {
-    @apply rounded-2xl border border-white/10 bg-slate-900/60 shadow-lg shadow-black/20;
+    @apply rounded border border-line bg-surface-panel;
   }
 
+  /* Was a fully-round translucent pill in uppercase with letter-spacing, which
+     is one of the most recognisable generated-UI tells. Now a small square tag
+     with a solid tint. */
   .chip {
-    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ring-1 ring-inset;
+    @apply inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[11px] font-semibold;
   }
 
+  /* Column headers and section eyebrows. Uppercase like FantasyPros, but at
+     weight 500 with normal tracking - measured from their table, where the
+     wide letter-spacing this used to have does not appear. */
   .label {
-    @apply text-[11px] font-medium uppercase tracking-widest text-slate-500;
+    @apply text-head font-medium uppercase text-ink-faint;
+  }
+
+  /* The dense table shared by the board and the analysis tables. */
+  .data-table {
+    @apply w-full border-collapse text-cell;
+  }
+  .data-table thead tr {
+    @apply bg-surface-raised text-ink-faint;
+  }
+  .data-table th {
+    @apply py-2 text-head font-medium uppercase;
+  }
+  .data-table tbody tr {
+    @apply border-t border-line/60;
   }
 }
 
@@ -65,14 +97,14 @@
 @layer utilities {
   .scroll-slim {
     scrollbar-width: thin;
-    scrollbar-color: rgb(51 65 85) transparent;
+    scrollbar-color: theme(colors.line.strong) transparent;
   }
   .scroll-slim::-webkit-scrollbar {
     width: 8px;
     height: 8px;
   }
   .scroll-slim::-webkit-scrollbar-thumb {
-    @apply rounded-full bg-slate-700;
+    @apply rounded-sm bg-line-strong;
   }
   .scroll-slim::-webkit-scrollbar-track {
     background: transparent;

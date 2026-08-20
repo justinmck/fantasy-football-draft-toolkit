@@ -29,7 +29,7 @@ const Analysis = lazy(() => import("./components/Analysis"));
 import { LEGEND, RangeText, ReasonChips } from "./components/explain";
 import PlayerDetail from "./components/PlayerDetail";
 import { Badge, Button, Meter, PositionChip, SlotPips } from "./components/primitives";
-import { confidenceBand, fmt, fmtAdp, NO_ADP, pct, urgencyBand } from "./theme";
+import { confidenceBand, fmt, fmtAdp, NO_ADP, pct, positionalRanks, urgencyBand } from "./theme";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const POSITIONS = ["ALL", "QB", "RB", "WR", "TE", "K", "DST"];
@@ -175,7 +175,7 @@ const DraftWhenChip = ({ draftAt, scheduled, unreadable, className = "" }) => {
     );
   return (
     <span
-      className={`shrink-0 rounded-md bg-white/5 px-2 py-1 text-[11px] text-slate-500 ${className}`}
+      className={`shrink-0 rounded-md bg-surface-raised px-2 py-1 text-[11px] text-ink-faint ${className}`}
       title="ESPN has no draft date for this league yet."
     >
       Not scheduled
@@ -211,22 +211,22 @@ function LeagueMenu({ leagues, currentId, currentName, onSwitch, onReconnect, on
       <button
         onClick={() => setOpen((v) => !v)}
         title="Switch league"
-        className="flex max-w-[14rem] items-center gap-1.5 rounded-lg border border-white/10 bg-slate-900
-          px-2.5 py-1.5 text-xs text-slate-300 transition hover:border-white/20 hover:text-white"
+        className="flex max-w-[14rem] items-center gap-1.5 rounded-lg border border-line bg-surface-panel
+ px-2.5 py-1.5 text-xs text-ink-muted transition hover:border-line-strong hover:text-ink"
       >
-        <Users size={12} className="shrink-0 text-slate-500" />
+        <Users size={12} className="shrink-0 text-ink-faint" />
         <span className="truncate">{currentName || "League"}</span>
         <ChevronDown size={12} className={`shrink-0 ${open ? "rotate-180 transition" : "transition"}`} />
       </button>
 
       {open && (
         <div className="absolute left-0 top-full z-30 mt-1.5 w-72 overflow-hidden rounded-xl border
-          border-white/10 bg-slate-900 shadow-xl shadow-black/40">
-          <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-slate-600">
+ border-line bg-surface-panel shadow-lg shadow-black/60">
+          <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-ink-ghost">
             Your leagues
           </div>
           {list.length === 0 && (
-            <div className="px-3 pb-3 text-xs text-slate-500">No leagues found.</div>
+            <div className="px-3 pb-3 text-xs text-ink-faint">No leagues found.</div>
           )}
           {list.map((l) => {
             const active = String(l.league_id) === String(currentId);
@@ -235,30 +235,30 @@ function LeagueMenu({ leagues, currentId, currentName, onSwitch, onReconnect, on
                 key={l.league_id}
                 onClick={() => { setOpen(false); if (!active) onSwitch(l.league_id); }}
                 className={`flex w-full items-center gap-2 px-3 py-2 text-left transition ${
-                  active ? "bg-emerald-500/10" : "hover:bg-white/5"
+                  active ? "bg-accent/10" : "hover:bg-surface-raised"
                 }`}
               >
-                <span className={`flex-1 truncate text-xs ${active ? "text-emerald-300" : "text-slate-300"}`}>
+                <span className={`flex-1 truncate text-xs ${active ? "text-accent-hover" : "text-ink-muted"}`}>
                   {l.name}
                 </span>
                 <DraftWhenChip draftAt={l.draft_at} scheduled={l.scheduled} unreadable={l.unreadable} />
               </button>
             );
           })}
-          <div className="border-t border-white/5">
+          <div className="border-t border-line/60">
             {/* Refreshing the cookies is the routine action - ESPN's expire
                 every few weeks - so it sits above signing out, not behind it. */}
             <button
               onClick={() => { setOpen(false); onReconnect(); }}
-              className="w-full px-3 py-2 text-left text-xs text-slate-400
-                transition hover:bg-white/5 hover:text-slate-200"
+              className="w-full px-3 py-2 text-left text-xs text-ink-muted
+ transition hover:bg-surface-raised hover:text-ink"
             >
               Update ESPN credentials
             </button>
             <button
               onClick={() => { setOpen(false); onSignOut(); }}
-              className="w-full px-3 pb-2 text-left text-xs text-slate-500
-                transition hover:bg-white/5 hover:text-slate-300"
+              className="w-full px-3 pb-2 text-left text-xs text-ink-faint
+ transition hover:bg-surface-raised hover:text-ink-muted"
             >
               Sign out
             </button>
@@ -287,7 +287,7 @@ const BackendDown = () => (
   <div className="rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2.5 text-xs leading-relaxed text-amber-200">
     <strong>The backend isn't running.</strong> Your ESPN details are fine — there's just nothing
     at <code className="text-amber-100">{API_URL}</code> to send them to. Start it with:
-    <code className="mt-1.5 block rounded bg-black/30 px-2 py-1 text-[11px] text-amber-100">
+    <code className="mt-1.5 block rounded bg-surface-sunken px-2 py-1 text-[11px] text-amber-100">
       uvicorn src.api:app
     </code>
     <span className="mt-1.5 block text-amber-300/70">then reload this page.</span>
@@ -315,17 +315,17 @@ function SignInScreen({ onSignIn, busy, error, notice }) {
   const backendDown = backendUp === false || error === NETWORK_ERROR;
 
   const field =
-    "mt-1.5 h-10 w-full rounded-lg border border-white/10 bg-slate-900 px-3 font-mono text-xs " +
-    "text-slate-100 outline-none transition focus:border-emerald-400/50 focus:ring-2 focus:ring-emerald-400/20";
+    "mt-1.5 h-10 w-full rounded-lg border border-line bg-surface-panel px-3 font-mono text-xs " +
+    "text-ink outline-none transition focus:border-accent focus:ring-1 focus:ring-accent";
 
   return (
     <div className="flex min-h-screen items-center justify-center p-6">
       <div className="card w-full max-w-md p-7">
         <div className="mb-1 flex items-center gap-2">
-          <Trophy className="text-emerald-400" size={20} />
+          <Trophy className="text-accent" size={20} />
           <h1 className="text-xl font-semibold tracking-tight">Justin's Draft Assistant</h1>
         </div>
-        <p className="mb-6 text-sm leading-relaxed text-slate-400">
+        <p className="mb-6 text-sm leading-relaxed text-ink-muted">
           Connect your ESPN account to load your leagues, follow your draft live, and analyse how
           your league drafts.
         </p>
@@ -340,7 +340,7 @@ function SignInScreen({ onSignIn, busy, error, notice }) {
           onSubmit={(e) => { e.preventDefault(); onSignIn(swid.trim(), s2.trim()); }}
           className="space-y-3"
         >
-          <label className="block text-sm text-slate-300">
+          <label className="block text-sm text-ink-muted">
             SWID
             <input
               value={swid} onChange={(e) => setSwid(e.target.value)}
@@ -348,7 +348,7 @@ function SignInScreen({ onSignIn, busy, error, notice }) {
               className={field} spellCheck={false} autoComplete="off"
             />
           </label>
-          <label className="block text-sm text-slate-300">
+          <label className="block text-sm text-ink-muted">
             espn_s2
             <input
               value={s2} onChange={(e) => setS2(e.target.value)}
@@ -370,8 +370,8 @@ function SignInScreen({ onSignIn, busy, error, notice }) {
           <button
             type="submit"
             disabled={busy || backendDown || !swid.trim() || !s2.trim()}
-            className="h-11 w-full rounded-lg bg-emerald-500 text-sm font-semibold text-slate-950
-              transition hover:bg-emerald-400 disabled:opacity-50"
+            className="h-11 w-full rounded-lg bg-accent text-sm font-semibold text-white
+ transition hover:bg-accent-hover disabled:opacity-50"
           >
             {busy ? "Connecting…" : "Connect ESPN account"}
           </button>
@@ -379,26 +379,26 @@ function SignInScreen({ onSignIn, busy, error, notice }) {
 
         <button
           onClick={() => setHow((v) => !v)}
-          className="mt-4 flex w-full items-center justify-center gap-1 text-xs text-slate-500 hover:text-slate-300"
+          className="mt-4 flex w-full items-center justify-center gap-1 text-xs text-ink-faint hover:text-ink-muted"
         >
           Where do I find these? <ChevronDown size={12} className={how ? "rotate-180 transition" : "transition"} />
         </button>
         {how && (
-          <ol className="mt-3 space-y-1.5 rounded-lg bg-white/[0.03] p-3 text-xs leading-relaxed text-slate-400">
-            <li>1. Sign in at <span className="text-slate-300">fantasy.espn.com</span> in this browser.</li>
+          <ol className="mt-3 space-y-1.5 rounded-lg bg-surface-raised p-3 text-xs leading-relaxed text-ink-muted">
+            <li>1. Sign in at <span className="text-ink-muted">fantasy.espn.com</span> in this browser.</li>
             <li>2. Open developer tools → Application → Cookies → espn.com.</li>
-            <li>3. Copy the values of <span className="text-slate-300">SWID</span> and <span className="text-slate-300">espn_s2</span>.</li>
+            <li>3. Copy the values of <span className="text-ink-muted">SWID</span> and <span className="text-ink-muted">espn_s2</span>.</li>
             {/* The mistake that costs an afternoon: they look interchangeable in
                 the cookie list, and pasting the SWID into both still lists your
                 leagues, because only the SWID is needed for that. */}
-            <li className="pt-1 text-slate-500">
+            <li className="pt-1 text-ink-faint">
               They're two different values. SWID is a GUID in braces; espn_s2 is a few hundred
               characters long.
             </li>
           </ol>
         )}
 
-        <p className="mt-5 text-[11px] leading-relaxed text-slate-600">
+        <p className="mt-5 text-[11px] leading-relaxed text-ink-ghost">
           These are stored on the server running this app and remembered on this device, so you
           only do it once. They are never kept in your browser and never sent back to it.
         </p>
@@ -422,17 +422,17 @@ function SetupScreen({ onStart, starting, error, leagues, leaguesError,
   const [manual, setManual] = useState(false);
 
   const field =
-    "mt-1.5 h-10 w-full rounded-lg border border-white/10 bg-slate-900 px-3 text-sm text-slate-100 " +
-    "outline-none transition focus:border-emerald-400/50 focus:ring-2 focus:ring-emerald-400/20";
+    "mt-1.5 h-10 w-full rounded-lg border border-line bg-surface-panel px-3 text-sm text-ink " +
+    "outline-none transition focus:border-accent focus:ring-1 focus:ring-accent";
 
   return (
     <div className="flex min-h-screen items-center justify-center p-6">
       <div className="card w-full max-w-md p-7">
         <div className="mb-1 flex items-center gap-2">
-          <Trophy className="text-emerald-400" size={20} />
+          <Trophy className="text-accent" size={20} />
           <h1 className="text-xl font-semibold tracking-tight">Justin's Draft Assistant</h1>
         </div>
-        <p className="mb-6 text-sm leading-relaxed text-slate-400">
+        <p className="mb-6 text-sm leading-relaxed text-ink-muted">
           Live recommendations that account for your open roster slots, how long a player will
           last, and how much the projection can be trusted.
         </p>
@@ -462,9 +462,9 @@ function SetupScreen({ onStart, starting, error, leagues, leaguesError,
                 or set up manually.
               </div>
             ) : leagues === null ? (
-              <div className="py-3 text-sm text-slate-500">Finding your leagues…</div>
+              <div className="py-3 text-sm text-ink-faint">Finding your leagues…</div>
             ) : leagues.length === 0 ? (
-              <div className="text-sm text-slate-500">No football leagues found for this season.</div>
+              <div className="text-sm text-ink-faint">No football leagues found for this season.</div>
             ) : (
               <>
                 <div className="label mb-2">Your leagues</div>
@@ -475,14 +475,14 @@ function SetupScreen({ onStart, starting, error, leagues, leaguesError,
                       onClick={() => onStart({ espn: true, leagueId: lg.league_id })}
                       disabled={starting}
                       className="flex w-full items-center justify-between gap-3 rounded-lg border
-                        border-white/10 bg-slate-900 px-3.5 py-3 text-left transition
-                        hover:border-emerald-400/40 hover:bg-slate-800/60 disabled:opacity-50"
+ border-line bg-surface-panel px-3.5 py-3 text-left transition
+                        hover:border-accent/50 hover:bg-surface-hover/60 disabled:opacity-50"
                     >
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-semibold text-slate-100">
+                        <span className="block truncate text-sm font-semibold text-ink">
                           {lg.name}
                         </span>
-                        <span className="mt-0.5 block text-[11px] text-slate-500">
+                        <span className="mt-0.5 block text-[11px] text-ink-faint">
                           {lg.has_history
                             ? "Draft history collected — league timing applied"
                             : "No draft history — market ADP timing only"}
@@ -499,17 +499,17 @@ function SetupScreen({ onStart, starting, error, leagues, leaguesError,
                 {error}
               </div>
             )}
-            <div className="mt-5 flex items-center justify-center gap-3 text-xs text-slate-500">
+            <div className="mt-5 flex items-center justify-center gap-3 text-xs text-ink-faint">
               <button
                 onClick={onReconnect}
-                className="underline-offset-2 hover:text-slate-300 hover:underline"
+                className="underline-offset-2 hover:text-ink-muted hover:underline"
               >
                 Update ESPN credentials
               </button>
-              <span className="text-slate-700">·</span>
+              <span className="text-ink-ghost">·</span>
               <button
                 onClick={() => setManual(true)}
-                className="underline-offset-2 hover:text-slate-300 hover:underline"
+                className="underline-offset-2 hover:text-ink-muted hover:underline"
               >
                 Set up manually instead
               </button>
@@ -519,7 +519,7 @@ function SetupScreen({ onStart, starting, error, leagues, leaguesError,
 
         {manual && (
         <div className="space-y-4">
-          <label className="block text-sm text-slate-300">
+          <label className="block text-sm text-ink-muted">
             Number of teams
             <input
               type="number" min={2} max={20} value={teams}
@@ -527,23 +527,23 @@ function SetupScreen({ onStart, starting, error, leagues, leaguesError,
               className={field}
             />
           </label>
-          <label className="block text-sm text-slate-300">
+          <label className="block text-sm text-ink-muted">
             Your draft slot
             <input
               type="number" min={1} max={teams} value={mySlot}
               onChange={(e) => setMySlot(Number(e.target.value))}
               className={field}
             />
-            <span className="mt-1 block text-xs text-slate-500">1 = first overall pick</span>
+            <span className="mt-1 block text-xs text-ink-faint">1 = first overall pick</span>
           </label>
-          <label className="block text-sm text-slate-300">
+          <label className="block text-sm text-ink-muted">
             Rounds
             <input
               type="number" min={1} max={30} value={rounds}
               onChange={(e) => setRounds(Number(e.target.value))}
               className={field}
             />
-            <span className="mt-1 block text-xs text-slate-500">
+            <span className="mt-1 block text-xs text-ink-faint">
               Lets the board push harder on unfilled starting slots as your picks run out
             </span>
           </label>
@@ -557,22 +557,22 @@ function SetupScreen({ onStart, starting, error, leagues, leaguesError,
         <button
           onClick={() => onStart({ teams, mySlot, rounds })}
           disabled={starting}
-          className="mt-6 h-11 w-full rounded-lg bg-emerald-500 text-sm font-semibold text-slate-950
-            transition hover:bg-emerald-400 disabled:opacity-50"
+          className="mt-6 h-11 w-full rounded-lg bg-accent text-sm font-semibold text-white
+ transition hover:bg-accent-hover disabled:opacity-50"
         >
           {starting ? "Starting…" : "Start draft"}
         </button>
         <button
           onClick={() => setManual(false)}
-          className="mt-4 w-full text-xs text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
+          className="mt-4 w-full text-xs text-ink-faint underline-offset-2 hover:text-ink-muted hover:underline"
         >
           Connect to ESPN instead
         </button>
         </div>
         )}
 
-        <p className="mt-4 text-xs leading-relaxed text-slate-500">
-          If the backend at <code className="text-slate-400">{API_URL}</code> isn't reachable, this
+        <p className="mt-4 text-xs leading-relaxed text-ink-faint">
+          If the backend at <code className="text-ink-muted">{API_URL}</code> isn't reachable, this
           falls back to a read-only board from the last exported rankings.
         </p>
       </div>
@@ -603,7 +603,7 @@ function ExpandedPlayer({ player, nextPick, onDraft, onTaken, onOpenFull, readOn
               {player.player_name}
             </span>
             <PositionChip position={player.position} />
-            <span className="text-sm text-slate-500">{player.pro_team}</span>
+            <span className="text-sm text-ink-faint">{player.pro_team}</span>
             {isRookie && (
               <Badge tone="warn" title="No prior-season production behind the projection.">
                 <Sparkles size={10} /> Unproven
@@ -633,7 +633,7 @@ function ExpandedPlayer({ player, nextPick, onDraft, onTaken, onOpenFull, readOn
         </div>
       </div>
 
-      <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-white/5 pt-4 sm:grid-cols-4">
+      <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-line/60 pt-4 sm:grid-cols-4">
         <Stat label="Score" value={fmt(player.utility, 0)} accent />
         <Stat label="VORP" value={fmt(player.vorp_z ?? player.vorp, 0)} />
         <Stat label="ADP" value={fmtAdp(player.adp)} />
@@ -671,7 +671,7 @@ function ExpandedPlayer({ player, nextPick, onDraft, onTaken, onOpenFull, readOn
 const Stat = ({ label, value, accent }) => (
   <div>
     <div className="label">{label}</div>
-    <div className={`tabular mt-0.5 text-lg font-semibold ${accent ? "text-emerald-400" : "text-slate-200"}`}>
+    <div className={`tabular mt-0.5 text-lg font-semibold ${accent ? "text-emerald-400" : "text-ink"}`}>
       {value}
     </div>
   </div>
@@ -683,10 +683,10 @@ const MeterRow = ({ icon, label, value, meter, tone, caption }) => (
       <span className="label flex items-center gap-1.5">
         {icon} {label}
       </span>
-      <span className="tabular text-xs font-semibold text-slate-300">{value}</span>
+      <span className="tabular text-xs font-semibold text-ink-muted">{value}</span>
     </div>
     <Meter value={meter} tone={tone} />
-    <div className="mt-1 text-[11px] text-slate-500">{caption}</div>
+    <div className="mt-1 text-[11px] text-ink-faint">{caption}</div>
   </div>
 );
 
@@ -706,7 +706,7 @@ function ReachCell({ player }) {
   // Null - not zero - is what a league with no measured history returns. "Par"
   // would be a claim; a dash is the absence of one.
   if (shift == null || !Number.isFinite(Number(shift)))
-    return <span className="text-xs text-slate-700" title="No draft history measured for this league.">—</span>;
+    return <span className="text-xs text-ink-ghost" title="No draft history measured for this league.">—</span>;
 
   const n = Number(shift);
   const own = player.bias_player_shift;
@@ -727,7 +727,7 @@ function ReachCell({ player }) {
 
   if (picks < MIN_REACH)
     return (
-      <span className="text-xs text-slate-600"
+      <span className="text-xs text-ink-ghost"
             title={`This league drafts ${player.player_name} about where the market does.${ownText}`}>
         par
       </span>
@@ -749,13 +749,14 @@ function ReachCell({ player }) {
       {picks.toFixed(0)} {early ? "early" : "late"}
       {/* A dot means the estimate is backed by this player's own record here,
           not only by his position and NFL team. */}
-      {own != null && ownN ? <span className="ml-1 text-slate-500">•</span> : null}
+      {own != null && ownN ? <span className="ml-1 text-ink-faint">•</span> : null}
     </span>
   );
 }
 
 const PlayerRow = React.memo(function PlayerRow({
-  player, rank, nextPick, onDraft, onTaken, onToggle, onOpenFull, expanded, readOnly, highlight,
+  player, rank, posRank, nextPick, onDraft, onTaken, onToggle, onOpenFull,
+  expanded, readOnly, highlight,
 }) {
   const urgency = urgencyBand(player.availability);
   const conf = confidenceBand(player.confidence);
@@ -769,14 +770,14 @@ const PlayerRow = React.memo(function PlayerRow({
     <tr
       id={`row-${player.player_id}`}
       onClick={() => onToggle(player.player_id)}
-      className={`group cursor-pointer border-t border-white/5 transition-colors hover:bg-white/[0.03]
-        ${expanded ? "bg-white/[0.04]" : ""}
+      className={`group cursor-pointer border-t border-line/60 transition-colors hover:bg-surface-raised
+        ${expanded ? "bg-surface-raised" : ""}
         ${highlight ? "border-l-2 border-l-emerald-400/70 bg-emerald-500/[0.04]" : ""}`}
     >
-      <td className="py-2.5 pl-3 pr-1 text-right sm:pl-4 sm:pr-2">
-        <span className="tabular text-xs text-slate-600">{rank}</span>
+      <td className="py-2 pl-3 pr-1 text-right sm:pl-4 sm:pr-2">
+        <span className="tabular text-xs text-ink-ghost">{rank}</span>
       </td>
-      <td className="py-2.5 pr-3">
+      <td className="py-2 pr-3">
         <div className="flex min-w-0 items-center gap-2">
           {highlight && (
             <Trophy size={11} className="shrink-0 text-emerald-400" aria-label="Board's top pick" />
@@ -785,54 +786,60 @@ const PlayerRow = React.memo(function PlayerRow({
               min-width defaults to its content, so without it a long name
               widens the column instead of ellipsing, and pushes Score off the
               right edge of a phone. */}
-          <span className="min-w-0 truncate font-medium text-slate-100">{player.player_name}</span>
+          <span className="min-w-0 truncate font-medium text-ink">{player.player_name}</span>
           {/* The NFL team is the first thing to drop on a narrow screen - it's
               still in the expanded row and the detail panel, and Score is not
               negotiable. */}
-          <span className="hidden shrink-0 text-xs text-slate-600 sm:inline">{player.pro_team}</span>
+          <span className="hidden shrink-0 text-xs text-ink-ghost sm:inline">{player.pro_team}</span>
           {isRookie && (
-            <Sparkles
-              size={11}
-              className="shrink-0 text-amber-400"
-              aria-label="Rookie"
-            />
+            <span
+              className="shrink-0 rounded-sm bg-warn/15 px-1 text-[10px] font-bold leading-4 text-warn"
+              title="Unproven — no prior-season production on record"
+              aria-label="Unproven"
+            >
+              R
+            </span>
           )}
-        </div>
-        <div className="mt-1 hidden sm:block">
-          <ReasonChips player={player} nextPick={nextPick} max={2} />
+          <span className="hidden shrink-0 sm:block">
+            <ReasonChips player={player} nextPick={nextPick} max={2} />
+          </span>
         </div>
       </td>
-      <td className="py-2.5 pr-3">
-        <PositionChip position={player.position} />
+      {/* FantasyPros prints a positional *rank* here as plain text - "RB1",
+          "WR2" - not a coloured pill. It carries strictly more information: the
+          third running back off the board and the thirtieth are the same chip
+          and very different picks. */}
+      <td className="tabular py-2 pr-3 text-ink-muted">
+        {posRank || player.position}
       </td>
       {/* VORP and ADP are the inputs; Available, Confidence and Score are the
           decision. On narrow screens the inputs give way so the decision
           columns stay on screen without horizontal scrolling. */}
-      <td className="tabular hidden py-2.5 pr-3 text-right text-slate-400 md:table-cell">
+      <td className="tabular hidden py-2 pr-3 text-right text-ink-muted md:table-cell">
         {fmt(player.vorp_z ?? player.vorp, 0)}
       </td>
-      <td className="tabular hidden py-2.5 pr-3 text-right text-slate-400 md:table-cell">
+      <td className="tabular hidden py-2 pr-3 text-right text-ink-muted md:table-cell">
         {fmtAdp(player.adp)}
       </td>
-      <td className="hidden py-2.5 pr-3 text-right lg:table-cell">
+      <td className="hidden py-2 pr-3 text-right lg:table-cell">
         <ReachCell player={player} />
       </td>
-      <td className="hidden py-2.5 pr-3 sm:table-cell">
-        <div className="flex min-w-[64px] flex-col gap-1">
-          <span className="tabular text-right text-xs text-slate-400">{pct(player.availability)}</span>
+      <td className="hidden py-2 pr-3 sm:table-cell">
+        <div className="flex min-w-[60px] flex-col gap-0.5">
+          <span className="tabular text-right text-xs text-ink-muted">{pct(player.availability)}</span>
           <Meter value={player.availability} tone={urgency?.tone || "neutral"} />
         </div>
       </td>
-      <td className="hidden py-2.5 pr-3 sm:table-cell">
-        <div className="flex min-w-[64px] flex-col gap-1">
-          <span className="tabular text-right text-xs text-slate-400">{pct(player.confidence)}</span>
+      <td className="hidden py-2 pr-3 sm:table-cell">
+        <div className="flex min-w-[60px] flex-col gap-0.5">
+          <span className="tabular text-right text-xs text-ink-muted">{pct(player.confidence)}</span>
           <Meter value={player.confidence} tone={conf?.tone || "neutral"} />
         </div>
       </td>
-      <td className="tabular py-2.5 pr-2 text-right font-semibold text-emerald-400 sm:pr-3">
+      <td className="tabular py-2 pr-2 text-right font-semibold text-good sm:pr-3">
         {fmt(player.utility, 0)}
       </td>
-      <td className="py-2.5 pl-1 pr-3 sm:pl-2 sm:pr-4" onClick={(e) => e.stopPropagation()}>
+      <td className="py-2 pl-1 pr-3 sm:pl-2 sm:pr-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-end gap-1">
           {!readOnly && (
             <div className="flex gap-1 opacity-60 transition-opacity group-hover:opacity-100">
@@ -848,11 +855,11 @@ const PlayerRow = React.memo(function PlayerRow({
             onClick={() => onToggle(player.player_id)}
             aria-expanded={expanded}
             aria-label={`${expanded ? "Collapse" : "Expand"} ${player.player_name}`}
-            className="shrink-0 rounded p-0.5 text-slate-600 transition hover:text-slate-300"
+            className="shrink-0 rounded p-0.5 text-ink-ghost transition hover:text-ink-muted"
           >
             <ChevronDown
               size={14}
-              className={`transition-transform ${expanded ? "rotate-180 text-slate-300" : ""}`}
+              className={`transition-transform ${expanded ? "rotate-180 text-ink-muted" : ""}`}
             />
           </button>
         </div>
@@ -860,7 +867,7 @@ const PlayerRow = React.memo(function PlayerRow({
     </tr>
     {expanded && (
       <tr>
-        <td colSpan={10} className="border-t border-white/5 bg-slate-950/40 p-0">
+        <td colSpan={10} className="border-t border-line/60 bg-surface/40 p-0">
           <ExpandedPlayer
             player={player}
             nextPick={nextPick}
@@ -907,10 +914,10 @@ function CountdownClock({ draftAt, now }) {
     <div className="flex flex-wrap items-end gap-x-5 gap-y-2">
       {shown.map((u) => (
         <div key={u.label} className="flex items-baseline gap-1.5">
-          <span className="tabular text-5xl font-semibold leading-none tracking-tight text-slate-50">
+          <span className="tabular text-5xl font-semibold leading-none tracking-tight text-ink">
             {String(u.value).padStart(2, "0")}
           </span>
-          <span className="text-xs uppercase tracking-wider text-slate-500">{u.label}</span>
+          <span className="text-xs uppercase tracking-wider text-ink-faint">{u.label}</span>
         </div>
       ))}
     </div>
@@ -946,7 +953,7 @@ function DraftDay({ league, pickCtx, order, teamsList, rosterState, picksRemaini
       {/* The countdown is the page, not a line inside a card - it's the one
           thing you open this tab for. */}
       <div className="card px-6 py-7">
-        <div className="label mb-3 text-slate-500">
+        <div className="label mb-3 text-ink-faint">
           {league?.name || "Your draft"} · draft day
         </div>
 
@@ -956,12 +963,12 @@ function DraftDay({ league, pickCtx, order, teamsList, rosterState, picksRemaini
               <span className="text-4xl font-semibold tracking-tight text-emerald-400">
                 Draft should be underway
               </span>
-              <span className="text-sm text-slate-500">{fmtDraftDate(draftAt)}</span>
+              <span className="text-sm text-ink-faint">{fmtDraftDate(draftAt)}</span>
             </div>
           ) : (
             <>
               <CountdownClock draftAt={draftAt} now={now} />
-              <p className="mt-4 text-sm text-slate-400">
+              <p className="mt-4 text-sm text-ink-muted">
                 {fmtDraftDate(draftAt)} · the board switches over on its own when the first pick
                 lands, not when this hits zero.
               </p>
@@ -969,10 +976,10 @@ function DraftDay({ league, pickCtx, order, teamsList, rosterState, picksRemaini
           )
         ) : (
           <>
-            <div className="text-4xl font-semibold tracking-tight text-slate-300">
+            <div className="text-4xl font-semibold tracking-tight text-ink-muted">
               Not scheduled yet
             </div>
-            <p className="mt-4 max-w-2xl text-sm leading-relaxed text-slate-400">
+            <p className="mt-4 max-w-2xl text-sm leading-relaxed text-ink-muted">
               Your commissioner hasn't set a date, so there's nothing to count down to. The order
               below is already fixed, though, and the board is live and ready whenever it starts.
             </p>
@@ -982,8 +989,8 @@ function DraftDay({ league, pickCtx, order, teamsList, rosterState, picksRemaini
 
       <div className="grid gap-5 lg:grid-cols-2">
         <div className="card p-5">
-          <h2 className="mb-1 text-sm font-semibold text-slate-200">Your picks</h2>
-          <p className="mb-3 text-xs leading-relaxed text-slate-500">
+          <h2 className="mb-1 text-sm font-semibold text-ink">Your picks</h2>
+          <p className="mb-3 text-xs leading-relaxed text-ink-faint">
             Every slot you own, straight from the league's own order — so this survives traded
             picks and keepers rather than assuming a clean snake.
           </p>
@@ -992,8 +999,8 @@ function DraftDay({ league, pickCtx, order, teamsList, rosterState, picksRemaini
               <span
                 key={n}
                 className={`tabular rounded-md px-2 py-1 text-xs ${
-                  i === 0 ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/25"
-                          : "bg-white/[0.04] text-slate-300"}`}
+                  i === 0 ? "bg-accent/15 text-accent-hover"
+                          : "bg-surface-raised text-ink-muted"}`}
                 title={i === 0 ? "Your first pick" : `Round ${i + 1}`}
               >
                 {n}
@@ -1001,38 +1008,38 @@ function DraftDay({ league, pickCtx, order, teamsList, rosterState, picksRemaini
             ))}
           </div>
           {!pickCtx?.myPicks?.length && (
-            <div className="text-xs text-slate-500">Not available.</div>
+            <div className="text-xs text-ink-faint">Not available.</div>
           )}
         </div>
 
         <div className="card p-5">
-          <h2 className="mb-1 text-sm font-semibold text-slate-200">Still to fill</h2>
-          <p className="mb-3 text-xs leading-relaxed text-slate-500">
+          <h2 className="mb-1 text-sm font-semibold text-ink">Still to fill</h2>
+          <p className="mb-3 text-xs leading-relaxed text-ink-faint">
             Starting slots open, against the picks you have left.
           </p>
           <div className="flex flex-wrap items-center gap-1.5">
             {open.length === 0 ? (
-              <span className="text-xs text-slate-500">Starting lineup complete.</span>
+              <span className="text-xs text-ink-faint">Starting lineup complete.</span>
             ) : (
               open.map(([pos, v]) => (
-                <span key={pos} className="flex items-center gap-1 rounded-md bg-white/[0.04] px-2 py-1">
+                <span key={pos} className="flex items-center gap-1 rounded-md bg-surface-raised px-2 py-1">
                   <PositionChip position={pos} />
-                  <span className="tabular text-xs text-slate-400">×{v.need - v.have}</span>
+                  <span className="tabular text-xs text-ink-muted">×{v.need - v.have}</span>
                 </span>
               ))
             )}
           </div>
           {picksRemaining != null && (
-            <p className="mt-3 text-xs text-slate-500">
-              <span className="tabular font-semibold text-slate-300">{picksRemaining}</span> picks left
+            <p className="mt-3 text-xs text-ink-faint">
+              <span className="tabular font-semibold text-ink-muted">{picksRemaining}</span> picks left
             </p>
           )}
         </div>
       </div>
 
       <div className="card p-5">
-        <h2 className="mb-1 text-sm font-semibold text-slate-200">Round 1 order</h2>
-        <p className="mb-3 text-xs leading-relaxed text-slate-500">
+        <h2 className="mb-1 text-sm font-semibold text-ink">Round 1 order</h2>
+        <p className="mb-3 text-xs leading-relaxed text-ink-faint">
           Known before the draft starts — ESPN publishes the full slot order as soon as the league
           is set up, which is also where your pick numbers come from.
         </p>
@@ -1044,14 +1051,14 @@ function DraftDay({ league, pickCtx, order, teamsList, rosterState, picksRemaini
               <div
                 key={i}
                 className={`flex items-center gap-3 rounded-md px-2.5 py-1.5 text-sm ${
-                  mine ? "bg-emerald-500/10 ring-1 ring-emerald-400/25" : ""}`}
+                  mine ? "bg-accent/10 ring-1 ring-accent/30" : ""}`}
               >
-                <span className="tabular w-6 text-right text-xs text-slate-600">{i + 1}</span>
-                <span className={mine ? "font-semibold text-emerald-200" : "text-slate-300"}>
+                <span className="tabular w-6 text-right text-xs text-ink-ghost">{i + 1}</span>
+                <span className={mine ? "font-semibold text-emerald-200" : "text-ink-muted"}>
                   {t?.name || `Team ${teamId}`}
                 </span>
-                {mine && <span className="text-[11px] text-emerald-400/70">you</span>}
-                {t?.abbrev && <span className="ml-auto text-[11px] text-slate-600">{t.abbrev}</span>}
+                {mine && <span className="text-[11px] text-accent-hover">you</span>}
+                {t?.abbrev && <span className="ml-auto text-[11px] text-ink-ghost">{t.abbrev}</span>}
               </div>
             );
           })}
@@ -1080,7 +1087,7 @@ function BoardHeader({
   return (
     <div className="card overflow-hidden">
       {/* Row 1: which league, what state, whose turn. */}
-      <div className={`flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-white/5 px-4 py-2.5 text-xs
+      <div className={`flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line/60 px-4 py-2.5 text-xs
         ${pickCtx?.isMyTurn && !offline ? "bg-emerald-500/[0.06]" : ""}`}>
         {offline ? (
           <Badge tone="warn" title="The backend isn't running, so need and timing can't be applied.">
@@ -1089,7 +1096,7 @@ function BoardHeader({
         ) : (
           <>
             <span className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-slate-100">
+              <span className="text-sm font-semibold text-ink">
                 {league?.name || "Draft board"}
               </span>
               {league && (
@@ -1097,26 +1104,26 @@ function BoardHeader({
               )}
             </span>
 
-            <span className="h-3 w-px bg-white/10" />
+            <span className="h-3 w-px bg-surface-hover" />
 
             <span className="flex items-center gap-1.5">
-              <span className="text-slate-500">Pick</span>
-              <span className="tabular font-semibold text-slate-100">
+              <span className="text-ink-faint">Pick</span>
+              <span className="tabular font-semibold text-ink">
                 {pickCtx?.currentPick ?? "—"}
               </span>
-              {round && <span className="text-slate-600">· Rd {round}</span>}
+              {round && <span className="text-ink-ghost">· Rd {round}</span>}
             </span>
 
             {pickCtx?.isMyTurn ? (
               <Badge tone="calm">You're on the clock</Badge>
             ) : (
-              <span className="text-slate-400">
+              <span className="text-ink-muted">
                 you're up at{" "}
-                <span className="tabular font-semibold text-slate-200">
+                <span className="tabular font-semibold text-ink">
                   {pickCtx?.thisTurn ?? "—"}
                 </span>
                 {pickCtx?.picksUntilMyTurn != null && (
-                  <span className="text-slate-600"> · {pickCtx.picksUntilMyTurn} away</span>
+                  <span className="text-ink-ghost"> · {pickCtx.picksUntilMyTurn} away</span>
                 )}
               </span>
             )}
@@ -1129,7 +1136,7 @@ function BoardHeader({
               that has it. */}
           {league && league.has_history === false && (
             <span
-              className="rounded-md bg-white/5 px-2 py-0.5 text-[11px] text-slate-500"
+              className="rounded-md bg-surface-raised px-2 py-0.5 text-[11px] text-ink-faint"
               title="No draft history has been collected for this league, so pick timing uses national ADP only. League-specific tendencies are only applied where they were measured."
             >
               Market timing only
@@ -1142,7 +1149,7 @@ function BoardHeader({
       {/* Row 2: the board's own top three, as equal cards. */}
       {players?.length > 0 && (
         <div className="px-4 py-3">
-          <div className="label mb-2 flex items-center gap-1.5 text-emerald-400/70">
+          <div className="label mb-2 flex items-center gap-1.5 text-accent-hover">
             <Trophy size={11} />
             <span title={customSort ? "Unaffected by the table's current sort." : undefined}>
               Board ranking
@@ -1176,7 +1183,7 @@ function TopPickCard({ player, rank, nextPick, readOnly, onOpen, onDraft, onTake
   return (
     <div
       className={`flex min-w-0 flex-col justify-between rounded-lg px-3 py-2.5 transition
-        ${top ? "bg-emerald-500/10 ring-1 ring-emerald-400/25" : "bg-white/[0.04] hover:bg-white/[0.06]"}`}
+        ${top ? "bg-accent/10 ring-1 ring-accent/30" : "bg-surface-raised hover:bg-surface-hover"}`}
     >
       <div className="flex items-start justify-between gap-2">
         <button
@@ -1185,14 +1192,14 @@ function TopPickCard({ player, rank, nextPick, readOnly, onOpen, onDraft, onTake
           title="Show this player in the list"
         >
           <span className="flex items-baseline gap-1.5">
-            <span className="tabular text-[11px] text-slate-600">{rank}</span>
-            <span className="truncate text-sm font-semibold text-slate-100 hover:text-emerald-300">
+            <span className="tabular text-[11px] text-ink-ghost">{rank}</span>
+            <span className="truncate text-sm font-semibold text-ink hover:text-accent-hover">
               {player.player_name}
             </span>
           </span>
           <span className="mt-1 flex items-center gap-1.5">
             <PositionChip position={player.position} />
-            <span className="text-[11px] text-slate-600">{player.pro_team}</span>
+            <span className="text-[11px] text-ink-ghost">{player.pro_team}</span>
           </span>
         </button>
         <span className="tabular shrink-0 text-lg font-semibold leading-none text-emerald-400">
@@ -1221,7 +1228,7 @@ function TopPickCard({ player, rank, nextPick, readOnly, onOpen, onDraft, onTake
 /** Four states, because "is it still connected?" is the question you'd ask. */
 function SyncChip({ sync, onDisconnect }) {
   if (!sync?.connected) {
-    return <span className="rounded-md bg-white/5 px-2 py-0.5 text-slate-500">Manual</span>;
+    return <span className="rounded-md bg-surface-raised px-2 py-0.5 text-ink-faint">Manual</span>;
   }
   if (sync.status === "auth") {
     return (
@@ -1231,7 +1238,7 @@ function SyncChip({ sync, onDisconnect }) {
         </span>
         <button
           onClick={onDisconnect}
-          className="rounded-md bg-white/10 px-2 py-0.5 font-medium text-slate-200 hover:bg-white/15"
+          className="rounded-md bg-surface-hover px-2 py-0.5 font-medium text-ink hover:bg-surface-hover"
         >
           Draft manually
         </button>
@@ -1260,7 +1267,7 @@ function RecentPicksTicker({ draftLog }) {
   const recent = [...draftLog].slice(-8).reverse();
   if (!recent.length) return null;
   return (
-    <div className="flex items-center gap-2 border-t border-white/5 bg-white/[0.02] px-4 py-1.5">
+    <div className="flex items-center gap-2 border-t border-line/60 bg-surface-panel px-4 py-1.5">
       <span className="label shrink-0">Just went</span>
       <div className="scroll-slim flex flex-1 gap-1.5 overflow-x-auto whitespace-nowrap">
         {recent.map((p) => (
@@ -1268,10 +1275,10 @@ function RecentPicksTicker({ draftLog }) {
             key={p.pick_number}
             className={`flex shrink-0 items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] ${
               p.is_my_pick
-                ? "bg-emerald-500/10 text-emerald-200 ring-1 ring-emerald-400/25"
+                ? "bg-accent/15 text-accent-hover"
                 : p.resolved === false
                 ? "bg-rose-500/10 text-rose-200 ring-1 ring-rose-400/25"
-                : "bg-white/[0.04] text-slate-300"
+                : "bg-surface-raised text-ink-muted"
             }`}
             title={
               p.resolved === false
@@ -1279,9 +1286,9 @@ function RecentPicksTicker({ draftLog }) {
                 : undefined
             }
           >
-            <span className="tabular text-slate-600">#{p.overall_pick ?? p.pick_number}</span>
+            <span className="tabular text-ink-ghost">#{p.overall_pick ?? p.pick_number}</span>
             <span>{p.player_name || "Unknown"}</span>
-            {p.position && <span className="text-slate-500">{p.position}</span>}
+            {p.position && <span className="text-ink-faint">{p.position}</span>}
             {p.resolved === false && <span className="text-rose-300">?</span>}
           </span>
         ))}
@@ -1321,15 +1328,15 @@ function SortHeader({ column, sort, onSort }) {
       // Announced to screen readers, which otherwise get a column of plain
       // text with no indication that any of it is sorted or sortable.
       aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
-      className={`py-2.5 pr-3 text-[11px] font-medium uppercase tracking-wider ${
+      className={`py-2 pr-3 text-head font-medium uppercase ${
         column.align === "right" ? "text-right" : "text-left"
       } ${column.cls}`}
     >
       <button
         onClick={() => onSort(next)}
         title={`Sort by ${column.label}`}
-        className={`inline-flex items-center gap-1 transition-colors hover:text-slate-300 ${
-          active ? "text-slate-200" : ""
+        className={`inline-flex items-center gap-1 transition-colors hover:text-ink-muted ${
+          active ? "text-ink" : ""
         }`}
       >
         {column.align === "right" && active && <SortArrow dir={sort.dir} />}
@@ -1342,9 +1349,9 @@ function SortHeader({ column, sort, onSort }) {
 
 const SortArrow = ({ dir }) =>
   dir === "asc" ? (
-    <ArrowUp size={11} className="text-emerald-400" />
+    <ArrowUp size={11} className="text-accent" />
   ) : (
-    <ArrowDown size={11} className="text-emerald-400" />
+    <ArrowDown size={11} className="text-accent" />
   );
 
 // ---- Risk dial ----
@@ -1383,19 +1390,19 @@ function RiskControl({ value, onChange, pool }) {
   return (
     <div className="card px-4 py-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <span className="flex items-center gap-1.5 text-sm font-medium text-slate-300">
-          <ShieldCheck size={14} className="text-slate-500" /> Play it safe
+        <span className="flex items-center gap-1.5 text-sm font-medium text-ink-muted">
+          <ShieldCheck size={14} className="text-ink-faint" /> Play it safe
         </span>
         <input
           type="range" min={0} max={0.5} step={0.05}
           value={value}
           onChange={(e) => onChange(Number(e.target.value))}
-          className="h-1 w-40 cursor-pointer accent-emerald-400"
+          className="h-1 w-40 cursor-pointer accent-accent"
         />
-        <span className="tabular w-9 text-xs font-semibold text-slate-300">
+        <span className="tabular w-9 text-xs font-semibold text-ink-muted">
           {Math.round(value * 100)}%
         </span>
-        <span className="text-xs text-slate-500">
+        <span className="text-xs text-ink-faint">
           {value === 0
             ? "Off — ranking on value, need and timing only."
             : `Cuts up to ${Math.round(value * 100)}% off players whose projections historically miss most.`}
@@ -1403,12 +1410,12 @@ function RiskControl({ value, onChange, pool }) {
       </div>
 
       {value > 0 && hardest.length > 0 && (
-        <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-white/5 pt-2.5">
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-line/60 pt-2.5">
           <span className="label">Currently discounting</span>
           {hardest.map((e) => (
             <span
               key={e.position}
-              className="flex items-center gap-1 rounded-md bg-white/[0.04] px-2 py-0.5 text-xs"
+              className="flex items-center gap-1 rounded-md bg-surface-raised px-2 py-0.5 text-xs"
               title={`Average value discount applied to ${e.position} right now.`}
             >
               <PositionChip position={e.position} />
@@ -1416,7 +1423,7 @@ function RiskControl({ value, onChange, pool }) {
             </span>
           ))}
           {spread < 0.03 && (
-            <span className="text-[11px] text-slate-500">
+            <span className="text-[11px] text-ink-faint">
               — spread is under 3%, so this is only breaking near-ties right now.
             </span>
           )}
@@ -1436,14 +1443,14 @@ function RosterPanel({ rosterState, depth, picksRemaining, benchSlots, benchFill
   return (
     <div className="card p-4">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-200">My roster</h2>
+        <h2 className="text-sm font-semibold text-ink">My roster</h2>
         {picksRemaining != null && (
-          <span className="tabular text-xs text-slate-500">{picksRemaining} picks left</span>
+          <span className="tabular text-xs text-ink-faint">{picksRemaining} picks left</span>
         )}
       </div>
 
       {entries.length === 0 ? (
-        <div className="text-xs text-slate-500">No roster data.</div>
+        <div className="text-xs text-ink-faint">No roster data.</div>
       ) : (
         <ul className="space-y-1.5">
           {entries.map(([pos, v]) => {
@@ -1453,13 +1460,13 @@ function RosterPanel({ rosterState, depth, picksRemaining, benchSlots, benchFill
               <li
                 key={pos}
                 className={`flex items-center justify-between rounded-lg px-2.5 py-1.5 text-xs
-                  ${open > 0 ? "bg-white/[0.04]" : "bg-transparent text-slate-500"}`}
+                  ${open > 0 ? "bg-surface-raised" : "bg-transparent text-ink-faint"}`}
               >
                 <span className="flex items-center gap-2">
-                  <span className={`font-semibold ${open > 0 ? "text-slate-200" : "text-slate-500"}`}>
+                  <span className={`font-semibold ${open > 0 ? "text-ink" : "text-ink-faint"}`}>
                     {pos}
                   </span>
-                  {extra > 0 && <span className="text-[10px] text-slate-600">+{extra} depth</span>}
+                  {extra > 0 && <span className="text-[10px] text-ink-ghost">+{extra} depth</span>}
                 </span>
                 <SlotPips have={v.have} need={v.need} position={pos} />
               </li>
@@ -1471,18 +1478,18 @@ function RosterPanel({ rosterState, depth, picksRemaining, benchSlots, benchFill
       {/* Bench is a third of a 16-round draft. Showing it as real capacity
           keeps those picks from reading as unaccounted-for. */}
       {benchSlots != null && benchSlots > 0 && (
-        <div className="mt-3 border-t border-white/5 pt-3">
+        <div className="mt-3 border-t border-line/60 pt-3">
           <div className="flex items-center justify-between text-xs">
             <span className="flex items-center gap-2">
-              <span className="font-semibold text-slate-300">Bench</span>
+              <span className="font-semibold text-ink-muted">Bench</span>
               <span
-                className="text-[10px] text-slate-600"
+                className="text-[10px] text-ink-ghost"
                 title="Once your starting lineup is full, the board values depth by how often each position actually misses games — so a backup RB outranks a second kicker."
               >
                 depth picks
               </span>
             </span>
-            <span className="tabular text-slate-500">
+            <span className="tabular text-ink-faint">
               {benchFilled || 0}/{benchSlots}
             </span>
           </div>
@@ -1491,13 +1498,13 @@ function RosterPanel({ rosterState, depth, picksRemaining, benchSlots, benchFill
               <span
                 key={i}
                 className={`h-2 w-2 rounded-full ${
-                  i < (benchFilled || 0) ? "bg-slate-400" : "bg-white/15"
+                  i < (benchFilled || 0) ? "bg-ink-faint" : "bg-surface-hover"
                 }`}
               />
             ))}
           </div>
           {benchOpen === 0 && (
-            <div className="mt-2 text-[11px] leading-relaxed text-slate-500">
+            <div className="mt-2 text-[11px] leading-relaxed text-ink-faint">
               Bench is full — every remaining pick has to upgrade a starter.
             </div>
           )}
@@ -1519,15 +1526,15 @@ function RosterPanel({ rosterState, depth, picksRemaining, benchSlots, benchFill
 const DraftLog = ({ draftLog }) => (
   <div className="card p-4">
     <div className="mb-3 flex items-baseline justify-between gap-2">
-      <h2 className="text-sm font-semibold text-slate-200">Full draft log</h2>
+      <h2 className="text-sm font-semibold text-ink">Full draft log</h2>
       {draftLog.length > 0 && (
-        <span className="tabular text-[11px] text-slate-600">{draftLog.length} picks</span>
+        <span className="tabular text-[11px] text-ink-ghost">{draftLog.length} picks</span>
       )}
     </div>
     {draftLog.length === 0 ? (
       // An empty panel invites "is this working?". Saying what will fill it,
       // and that it fills itself, answers that before it's asked.
-      <div className="rounded-lg border border-dashed border-white/10 px-3 py-4 text-center text-xs leading-relaxed text-slate-600">
+      <div className="rounded-lg border border-dashed border-line px-3 py-4 text-center text-xs leading-relaxed text-ink-ghost">
         Every pick lands here as it happens — yours and everyone else's.
       </div>
     ) : (
@@ -1538,12 +1545,12 @@ const DraftLog = ({ draftLog }) => (
             className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-xs
               ${p.is_my_pick ? "bg-emerald-500/10" : ""}`}
           >
-            <span className="tabular w-7 shrink-0 text-slate-600">{p.pick_number}</span>
-            <span className="flex-1 truncate text-slate-300">{p.player_name || "—"}</span>
+            <span className="tabular w-7 shrink-0 text-ink-ghost">{p.pick_number}</span>
+            <span className="flex-1 truncate text-ink-muted">{p.player_name || "—"}</span>
             {p.filled_slot && p.filled_slot !== p.position && (
               <span className="shrink-0 text-[10px] uppercase text-teal-400">{p.filled_slot}</span>
             )}
-            <span className="shrink-0 text-slate-600">{p.position}</span>
+            <span className="shrink-0 text-ink-ghost">{p.position}</span>
           </li>
         ))}
       </ul>
@@ -2161,6 +2168,9 @@ export default function DraftBoard() {
     [filtered]
   );
   const topId = topThree[0]?.player_id ?? null;
+  // Ranked on the list as currently ordered, so "RB1" means "first RB in what
+  // you are looking at" rather than asserting a second, invisible ranking.
+  const posRanks = useMemo(() => positionalRanks(filtered), [filtered]);
   const customSort = sort.key !== "utility" || sort.dir !== "desc";
 
   // Open a player's row and bring it into view. Used by the top-three pills,
@@ -2188,8 +2198,8 @@ export default function DraftBoard() {
   if (authState === "unknown" || restoring) {
     return (
       <div className="flex min-h-screen items-center justify-center">
-        <div className="flex items-center gap-2 text-sm text-slate-500">
-          <Trophy className="text-emerald-400" size={16} />
+        <div className="flex items-center gap-2 text-sm text-ink-faint">
+          <Trophy className="text-accent" size={16} />
           {restoring ? "Loading your league…" : "Signing you in…"}
         </div>
       </div>
@@ -2219,14 +2229,14 @@ export default function DraftBoard() {
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-20 border-b border-white/5 bg-slate-950/85 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b border-line/60 bg-surface/85 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4">
           <button
             onClick={goHome}
             title="Back to your leagues"
-            className="flex items-center gap-2 rounded-lg px-1.5 py-1 transition hover:bg-white/5"
+            className="flex items-center gap-2 rounded-lg px-1.5 py-1 transition hover:bg-surface-raised"
           >
-            <Trophy className="shrink-0 text-emerald-400" size={18} />
+            <Trophy className="shrink-0 text-accent" size={18} />
             <span className="hidden font-semibold tracking-tight sm:inline">
               Justin's Draft Assistant
             </span>
@@ -2244,7 +2254,7 @@ export default function DraftBoard() {
             />
           )}
 
-          <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-slate-900 p-1">
+          <div className="flex items-center gap-1 rounded-lg border border-line bg-surface-panel p-1">
             {[
               { id: "board", label: "Draft board", icon: <LayoutList size={12} /> },
               ...(sync.connected
@@ -2262,7 +2272,7 @@ export default function DraftBoard() {
                 aria-label={t.label}
                 aria-current={tab === t.id ? "page" : undefined}
                 className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors sm:px-2.5 ${
-                  tab === t.id ? "bg-white/10 text-white" : "text-slate-500 hover:text-slate-300"
+                  tab === t.id ? "bg-surface-hover text-ink" : "text-ink-faint hover:text-ink-muted"
                 }`}
               >
                 {t.icon}
@@ -2281,7 +2291,7 @@ export default function DraftBoard() {
           )}
 
           <div className="ml-auto flex items-center gap-2">
-            {tab === "board" && loading && <span className="text-xs text-slate-500">Updating…</span>}
+            {tab === "board" && loading && <span className="text-xs text-ink-faint">Updating…</span>}
             {tab === "board" && err && (
               <span className="max-w-[16rem] truncate text-xs text-rose-400">{err}</span>
             )}
@@ -2303,12 +2313,12 @@ export default function DraftBoard() {
         </div>
 
         {showLegend && (
-          <div className="border-t border-white/5 bg-slate-900/60">
+          <div className="border-t border-line/60 bg-surface-panel/60">
             <dl className="mx-auto grid max-w-7xl gap-4 px-4 py-5 sm:grid-cols-2 lg:grid-cols-3">
               {LEGEND.map((item) => (
                 <div key={item.term}>
-                  <dt className="mb-1 text-sm font-semibold text-slate-200">{item.term}</dt>
-                  <dd className="text-xs leading-relaxed text-slate-400">{item.body}</dd>
+                  <dt className="mb-1 text-sm font-semibold text-ink">{item.term}</dt>
+                  <dd className="text-xs leading-relaxed text-ink-muted">{item.body}</dd>
                 </div>
               ))}
             </dl>
@@ -2334,7 +2344,7 @@ export default function DraftBoard() {
 
       {analysisSeen && (
         <div hidden={tab !== "analysis"}>
-          <Suspense fallback={<div className="mx-auto max-w-5xl p-8 text-sm text-slate-500">Loading analysis…</div>}>
+          <Suspense fallback={<div className="mx-auto max-w-5xl p-8 text-sm text-ink-faint">Loading analysis…</div>}>
             {/* The session is how the analysis learns the league's lineup, and
                 the lineup sets replacement level - so the numbers on this page
                 are the ones this league would actually see. */}
@@ -2384,26 +2394,26 @@ export default function DraftBoard() {
 
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative min-w-[200px] flex-1 sm:max-w-xs">
-              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" size={14} />
+              <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-ghost" size={14} />
               <input
                 value={queryInput}
                 onChange={(e) => setQueryInput(e.target.value)}
                 placeholder="Search player…"
-                className="h-9 w-full rounded-lg border border-white/10 bg-slate-900 pl-9 pr-3 text-sm
-                  text-slate-100 outline-none transition placeholder:text-slate-600
-                  focus:border-emerald-400/50 focus:ring-2 focus:ring-emerald-400/20"
+                className="h-9 w-full rounded-lg border border-line bg-surface-panel pl-9 pr-3 text-sm
+ text-ink outline-none transition placeholder:text-ink-ghost
+                  focus:border-accent focus:ring-1 focus:ring-accent"
               />
             </div>
 
-            <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-slate-900 p-1">
+            <div className="flex items-center gap-1 rounded-lg border border-line bg-surface-panel p-1">
               {POSITIONS.map((p) => (
                 <button
                   key={p}
                   onClick={() => setPosFilter(p)}
                   className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
                     posFilter === p
-                      ? "bg-white/10 text-white"
-                      : "text-slate-500 hover:text-slate-300"
+                      ? "bg-surface-hover text-ink"
+                      : "text-ink-faint hover:text-ink-muted"
                   }`}
                 >
                   {p}
@@ -2426,7 +2436,7 @@ export default function DraftBoard() {
               </span>
               <button
                 onClick={() => setSort({ key: "utility", dir: "desc" })}
-                className="ml-auto shrink-0 rounded-md bg-white/10 px-2 py-0.5 font-medium text-sky-100 transition hover:bg-white/15"
+                className="ml-auto shrink-0 rounded-md bg-surface-hover px-2 py-0.5 font-medium text-sky-100 transition hover:bg-surface-hover"
               >
                 Back to ranking
               </button>
@@ -2435,7 +2445,7 @@ export default function DraftBoard() {
 
           <div className="card overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-sm">
+              <table className="w-full border-collapse text-cell">
                 {/* Not sticky, deliberately: the table sits inside two
                     clipping ancestors (the card's rounded overflow and the
                     horizontal-scroll wrapper), and `position: sticky` resolves
@@ -2444,8 +2454,8 @@ export default function DraftBoard() {
                     Making it work means giving the list its own fixed-height
                     scroller, which is a bigger change than it's worth here. */}
                 <thead>
-                  <tr className="bg-white/[0.03] text-slate-500">
-                    <th className="w-8 py-2.5 pl-3 pr-1 text-right text-[11px] font-medium uppercase tracking-wider sm:w-10 sm:pl-4 sm:pr-2">#</th>
+                  <tr className="bg-surface-raised text-ink-faint">
+                    <th className="w-8 py-2 pl-3 pr-1 text-right text-head font-medium uppercase sm:w-10 sm:pl-4 sm:pr-2">#</th>
                     {SORT_COLUMNS.map((c) => (
                       <SortHeader
                         key={c.key}
@@ -2466,6 +2476,7 @@ export default function DraftBoard() {
                       key={p.player_id}
                       player={p}
                       rank={i + 1}
+                      posRank={posRanks.get(p.player_id)}
                       // Marks the board's pick wherever it lands in the current
                       // sort - which the old hero card couldn't do, because it
                       // sat outside the list entirely.
@@ -2482,17 +2493,17 @@ export default function DraftBoard() {
                   {!loading && filtered.length === 0 && (
                     <tr>
                       <td colSpan={10} className="px-4 py-14 text-center">
-                        <Search size={18} className="mx-auto mb-2 text-slate-700" />
-                        <div className="text-sm text-slate-400">No players match your filters</div>
+                        <Search size={18} className="mx-auto mb-2 text-ink-ghost" />
+                        <div className="text-sm text-ink-muted">No players match your filters</div>
                         {/* Says which filters, since two are active at once
                             often enough that "no results" alone is a puzzle. */}
-                        <div className="mt-1 text-xs text-slate-600">
+                        <div className="mt-1 text-xs text-ink-ghost">
                           {query ? <>Nothing named “{query}”</> : "Nothing left"}
                           {posFilter !== "ALL" && <> at {posFilter}</>}.
                           {(query || posFilter !== "ALL") && (
                             <button
                               onClick={() => { setQueryInput(""); setQuery(""); setPosFilter("ALL"); }}
-                              className="ml-1.5 text-slate-400 underline underline-offset-2 hover:text-slate-200"
+                              className="ml-1.5 text-ink-muted underline underline-offset-2 hover:text-ink"
                             >
                               Clear filters
                             </button>

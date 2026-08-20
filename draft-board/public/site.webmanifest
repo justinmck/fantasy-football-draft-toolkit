@@ -4,12 +4,29 @@
   "description": "Live fantasy draft recommendations that account for your open roster slots, how long a player will last, and how much the projection can be trusted.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#020617",
-  "theme_color": "#020617",
+  "background_color": "#0a0e14",
+  "theme_color": "#0a0e14",
   "icons": [
-    { "src": "/favicon.svg", "type": "image/svg+xml", "sizes": "any" },
-    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192" },
-    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512" },
-    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "maskable" }
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    },
+    {
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    }
   ]
 }

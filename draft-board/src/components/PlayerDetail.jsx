@@ -8,10 +8,10 @@ import { Badge, Button, Meter, PositionChip } from "./primitives";
 const Stat = ({ label, value, hint, accent }) => (
   <div>
     <div className="label">{label}</div>
-    <div className={`tabular mt-0.5 text-lg font-semibold ${accent ? "text-emerald-400" : "text-slate-200"}`}>
+    <div className={`tabular mt-0.5 text-lg font-semibold ${accent ? "text-emerald-400" : "text-ink"}`}>
       {value}
     </div>
-    {hint && <div className="mt-0.5 text-[11px] text-slate-500">{hint}</div>}
+    {hint && <div className="mt-0.5 text-[11px] text-ink-faint">{hint}</div>}
   </div>
 );
 
@@ -29,11 +29,11 @@ function needSplitHint(player) {
 }
 
 const Row = ({ label, value, hint }) => (
-  <div className="flex items-baseline justify-between gap-3 border-b border-white/5 py-2 last:border-b-0">
-    <span className="text-xs text-slate-400">{label}</span>
-    <span className="tabular text-sm font-medium text-slate-200">
+  <div className="flex items-baseline justify-between gap-3 border-b border-line/60 py-2 last:border-b-0">
+    <span className="text-xs text-ink-muted">{label}</span>
+    <span className="tabular text-sm font-medium text-ink">
       {value}
-      {hint && <span className="ml-1.5 text-[11px] font-normal text-slate-500">{hint}</span>}
+      {hint && <span className="ml-1.5 text-[11px] font-normal text-ink-faint">{hint}</span>}
     </span>
   </div>
 );
@@ -53,11 +53,11 @@ export function PlayerInlineDetail({ player, onOpenFull, onDraft, onTaken, readO
   const played = games > 0;
 
   return (
-    <div className="grid gap-5 border-t border-white/5 bg-slate-950/40 px-4 py-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
+    <div className="grid gap-5 border-t border-line/60 bg-surface/40 px-4 py-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_auto]">
       <div>
         <h4 className="label mb-1.5">Last season</h4>
         {isRookie || !played ? (
-          <p className="rounded-lg bg-white/[0.03] px-3 py-2.5 text-xs leading-relaxed text-slate-500">
+          <p className="rounded-lg bg-surface-raised px-3 py-2.5 text-xs leading-relaxed text-ink-faint">
             {isRookie
               ? "No prior-season production on record — the projection has no history behind it."
               : !hasGamesData
@@ -65,7 +65,7 @@ export function PlayerInlineDetail({ player, onOpenFull, onDraft, onTaken, readO
               : "On record, but no games played last season."}
           </p>
         ) : (
-          <div className="rounded-lg bg-white/[0.03] px-3 py-1">
+          <div className="rounded-lg bg-surface-raised px-3 py-1">
             <Row label="Fantasy points" value={fmt(player.points_last_year, 0)} />
             <Row label="Points per game" value={fmt(player.avg_last_year, 1)} />
             <Row label="Games played" value={fmt(games, 0)} hint="of 17" />
@@ -75,7 +75,7 @@ export function PlayerInlineDetail({ player, onOpenFull, onDraft, onTaken, readO
 
       <div>
         <h4 className="label mb-1.5">How the score is built</h4>
-        <div className="rounded-lg bg-white/[0.03] px-3 py-1">
+        <div className="rounded-lg bg-surface-raised px-3 py-1">
           <Row label="Value (VORP, position-adj.)" value={fmt(player.base_value, 0)} />
           <Row label="× Roster need" value={`${fmt(player.pos_weight, 2)}×`} />
           <Row label="× Pick timing" value={`${fmt(player.adp_mult, 2)}×`} />
@@ -139,16 +139,16 @@ export default function PlayerDetail({ player, nextPick, adpYear, onClose, onDra
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end" role="dialog" aria-modal="true">
-      <div className="absolute inset-0 bg-slate-950/70" onClick={onClose} />
+      <div className="absolute inset-0 bg-surface/70" onClick={onClose} />
 
-      <aside className="scroll-slim relative flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-white/10 bg-slate-900 shadow-2xl">
-        <header className="sticky top-0 z-10 border-b border-white/5 bg-slate-900/95 px-5 py-4 backdrop-blur">
+      <aside className="scroll-slim relative flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-line bg-surface-panel shadow-lg shadow-black/60">
+        <header className="sticky top-0 z-10 border-b border-line/60 bg-surface-panel/95 px-5 py-4 backdrop-blur">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <h2 className="text-xl font-semibold tracking-tight">{player.player_name}</h2>
                 <PositionChip position={player.position} />
-                <span className="text-sm text-slate-500">{player.pro_team}</span>
+                <span className="text-sm text-ink-faint">{player.pro_team}</span>
                 {isRookie && (
                   <Badge
                     tone="warn"
@@ -166,7 +166,7 @@ export default function PlayerDetail({ player, nextPick, adpYear, onClose, onDra
             <button
               onClick={onClose}
               title="Close"
-              className="shrink-0 rounded-lg border border-white/10 p-1.5 text-slate-400 transition hover:bg-white/5 hover:text-white"
+              className="shrink-0 rounded-lg border border-line p-1.5 text-ink-muted transition hover:bg-surface-raised hover:text-ink"
             >
               <X size={16} />
             </button>
@@ -203,12 +203,12 @@ export default function PlayerDetail({ player, nextPick, adpYear, onClose, onDra
                 <span className="label flex items-center gap-1.5">
                   <Timer size={12} /> Still there at pick {nextPick}
                 </span>
-                <span className="tabular text-sm font-semibold text-slate-200">
+                <span className="tabular text-sm font-semibold text-ink">
                   {pct(player.availability)}
                 </span>
               </div>
               <Meter value={player.availability} tone={urgency.tone} />
-              <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+              <p className="mt-1.5 text-xs leading-relaxed text-ink-faint">
                 {urgency.label}. Estimated from where the market drafts them
                 {adpYear ? ` (${adpYear} ADP)` : ""} and how far away your next turn is.
               </p>
@@ -216,11 +216,11 @@ export default function PlayerDetail({ player, nextPick, adpYear, onClose, onDra
                   repeatable way, so both are shown rather than quietly
                   substituting one for the other. */}
               {player.bias_reason && Number.isFinite(Number(player.bias_shift)) && (
-                <div className="mt-2 rounded-lg border border-white/5 bg-white/[0.03] px-3 py-2">
+                <div className="mt-2 rounded-lg border border-line/60 bg-surface-raised px-3 py-2">
                   <div className="tabular flex items-baseline gap-2 text-xs">
-                    <span className="text-slate-500">ADP {fmtAdp(player.adp)}</span>
-                    <span className="text-slate-600">→</span>
-                    <span className="font-semibold text-slate-200">
+                    <span className="text-ink-faint">ADP {fmtAdp(player.adp)}</span>
+                    <span className="text-ink-ghost">→</span>
+                    <span className="font-semibold text-ink">
                       your league ≈ {fmt(player.league_pick_est, 0)}
                     </span>
                     <span className={Number(player.bias_shift) < 0 ? "text-rose-300" : "text-emerald-300"}>
@@ -228,7 +228,7 @@ export default function PlayerDetail({ player, nextPick, adpYear, onClose, onDra
                       {fmt(player.bias_shift, 0)})
                     </span>
                   </div>
-                  <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                  <p className="mt-1 text-[11px] leading-relaxed text-ink-faint">
                     {player.bias_reason}. Timing only — this doesn't change their value.
                   </p>
                 </div>
@@ -243,17 +243,17 @@ export default function PlayerDetail({ player, nextPick, adpYear, onClose, onDra
                 <span className="label flex items-center gap-1.5">
                   <ShieldCheck size={12} /> Confidence
                 </span>
-                <span className="tabular text-sm font-semibold text-slate-200">
+                <span className="tabular text-sm font-semibold text-ink">
                   {pct(player.confidence)}
                 </span>
               </div>
               <Meter value={player.confidence} tone={conf.tone} />
-              <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+              <p className="mt-1.5 text-xs leading-relaxed text-ink-faint">
                 {conf.label}.
                 {player.reliability != null && (
                   <>
                     {" "}Projections at {player.position} have historically explained{" "}
-                    <strong className="text-slate-400">{pct(player.reliability)}</strong> of the
+                    <strong className="text-ink-muted">{pct(player.reliability)}</strong> of the
                     variance in what those players actually delivered
                     {player.position_rmse != null && (
                       <> (typical miss {fmt(player.position_rmse, 0)} VORP)</>
@@ -277,11 +277,11 @@ export default function PlayerDetail({ player, nextPick, adpYear, onClose, onDra
                 </p>
               )}
               {player.ci_low != null && player.ci_high != null && (
-                <div className="mt-3 rounded-lg bg-white/[0.03] px-3 py-2">
+                <div className="mt-3 rounded-lg bg-surface-raised px-3 py-2">
                   <div className="label mb-1">Plausible range</div>
-                  <div className="tabular text-sm text-slate-300">
+                  <div className="tabular text-sm text-ink-muted">
                     {fmt(player.ci_low, 0)} – {fmt(player.ci_high, 0)}
-                    <span className="ml-2 text-xs text-slate-500">
+                    <span className="ml-2 text-xs text-ink-faint">
                       VORP, 90% interval around {fmt(player.predicted_vorp, 0)}
                     </span>
                   </div>
@@ -294,7 +294,7 @@ export default function PlayerDetail({ player, nextPick, adpYear, onClose, onDra
           <section>
             <h3 className="label mb-2">Last season</h3>
             {isRookie || !played ? (
-              <p className="rounded-lg bg-white/[0.03] px-3 py-3 text-xs leading-relaxed text-slate-500">
+              <p className="rounded-lg bg-surface-raised px-3 py-3 text-xs leading-relaxed text-ink-faint">
                 {isRookie
                   ? "No prior-season production on record — either a rookie, or a player who didn't record stats last season. Everything above rests on the preseason projection alone."
                   : !hasGamesData
@@ -302,7 +302,7 @@ export default function PlayerDetail({ player, nextPick, adpYear, onClose, onDra
                   : "On record but with no games played last season, so there's no recent production to check the projection against."}
               </p>
             ) : (
-              <div className="rounded-lg bg-white/[0.03] px-3 py-1">
+              <div className="rounded-lg bg-surface-raised px-3 py-1">
                 <Row label="Fantasy points" value={fmt(player.points_last_year, 0)} />
                 <Row label="Points per game" value={fmt(player.avg_last_year, 1)} />
                 <Row label="Games played" value={fmt(games, 0)} hint="of 17" />
@@ -329,7 +329,7 @@ export default function PlayerDetail({ player, nextPick, adpYear, onClose, onDra
           {/* --- Scoring breakdown --- */}
           <section>
             <h3 className="label mb-2">How the score is built</h3>
-            <div className="rounded-lg bg-white/[0.03] px-3 py-1">
+            <div className="rounded-lg bg-surface-raised px-3 py-1">
               <Row label="Value (VORP, position-adjusted)" value={fmt(player.base_value, 0)} />
               <Row
                 label="× Roster need"
@@ -340,7 +340,7 @@ export default function PlayerDetail({ player, nextPick, adpYear, onClose, onDra
               <Row label="× Confidence" value={`${fmt(player.risk_mult, 2)}×`} />
               <Row label="= Score" value={fmt(player.utility, 0)} />
             </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+            <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">
               Small projected-points and recency terms are added on top, which is why the product
               above won't match the score exactly.
             </p>

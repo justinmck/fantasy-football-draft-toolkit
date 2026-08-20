@@ -35,25 +35,25 @@ import { PositionChip } from "./primitives";
 
 const Section = ({ id, icon, eyebrow, title, blurb, action, children }) => (
   <section id={id} className="card scroll-mt-20 p-5 sm:p-6">
-    {eyebrow && <div className="label mb-1.5 text-emerald-400/70">{eyebrow}</div>}
+    {eyebrow && <div className="label mb-1.5 text-accent-hover">{eyebrow}</div>}
     <div className="mb-2 flex items-start gap-2">
       <span className="mt-0.5 shrink-0 text-emerald-400">{icon}</span>
-      <h2 className="text-lg font-semibold tracking-tight text-slate-100">{title}</h2>
+      <h2 className="text-lg font-semibold tracking-tight text-ink">{title}</h2>
       {/* Share sits on the title row of the sections worth sending, so it
           reads as part of the finding rather than a toolbar over the page. */}
       {action && <div className="ml-auto">{action}</div>}
     </div>
-    {blurb && <div className="mb-5 max-w-3xl text-sm leading-relaxed text-slate-400">{blurb}</div>}
+    {blurb && <div className="mb-5 max-w-3xl text-sm leading-relaxed text-ink-muted">{blurb}</div>}
     {children}
   </section>
 );
 
 const Sub = ({ children }) => (
-  <h3 className="mb-2 mt-6 text-sm font-semibold text-slate-200 first:mt-0">{children}</h3>
+  <h3 className="mb-2 mt-6 text-sm font-semibold text-ink first:mt-0">{children}</h3>
 );
 
 const Note = ({ children }) => (
-  <p className="mt-3 max-w-3xl text-xs leading-relaxed text-slate-500">{children}</p>
+  <p className="mt-3 max-w-3xl text-xs leading-relaxed text-ink-faint">{children}</p>
 );
 
 /** A conclusion, stated plainly. Used sparingly — one per section at most. */
@@ -70,10 +70,10 @@ const Verdict = ({ tone = "calm", children }) => {
   );
 };
 
-const Figure = ({ value, label, tone = "text-slate-100" }) => (
-  <div className="rounded-xl border border-white/5 bg-white/[0.03] px-4 py-3">
+const Figure = ({ value, label, tone = "text-ink" }) => (
+  <div className="rounded-xl border border-line/60 bg-surface-raised px-4 py-3">
     <div className={`tabular text-2xl font-semibold ${tone}`}>{value}</div>
-    <div className="mt-0.5 text-xs leading-snug text-slate-500">{label}</div>
+    <div className="mt-0.5 text-xs leading-snug text-ink-faint">{label}</div>
   </div>
 );
 
@@ -86,8 +86,8 @@ const DivergingBar = ({ value, max }) => {
   const half = Math.min(Math.abs(value) / (max || 1), 1) * 50;
   const positive = value >= 0;
   return (
-    <div className="relative h-2 w-full overflow-hidden rounded-full bg-white/[0.06]">
-      <div className="absolute inset-y-0 left-1/2 w-px bg-white/20" />
+    <div className="relative h-2 w-full overflow-hidden rounded-full bg-surface-hover">
+      <div className="absolute inset-y-0 left-1/2 w-px bg-line-strong" />
       <div
         className={`absolute inset-y-0 rounded-full ${positive ? "bg-emerald-400" : "bg-rose-400"}`}
         style={positive ? { left: "50%", width: `${half}%` } : { right: "50%", width: `${half}%` }}
@@ -97,7 +97,7 @@ const DivergingBar = ({ value, max }) => {
 };
 
 const ShareBar = ({ value, tone = "bg-sky-400" }) => (
-  <div className="h-2 w-full overflow-hidden rounded-full bg-white/[0.06]">
+  <div className="h-2 w-full overflow-hidden rounded-full bg-surface-hover">
     <div
       className={`h-full rounded-full ${tone}`}
       style={{ width: `${Math.max(0, Math.min(1, value || 0)) * 100}%` }}
@@ -109,7 +109,7 @@ const Table = ({ head, children, align = [] }) => (
   <div className="overflow-x-auto">
     <table className="w-full border-collapse text-sm">
       <thead>
-        <tr className="text-slate-500">
+        <tr className="text-ink-faint">
           {head.map((h, i) => (
             <th
               key={h}
@@ -194,11 +194,11 @@ function RunGate({ leagueName, status, onRun, job, error }) {
   return (
     <div className="mx-auto max-w-3xl p-4">
       <div className="card p-6 sm:p-8">
-        <div className="label mb-1.5 text-emerald-400/70">Analysis</div>
-        <h1 className="text-xl font-semibold tracking-tight text-slate-100">
+        <div className="label mb-1.5 text-accent-hover">Analysis</div>
+        <h1 className="text-xl font-semibold tracking-tight text-ink">
           Analyse {leagueName || "this league"}
         </h1>
-        <p className="mt-2 text-sm leading-relaxed text-slate-400">
+        <p className="mt-2 text-sm leading-relaxed text-ink-muted">
           This reads your league's completed drafts and finished seasons out of ESPN and grades
           them. Nothing is precomputed — it's built from this league's own history, so the numbers
           describe the people you actually draft against.
@@ -209,15 +209,15 @@ function RunGate({ leagueName, status, onRun, job, error }) {
             <div key={p.title} className="flex gap-3">
               <span className="mt-0.5 shrink-0 text-emerald-400">{p.icon}</span>
               <div>
-                <div className="text-sm font-medium text-slate-200">
+                <div className="text-sm font-medium text-ink">
                   {p.title}
                   {p.needsHistory && (
-                    <span className="ml-2 rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-slate-500">
+                    <span className="ml-2 rounded bg-surface-raised px-1.5 py-0.5 text-[10px] text-ink-faint">
                       needs prior seasons
                     </span>
                   )}
                 </div>
-                <div className="text-xs leading-relaxed text-slate-500">{p.body}</div>
+                <div className="text-xs leading-relaxed text-ink-faint">{p.body}</div>
               </div>
             </div>
           ))}
@@ -259,15 +259,15 @@ function RunGate({ leagueName, status, onRun, job, error }) {
 
         {running ? (
           <div className="mt-6">
-            <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
+            <div className="mb-2 flex items-center justify-between text-xs text-ink-muted">
               <span>{job.message || "Working…"}</span>
               <span className="tabular">{Math.round((job.progress || 0) * 100)}%</span>
             </div>
-            <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-hover">
               <div className="h-full rounded-full bg-emerald-400 transition-all"
                    style={{ width: `${Math.max(3, (job.progress || 0) * 100)}%` }} />
             </div>
-            <p className="mt-2 text-xs text-slate-600">
+            <p className="mt-2 text-xs text-ink-ghost">
               Pulling several seasons of box scores takes a minute or two. You can go back to the
               board — this keeps running.
             </p>
@@ -276,8 +276,8 @@ function RunGate({ leagueName, status, onRun, job, error }) {
           <button
             onClick={() => onRun()}
             disabled={status === null}
-            className="mt-6 h-11 w-full rounded-lg bg-emerald-500 text-sm font-semibold text-slate-950
-              transition hover:bg-emerald-400 disabled:opacity-50"
+            className="mt-6 h-11 w-full rounded-lg bg-accent text-sm font-semibold text-white
+ transition hover:bg-accent-hover disabled:opacity-50"
           >
             {has ? "Run analysis" : "Run analysis (pulls this league's history)"}
           </button>
@@ -286,7 +286,7 @@ function RunGate({ leagueName, status, onRun, job, error }) {
         {has && !running && (
           <button
             onClick={() => onRun({ pull: true })}
-            className="mt-2 w-full text-center text-xs text-slate-500 hover:text-slate-300"
+            className="mt-2 w-full text-center text-xs text-ink-faint hover:text-ink-muted"
           >
             Re-pull from ESPN first
           </button>
@@ -423,7 +423,7 @@ export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
   }
 
   if (data === "loading") {
-    return <div className="mx-auto max-w-5xl p-8 text-sm text-slate-500">Building the analysis…</div>;
+    return <div className="mx-auto max-w-5xl p-8 text-sm text-ink-faint">Building the analysis…</div>;
   }
 
   return (
@@ -441,11 +441,11 @@ export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
           retrospective sections all describe one season, and this is which. */}
       {data.seasons?.length > 1 && (
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl
-          border border-white/10 bg-white/[0.02] px-4 py-3">
+ border border-line bg-surface-panel px-4 py-3">
           <YearSwitcher seasons={data.seasons} year={data.year} onPick={showYear} busy={switching} />
           {/* Two different things happen when this changes, and saying which
               is which stops the projection numbers looking unresponsive. */}
-          <span className="max-w-sm text-xs leading-relaxed text-slate-600">
+          <span className="max-w-sm text-xs leading-relaxed text-ink-ghost">
             Sections naming a season show that one. The projection and market sections pool every
             season up to it, so they widen as you move forward.
           </span>
@@ -497,12 +497,12 @@ function YearSwitcher({ seasons, year, onPick, busy }) {
       {/* Arrows as well as chips: stepping back one year at a time is how you
           actually read a trend, and it's one target instead of aiming at a
           different chip each time. */}
-      <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-slate-900 p-1">
+      <div className="flex items-center gap-1 rounded-lg border border-line bg-surface-panel p-1">
         <button
           onClick={() => step(-1)}
           disabled={i <= 0 || busy}
           aria-label="Earlier season"
-          className="rounded p-1 text-slate-500 transition hover:text-slate-200 disabled:opacity-25"
+          className="rounded p-1 text-ink-faint transition hover:text-ink disabled:opacity-25"
         >
           <ChevronLeft size={14} />
         </button>
@@ -514,7 +514,7 @@ function YearSwitcher({ seasons, year, onPick, busy }) {
             aria-current={y === year ? "true" : undefined}
             disabled={busy}
             className={`tabular rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
-              y === year ? "bg-white/10 text-white" : "text-slate-500 hover:text-slate-300"
+              y === year ? "bg-surface-hover text-ink" : "text-ink-faint hover:text-ink-muted"
             }`}
           >
             {y}
@@ -525,37 +525,37 @@ function YearSwitcher({ seasons, year, onPick, busy }) {
           onClick={() => step(1)}
           disabled={i < 0 || i >= seasons.length - 1 || busy}
           aria-label="Later season"
-          className="rounded p-1 text-slate-500 transition hover:text-slate-200 disabled:opacity-25"
+          className="rounded p-1 text-ink-faint transition hover:text-ink disabled:opacity-25"
         >
           <ChevronRight size={14} />
         </button>
       </div>
 
-      {busy && <span className="text-xs text-slate-500">Loading…</span>}
+      {busy && <span className="text-xs text-ink-faint">Loading…</span>}
     </div>
   );
 }
 
 const Intro = ({ data, leagueName }) => (
   <div className="card p-5 sm:p-6">
-    <div className="label mb-1.5 text-emerald-400/70">
+    <div className="label mb-1.5 text-accent-hover">
       {leagueName || "This league"}
       {data.seasons?.length ? ` · ${data.seasons.join(", ")}` : ""}
     </div>
-    <h1 className="text-xl font-semibold tracking-tight text-slate-100">
+    <h1 className="text-xl font-semibold tracking-tight text-ink">
       What the board is built on
     </h1>
-    <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-400">
+    <p className="mt-2 max-w-3xl text-sm leading-relaxed text-ink-muted">
       Five notebooks sit behind the draft board. They pull{" "}
-      <strong className="text-slate-300">{leagueName || "this league"}</strong>'s history out of
+      <strong className="text-ink-muted">{leagueName || "this league"}</strong>'s history out of
       ESPN, clean it, measure who actually drafted well, fit and validate a next-season projection,
       and then grade how much that projection was worth. This page is all of it in one place — the
       methods, the numbers, and what they mean.
     </p>
-    <p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-400">
+    <p className="mt-3 max-w-3xl text-sm leading-relaxed text-ink-muted">
       Everything below is recomputed from the database each time this page loads, so it can never
       disagree with the board itself. Retrospective figures cover the{" "}
-      <strong className="text-slate-300">{data.year}</strong> season unless a wider range is stated.
+      <strong className="text-ink-muted">{data.year}</strong> season unless a wider range is stated.
     </p>
     {/* The first claim is a measurement, so it's only made where it was
         measured. Stating it for a league with no completed drafts would be
@@ -582,10 +582,10 @@ const Contents = () => (
         <a
           key={s.id}
           href={`#${s.id}`}
-          className="rounded-md bg-white/[0.04] px-2.5 py-1 text-xs text-slate-400 transition
-            hover:bg-white/10 hover:text-slate-200"
+          className="rounded-md bg-surface-raised px-2.5 py-1 text-xs text-ink-muted transition
+ hover:bg-surface-hover hover:text-ink"
         >
-          <span className="tabular mr-1.5 text-slate-600">{i + 1}</span>
+          <span className="tabular mr-1.5 text-ink-ghost">{i + 1}</span>
           {s.label}
         </a>
       ))}
@@ -615,11 +615,11 @@ function DataSection({ data }) {
     >
       <Table head={["Table", "What it holds", "Seasons", "Rows"]} align={["left", "left", "left", "right"]}>
         {tables.map((t) => (
-          <tr key={t.table} className="border-t border-white/5">
-            <td className="py-2 pr-3 font-medium text-slate-200">{t.label}</td>
-            <td className="py-2 pr-3 text-xs text-slate-500">{t.blurb}</td>
-            <td className="tabular py-2 pr-3 text-xs text-slate-400">{t.years || "—"}</td>
-            <td className="tabular py-2 text-right font-semibold text-slate-300">
+          <tr key={t.table} className="border-t border-line/60">
+            <td className="py-2 pr-3 font-medium text-ink">{t.label}</td>
+            <td className="py-2 pr-3 text-xs text-ink-faint">{t.blurb}</td>
+            <td className="tabular py-2 pr-3 text-xs text-ink-muted">{t.years || "—"}</td>
+            <td className="tabular py-2 text-right font-semibold text-ink-muted">
               {t.rows.toLocaleString()}
             </td>
           </tr>
@@ -628,28 +628,28 @@ function DataSection({ data }) {
 
       <Sub>Two data problems worth knowing about</Sub>
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-lg border border-white/5 bg-white/[0.02] p-3.5">
+        <div className="rounded-lg border border-line/60 bg-surface-panel p-3.5">
           <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-amber-300">
             <AlertTriangle size={12} /> The position column wasn't position
           </div>
-          <p className="text-xs leading-relaxed text-slate-400">
-            ESPN exposes both <code className="text-slate-300">lineupSlot</code> (where a player sat
+          <p className="text-xs leading-relaxed text-ink-muted">
+            ESPN exposes both <code className="text-ink-muted">lineupSlot</code> (where a player sat
             that week — "BE" for bench, "RB/WR/TE" for a flex start) and{" "}
-            <code className="text-slate-300">eligibleSlots</code> (every slot they're allowed to
+            <code className="text-ink-muted">eligibleSlots</code> (every slot they're allowed to
             fill, which is a property of the player). This project originally recorded the former as{" "}
-            <code className="text-slate-300">position</code>, so about 76% of every season arrived
+            <code className="text-ink-muted">position</code>, so about 76% of every season arrived
             labelled "BE" or "0" and was silently dropped by every downstream position filter — and
             the quarter that survived was biased toward players good enough to hold a named starting
-            slot. Deriving from <code className="text-slate-300">eligibleSlots</code> recovers 99.97%
+            slot. Deriving from <code className="text-ink-muted">eligibleSlots</code> recovers 99.97%
             of rows and agrees with the old labels wherever they were already right. It roughly
             quadrupled every sample on this page.
           </p>
         </div>
-        <div className="rounded-lg border border-white/5 bg-white/[0.02] p-3.5">
+        <div className="rounded-lg border border-line/60 bg-surface-panel p-3.5">
           <div className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-amber-300">
             <AlertTriangle size={12} /> {broken.join(", ") || "2023"} is excluded
           </div>
-          <p className="text-xs leading-relaxed text-slate-400">
+          <p className="text-xs leading-relaxed text-ink-muted">
             That season has a genuine extraction gap: projected points were recorded as 0.0 for 392
             of 480 players. Patrick Mahomes shows 267 actual points against a projection of zero —
             these aren't legitimate zero projections, they're missing data. Filtering them leaves 88
@@ -690,9 +690,9 @@ function ReplacementSection({ data }) {
         </>
       }
     >
-      <p className="mb-4 max-w-3xl text-sm leading-relaxed text-slate-400">
+      <p className="mb-4 max-w-3xl text-sm leading-relaxed text-ink-muted">
         Replacement is defined as the last player at a position who'd still be starting somewhere in
-        the league: the <strong className="text-slate-300">Nth best</strong>, where N = teams ×
+        the league: the <strong className="text-ink-muted">Nth best</strong>, where N = teams ×
         starters at that position, plus that position's share of the FLEX slot. For this league
         that's {rl.teams ?? data.teams_in_league} teams starting{" "}
         {needs.map(([k, v]) => `${v} ${k}`).join(", ")}.
@@ -704,14 +704,14 @@ function ReplacementSection({ data }) {
           align={["left", "right", "right", "right", "right"]}
         >
           {rows.map((r) => (
-            <tr key={r.position} className="border-t border-white/5">
+            <tr key={r.position} className="border-t border-line/60">
               <td className="py-2 pr-3"><PositionChip position={r.position} /></td>
-              <td className="tabular py-2 pr-3 text-right text-slate-400">{r.starters_league_wide}</td>
-              <td className="tabular py-2 pr-3 text-right font-semibold text-slate-200">
+              <td className="tabular py-2 pr-3 text-right text-ink-muted">{r.starters_league_wide}</td>
+              <td className="tabular py-2 pr-3 text-right font-semibold text-ink">
                 {fmt(r.baseline_points, 0)}
               </td>
-              <td className="tabular py-2 pr-3 text-right text-slate-400">{fmt(r.best_points, 0)}</td>
-              <td className="tabular py-2 text-right text-slate-600">{r.pool}</td>
+              <td className="tabular py-2 pr-3 text-right text-ink-muted">{fmt(r.best_points, 0)}</td>
+              <td className="tabular py-2 text-right text-ink-ghost">{r.pool}</td>
             </tr>
           ))}
         </Table>
@@ -729,8 +729,8 @@ function ReplacementSection({ data }) {
         roughly fit a 14-team league, weren't derived from the actual roster settings, and disagreed
         with the three other places the codebase separately computed VORP. One of those branches had
         a real bug: it returned the replacement player's raw points instead of{" "}
-        <code className="text-slate-300">points − replacement</code>, making QB and RB "VORP" a
-        constant. There is now one implementation, in <code className="text-slate-300">src/scoring.py</code>,
+        <code className="text-ink-muted">points − replacement</code>, making QB and RB "VORP" a
+        constant. There is now one implementation, in <code className="text-ink-muted">src/scoring.py</code>,
         shared by every notebook and by the live API.
       </Note>
     </Section>
@@ -830,7 +830,7 @@ function DraftPerformanceSection({ data, leagueName, myTeamName }) {
             <Figure
               value={fmt(corr.r, 2)}
               label="Pearson r — draft VORP vs. final standing"
-              tone={Math.abs(corr.r) >= 0.4 ? "text-emerald-400" : "text-slate-100"}
+              tone={Math.abs(corr.r) >= 0.4 ? "text-emerald-400" : "text-ink"}
             />
             <Figure
               value={corr.p < 0.001 ? "< 0.001" : fmt(corr.p, 3)}
@@ -872,11 +872,11 @@ function DraftPerformanceSection({ data, leagueName, myTeamName }) {
       <div className="space-y-2">
         {teams.map((t, i) => (
           <div key={t.team_name} className="grid grid-cols-[1.5rem_minmax(0,1fr)_4.5rem] items-center gap-3">
-            <span className="tabular text-xs text-slate-600">{i + 1}</span>
+            <span className="tabular text-xs text-ink-ghost">{i + 1}</span>
             <div className="min-w-0">
               <div className="mb-1 flex items-baseline justify-between gap-2">
-                <span className="truncate text-sm text-slate-300">{t.team_name}</span>
-                <span className="tabular shrink-0 text-xs text-slate-500">
+                <span className="truncate text-sm text-ink-muted">{t.team_name}</span>
+                <span className="tabular shrink-0 text-xs text-ink-faint">
                   {fmt(t.avg_vorp, 1)} avg VORP
                 </span>
               </div>
@@ -884,7 +884,7 @@ function DraftPerformanceSection({ data, leagueName, myTeamName }) {
             </div>
             <span
               className={`tabular text-right text-xs font-semibold ${
-                t.final_standing <= 3 ? "text-emerald-400" : "text-slate-500"
+                t.final_standing <= 3 ? "text-emerald-400" : "text-ink-faint"
               }`}
             >
               {ordinal(t.final_standing)}
@@ -924,11 +924,11 @@ function RoundsSection({ data }) {
       <div className="space-y-2">
         {rounds.map((r) => (
           <div key={r.round} className="grid grid-cols-[2.5rem_minmax(0,1fr)_7rem] items-center gap-3">
-            <span className="tabular text-xs text-slate-500">R{r.round}</span>
+            <span className="tabular text-xs text-ink-faint">R{r.round}</span>
             <DivergingBar value={r.avg_vorp} max={max} />
-            <span className="tabular text-right text-xs text-slate-400">
+            <span className="tabular text-right text-xs text-ink-muted">
               {fmt(r.avg_vorp, 0)}
-              <span className="ml-2 text-slate-600">{pctOf(r.hit_rate)} hit</span>
+              <span className="ml-2 text-ink-ghost">{pctOf(r.hit_rate)} hit</span>
             </span>
           </div>
         ))}
@@ -947,7 +947,7 @@ function RoundsSection({ data }) {
 
 /** Per-season means as a row of signed bars. Consistency is the argument. */
 function Sparkline({ rows, max }) {
-  if (!rows?.length) return <span className="text-xs text-slate-600">—</span>;
+  if (!rows?.length) return <span className="text-xs text-ink-ghost">—</span>;
   return (
     <div className="flex items-end gap-0.5" title={rows.map((r) => `${r.year}: ${fmt(r.mean, 1)}`).join("  ")}>
       {rows.map((r) => {
@@ -955,7 +955,7 @@ function Sparkline({ rows, max }) {
         const up = r.mean >= 0;
         return (
           <div key={r.year} className="relative h-6 w-2.5">
-            <div className="absolute inset-x-0 top-1/2 h-px bg-white/15" />
+            <div className="absolute inset-x-0 top-1/2 h-px bg-surface-hover" />
             <div
               className={`absolute inset-x-0 rounded-sm ${up ? "bg-emerald-400/80 bottom-1/2" : "bg-rose-400/80 top-1/2"}`}
               style={{ height: `${Math.max(h / 2, 3)}%` }}
@@ -1037,8 +1037,8 @@ function LeagueBiasSection({ data }) {
       <Figures cols={4}>
         <Figure value={meta.n_picks ?? "—"} label="picks with a market price" />
         <Figure value={fmt(meta.resid_sd, 1)} label="typical gap from ADP, in picks" />
-        <Figure value={meta.years?.replace(/,/g, " ") ?? "—"} label="seasons measured" tone="text-slate-300" />
-        <Figure value={`≤ ${fmt(meta.adp_cutoff, 0)}`} label="ADP cutoff (board length)" tone="text-slate-300" />
+        <Figure value={meta.years?.replace(/,/g, " ") ?? "—"} label="seasons measured" tone="text-ink-muted" />
+        <Figure value={`≤ ${fmt(meta.adp_cutoff, 0)}`} label="ADP cutoff (board length)" tone="text-ink-muted" />
       </Figures>
 
       <Verdict tone="info">
@@ -1049,9 +1049,9 @@ function LeagueBiasSection({ data }) {
       </Verdict>
 
       <Sub>By position — applied</Sub>
-      <p className="mb-3 max-w-3xl text-xs leading-relaxed text-slate-500">
+      <p className="mb-3 max-w-3xl text-xs leading-relaxed text-ink-faint">
         All six are shown, including the ones with no effect — hiding the null rows is how a table
-        like this turns into a leaderboard. <strong className="text-slate-400">Shrunk</strong> is the
+        like this turns into a leaderboard. <strong className="text-ink-muted">Shrunk</strong> is the
         number the board actually uses: each estimate is pulled toward zero in proportion to how
         little data supports it.
       </p>
@@ -1060,15 +1060,15 @@ function LeagueBiasSection({ data }) {
         align={["left", "right", "right", "right", "right", "left"]}
       >
         {positions.map((p) => (
-          <tr key={p.position} className="border-t border-white/5">
+          <tr key={p.position} className="border-t border-line/60">
             <td className="py-2 pr-3"><PositionChip position={p.position} /></td>
-            <td className="tabular py-2 pr-3 text-right text-slate-600">{p.n}</td>
-            <td className="tabular py-2 pr-3 text-right text-slate-400">{fmt(p.mean, 1)}</td>
-            <td className={`tabular py-2 pr-3 text-right ${Math.abs(p.t) >= 2 ? "text-slate-300" : "text-slate-600"}`}>
+            <td className="tabular py-2 pr-3 text-right text-ink-ghost">{p.n}</td>
+            <td className="tabular py-2 pr-3 text-right text-ink-muted">{fmt(p.mean, 1)}</td>
+            <td className={`tabular py-2 pr-3 text-right ${Math.abs(p.t) >= 2 ? "text-ink-muted" : "text-ink-ghost"}`}>
               {fmt(p.t, 2)}
             </td>
             <td className={`tabular py-2 pr-3 text-right font-semibold ${
-              Math.abs(p.shrunk) < 2 ? "text-slate-600"
+              Math.abs(p.shrunk) < 2 ? "text-ink-ghost"
                 : p.shrunk < 0 ? "text-rose-300" : "text-emerald-300"}`}>
               {p.shrunk > 0 ? "+" : ""}{fmt(p.shrunk, 1)}
             </td>
@@ -1089,7 +1089,7 @@ function LeagueBiasSection({ data }) {
       {topTeam && (
         <>
           <Sub>By NFL team — applied</Sub>
-          <p className="mb-3 max-w-3xl text-xs leading-relaxed text-slate-500">
+          <p className="mb-3 max-w-3xl text-xs leading-relaxed text-ink-faint">
             Measured after removing each season's position effects, so this isn't just "they draft a
             lot of quarterbacks". Only teams the fit still moves by two or more picks are listed; the
             remaining {32 - teams.length} are inside the noise and a ranked table of them would
@@ -1100,11 +1100,11 @@ function LeagueBiasSection({ data }) {
             align={["left", "right", "right", "right", "right", "left"]}
           >
             {teams.map((t) => (
-              <tr key={t.pro_team} className="border-t border-white/5">
-                <td className="py-2 pr-3 font-medium text-slate-200">{t.pro_team}</td>
-                <td className="tabular py-2 pr-3 text-right text-slate-600">{t.n}</td>
-                <td className="tabular py-2 pr-3 text-right text-slate-400">{fmt(t.mean, 1)}</td>
-                <td className={`tabular py-2 pr-3 text-right ${Math.abs(t.t) >= 2 ? "text-slate-300" : "text-slate-600"}`}>
+              <tr key={t.pro_team} className="border-t border-line/60">
+                <td className="py-2 pr-3 font-medium text-ink">{t.pro_team}</td>
+                <td className="tabular py-2 pr-3 text-right text-ink-ghost">{t.n}</td>
+                <td className="tabular py-2 pr-3 text-right text-ink-muted">{fmt(t.mean, 1)}</td>
+                <td className={`tabular py-2 pr-3 text-right ${Math.abs(t.t) >= 2 ? "text-ink-muted" : "text-ink-ghost"}`}>
                   {fmt(t.t, 2)}
                 </td>
                 <td className={`tabular py-2 pr-3 text-right font-semibold ${t.shrunk < 0 ? "text-rose-300" : "text-emerald-300"}`}>
@@ -1130,19 +1130,19 @@ function LeagueBiasSection({ data }) {
       {managers.length > 0 && (
         <>
           <Sub>By manager — measured, not applied</Sub>
-          <p className="mb-3 max-w-3xl text-xs leading-relaxed text-slate-500">
+          <p className="mb-3 max-w-3xl text-xs leading-relaxed text-ink-faint">
             Some managers reliably reach; others reliably wait. Real, but deliberately{" "}
-            <strong className="text-slate-400">not</strong> applied to the board: this effect belongs
+            <strong className="text-ink-muted">not</strong> applied to the board: this effect belongs
             to a drafter, not a player, and the tool has no idea which of your league-mates is on the
             clock at any given pick. Franchises with fewer than {fullSeasons} seasons are excluded.
           </p>
           <Table head={["Manager", "n", "Mean", "t", "Shrunk"]} align={["left", "right", "right", "right", "right"]}>
             {managers.map((m) => (
-              <tr key={m.team_id} className="border-t border-white/5">
-                <td className="py-2 pr-3 text-slate-300">{m.team_name || `Team ${m.team_id}`}</td>
-                <td className="tabular py-2 pr-3 text-right text-slate-600">{m.n}</td>
-                <td className="tabular py-2 pr-3 text-right text-slate-400">{fmt(m.mean, 1)}</td>
-                <td className="tabular py-2 pr-3 text-right text-slate-500">{fmt(m.t, 2)}</td>
+              <tr key={m.team_id} className="border-t border-line/60">
+                <td className="py-2 pr-3 text-ink-muted">{m.team_name || `Team ${m.team_id}`}</td>
+                <td className="tabular py-2 pr-3 text-right text-ink-ghost">{m.n}</td>
+                <td className="tabular py-2 pr-3 text-right text-ink-muted">{fmt(m.mean, 1)}</td>
+                <td className="tabular py-2 pr-3 text-right text-ink-faint">{fmt(m.t, 2)}</td>
                 <td className={`tabular py-2 text-right font-semibold ${m.shrunk < 0 ? "text-rose-300" : "text-emerald-300"}`}>
                   {m.shrunk > 0 ? "+" : ""}{fmt(m.shrunk, 1)}
                 </td>
@@ -1162,19 +1162,19 @@ function LeagueBiasSection({ data }) {
       {strictPlayers.length > 0 && (
         <>
           <Sub>By player — measured, not applied</Sub>
-          <p className="mb-3 max-w-3xl text-xs leading-relaxed text-slate-500">
+          <p className="mb-3 max-w-3xl text-xs leading-relaxed text-ink-faint">
             Players drafted at least three times, always in the same direction, with a spread smaller
             than the effect itself. {strictPlayers.length > 0 && `${(lb.player || []).filter((p) => p.passes_strict_filter).length} of ${(lb.player || []).length} players clear that bar.`}
           </p>
           <Table head={["Player", "Seasons", "Mean", "Spread"]} align={["left", "right", "right", "right"]}>
             {strictPlayers.map((p) => (
-              <tr key={p.player_id} className="border-t border-white/5">
-                <td className="py-2 pr-3 text-slate-300">{p.player_name}</td>
-                <td className="tabular py-2 pr-3 text-right text-slate-600">{p.n}</td>
+              <tr key={p.player_id} className="border-t border-line/60">
+                <td className="py-2 pr-3 text-ink-muted">{p.player_name}</td>
+                <td className="tabular py-2 pr-3 text-right text-ink-ghost">{p.n}</td>
                 <td className={`tabular py-2 pr-3 text-right font-semibold ${p.mean < 0 ? "text-rose-300" : "text-emerald-300"}`}>
                   {p.mean > 0 ? "+" : ""}{fmt(p.mean, 1)}
                 </td>
-                <td className="tabular py-2 text-right text-slate-600">±{fmt(p.sd, 1)}</td>
+                <td className="tabular py-2 text-right text-ink-ghost">±{fmt(p.sd, 1)}</td>
               </tr>
             ))}
           </Table>
@@ -1195,22 +1195,22 @@ function LeagueBiasSection({ data }) {
 
 const PlayerTable = ({ rows, deltaLabel }) =>
   !rows?.length ? (
-    <div className="text-xs text-slate-500">No data.</div>
+    <div className="text-xs text-ink-faint">No data.</div>
   ) : (
     <Table
       head={["Player", "Pos", "Pick", "ADP", deltaLabel, "VORP"]}
       align={["left", "left", "right", "right", "right", "right"]}
     >
       {rows.map((r) => (
-        <tr key={`${r.player_name}-${r.pick}`} className="border-t border-white/5">
+        <tr key={`${r.player_name}-${r.pick}`} className="border-t border-line/60">
           <td className="py-2 pr-3">
-            <div className="font-medium text-slate-200">{r.player_name}</div>
-            <div className="text-[11px] text-slate-600">{r.team_name}</div>
+            <div className="font-medium text-ink">{r.player_name}</div>
+            <div className="text-[11px] text-ink-ghost">{r.team_name}</div>
           </td>
           <td className="py-2 pr-3"><PositionChip position={r.position} /></td>
-          <td className="tabular py-2 pr-3 text-right text-slate-400">{r.pick}</td>
-          <td className="tabular py-2 pr-3 text-right text-slate-400">{fmtAdp(r.adp)}</td>
-          <td className="tabular py-2 pr-3 text-right text-slate-400">
+          <td className="tabular py-2 pr-3 text-right text-ink-muted">{r.pick}</td>
+          <td className="tabular py-2 pr-3 text-right text-ink-muted">{fmtAdp(r.adp)}</td>
+          <td className="tabular py-2 pr-3 text-right text-ink-muted">
             {r.draft_delta > 0 ? "+" : ""}{fmt(r.draft_delta, 0)}
           </td>
           <td className={`tabular py-2 text-right font-semibold ${r.vorp >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
@@ -1329,11 +1329,11 @@ function AccuracySection({ data }) {
       <div className="space-y-2">
         {seasons.map((s) => (
           <div key={s.year} className="grid grid-cols-[3rem_minmax(0,1fr)_9rem] items-center gap-3">
-            <span className="tabular text-xs text-slate-500">{s.year}</span>
+            <span className="tabular text-xs text-ink-faint">{s.year}</span>
             <ShareBar value={Math.max(0, s.r2 ?? 0)} />
-            <span className="tabular text-right text-xs text-slate-400">
+            <span className="tabular text-right text-xs text-ink-muted">
               R² {fmt(s.r2, 2)}
-              <span className="ml-2 text-slate-600">±{fmt(s.rmse, 0)}</span>
+              <span className="ml-2 text-ink-ghost">±{fmt(s.rmse, 0)}</span>
             </span>
           </div>
         ))}
@@ -1382,9 +1382,9 @@ function PositionReliabilitySection({ data }) {
               value={Math.max(0, p.r2 ?? 0)}
               tone={(p.r2 ?? 0) <= 0.05 ? "bg-rose-400" : "bg-sky-400"}
             />
-            <span className="tabular text-right text-xs text-slate-400">
+            <span className="tabular text-right text-xs text-ink-muted">
               R² {fmt(p.r2, 2)}
-              <span className="ml-2 text-slate-600">±{fmt(p.rmse, 0)}</span>
+              <span className="ml-2 text-ink-ghost">±{fmt(p.rmse, 0)}</span>
             </span>
           </div>
         ))}
@@ -1480,8 +1480,8 @@ function BenchmarkSection({ data }) {
         </>
       }
     >
-      <p className="mb-4 max-w-3xl text-sm leading-relaxed text-slate-400">
-        Compared by <strong className="text-slate-300">Spearman rank correlation</strong>, not error:
+      <p className="mb-4 max-w-3xl text-sm leading-relaxed text-ink-muted">
+        Compared by <strong className="text-ink-muted">Spearman rank correlation</strong>, not error:
         ADP is a pick number and VORP is points above replacement, so an error metric between them is
         meaningless. Drafting is an ordering problem anyway — you never need to know a player will
         score 214.7, only that he should go before the next guy on your board.
@@ -1491,16 +1491,16 @@ function BenchmarkSection({ data }) {
         {scopes.map((s) => {
           const won = s.mean_projection > s.mean_market;
           return (
-            <div key={s.scope} className="rounded-lg border border-white/5 bg-white/[0.02] p-3.5">
+            <div key={s.scope} className="rounded-lg border border-line/60 bg-surface-panel p-3.5">
               <div className="mb-2.5 flex flex-wrap items-baseline justify-between gap-2">
-                <span className="text-sm font-semibold text-slate-200">{s.scope}</span>
-                <span className="text-xs text-slate-500">
+                <span className="text-sm font-semibold text-ink">{s.scope}</span>
+                <span className="text-xs text-ink-faint">
                   projection won {s.seasons_won} of {s.seasons} seasons
                 </span>
               </div>
               <div className="space-y-2">
                 <RankerBar label="Projection" value={s.mean_projection} tone="bg-emerald-400" />
-                <RankerBar label="Market (ADP)" value={s.mean_market} tone="bg-slate-400" />
+                <RankerBar label="Market (ADP)" value={s.mean_market} tone="bg-ink-faint" />
               </div>
               <div className={`mt-2 text-[11px] ${won ? "text-emerald-300/80" : "text-amber-300/80"}`}>
                 {won ? "Projection ahead by " : "Market ahead by "}
@@ -1533,9 +1533,9 @@ function BenchmarkSection({ data }) {
 
 const RankerBar = ({ label, value, tone }) => (
   <div className="grid grid-cols-[7rem_minmax(0,1fr)_3rem] items-center gap-3">
-    <span className="text-xs text-slate-400">{label}</span>
+    <span className="text-xs text-ink-muted">{label}</span>
     <ShareBar value={value} tone={tone} />
-    <span className="tabular text-right text-xs text-slate-300">{fmt(value, 3)}</span>
+    <span className="tabular text-right text-xs text-ink-muted">{fmt(value, 3)}</span>
   </div>
 );
 
@@ -1565,10 +1565,10 @@ function ModelSection({ data }) {
       }
     >
       <Sub>Method</Sub>
-      <p className="max-w-3xl text-sm leading-relaxed text-slate-400">
-        A <strong className="text-slate-300">walk-forward split</strong>: train on earlier seasons,
+      <p className="max-w-3xl text-sm leading-relaxed text-ink-muted">
+        A <strong className="text-ink-muted">walk-forward split</strong>: train on earlier seasons,
         hold out the most recent one entirely. Model selection uses{" "}
-        <code className="text-slate-300">GroupKFold</code> cross-validation grouped by season{" "}
+        <code className="text-ink-muted">GroupKFold</code> cross-validation grouped by season{" "}
         <em>within the training years only</em>, so a fold never trains and validates on the same
         season — a random shuffle would let information leak across folds and flatter every model.
         {selected && (
@@ -1584,8 +1584,8 @@ function ModelSection({ data }) {
           <Sub>Model comparison (cross-validated on training seasons)</Sub>
           <Table head={["Model", "CV RMSE", "CV MAE", "CV R²"]} align={["left", "right", "right", "right"]}>
             {models.map((m) => (
-              <tr key={m.model} className={`border-t border-white/5 ${m.selected ? "bg-emerald-500/[0.06]" : ""}`}>
-                <td className="py-2 pr-3 font-medium text-slate-200">
+              <tr key={m.model} className={`border-t border-line/60 ${m.selected ? "bg-emerald-500/[0.06]" : ""}`}>
+                <td className="py-2 pr-3 font-medium text-ink">
                   {m.model}
                   {m.selected === 1 && (
                     <span className="ml-2 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-300">
@@ -1593,9 +1593,9 @@ function ModelSection({ data }) {
                     </span>
                   )}
                 </td>
-                <td className="tabular py-2 pr-3 text-right text-slate-300">{fmt(m.cv_rmse, 2)}</td>
-                <td className="tabular py-2 pr-3 text-right text-slate-400">{fmt(m.cv_mae, 2)}</td>
-                <td className="tabular py-2 text-right text-slate-400">{fmt(m.cv_r2, 3)}</td>
+                <td className="tabular py-2 pr-3 text-right text-ink-muted">{fmt(m.cv_rmse, 2)}</td>
+                <td className="tabular py-2 pr-3 text-right text-ink-muted">{fmt(m.cv_mae, 2)}</td>
+                <td className="tabular py-2 text-right text-ink-muted">{fmt(m.cv_r2, 3)}</td>
               </tr>
             ))}
           </Table>
@@ -1614,7 +1614,7 @@ function ModelSection({ data }) {
       {ablation.length > 0 && (
         <>
           <Sub>Feature ablation — the actual test</Sub>
-          <p className="mb-3 max-w-3xl text-sm leading-relaxed text-slate-400">
+          <p className="mb-3 max-w-3xl text-sm leading-relaxed text-ink-muted">
             Same model, same split, adding one group of features at a time and reading the holdout
             score. This is the honest way to ask "would better features help, or is this the
             ceiling?" — if a group adds nothing on data the model never saw, it adds nothing,
@@ -1625,21 +1625,21 @@ function ModelSection({ data }) {
             align={["left", "right", "right", "right", "right"]}
           >
             {ablation.map((a) => (
-              <tr key={a.feature_set} className="border-t border-white/5">
-                <td className="py-2 pr-3 text-slate-300">{a.feature_set}</td>
-                <td className="tabular py-2 pr-3 text-right text-slate-600">{a.n_features}</td>
-                <td className="tabular py-2 pr-3 text-right font-semibold text-slate-200">
+              <tr key={a.feature_set} className="border-t border-line/60">
+                <td className="py-2 pr-3 text-ink-muted">{a.feature_set}</td>
+                <td className="tabular py-2 pr-3 text-right text-ink-ghost">{a.n_features}</td>
+                <td className="tabular py-2 pr-3 text-right font-semibold text-ink">
                   {fmt(a.holdout_r2, 3)}
                 </td>
                 <td
                   className={`tabular py-2 pr-3 text-right ${
                     (a.r2_gain ?? 0) > 0.001 ? "text-emerald-400"
-                      : (a.r2_gain ?? 0) < -0.001 ? "text-rose-400" : "text-slate-600"
+                      : (a.r2_gain ?? 0) < -0.001 ? "text-rose-400" : "text-ink-ghost"
                   }`}
                 >
                   {a.r2_gain > 0 ? "+" : ""}{fmt(a.r2_gain, 3)}
                 </td>
-                <td className="tabular py-2 text-right text-slate-400">{fmt(a.holdout_rmse, 1)}</td>
+                <td className="tabular py-2 text-right text-ink-muted">{fmt(a.holdout_rmse, 1)}</td>
               </tr>
             ))}
           </Table>
@@ -1660,29 +1660,29 @@ function ModelSection({ data }) {
       {vif.length > 0 && (
         <>
           <Sub>Why the feature set is what it is</Sub>
-          <p className="mb-3 max-w-3xl text-sm leading-relaxed text-slate-400">
+          <p className="mb-3 max-w-3xl text-sm leading-relaxed text-ink-muted">
             Variance inflation factors — regress each candidate on the others and read{" "}
-            <code className="text-slate-300">1 / (1 − R²)</code>. Above ~5 means a feature is largely
+            <code className="text-ink-muted">1 / (1 − R²)</code>. Above ~5 means a feature is largely
             redundant with the rest, which makes coefficients unstable and can flip their signs.
           </p>
           <div className="space-y-2">
             {vif.map((v) => (
               <div key={v.feature} className="grid grid-cols-[minmax(0,1fr)_5rem] items-center gap-3">
                 <div className="flex items-center gap-2">
-                  <code className="truncate text-xs text-slate-300">{v.feature}</code>
+                  <code className="truncate text-xs text-ink-muted">{v.feature}</code>
                   {v.vif > 5 && (
                     <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">
                       collinear
                     </span>
                   )}
                 </div>
-                <span className="tabular text-right text-xs text-slate-400">{fmt(v.vif, 1)}</span>
+                <span className="tabular text-right text-xs text-ink-muted">{fmt(v.vif, 1)}</span>
               </div>
             ))}
           </div>
           <Note>
-            <code className="text-slate-300">projected_points</code> was dropped as a standalone
-            regressor: <code className="text-slate-300">proj_vorp</code> <em>is</em> projected points
+            <code className="text-ink-muted">projected_points</code> was dropped as a standalone
+            regressor: <code className="text-ink-muted">proj_vorp</code> <em>is</em> projected points
             minus a per-position constant, so it already carries both the projection level and
             position scarcity. Keeping both is what produced the original notebook's sign-flipped,
             uninterpretable coefficient. The two usage terms are the most collinear things here (one
@@ -1718,7 +1718,7 @@ function BenchSection({ data }) {
         </>
       }
     >
-      <p className="mb-4 max-w-3xl text-sm leading-relaxed text-slate-400">
+      <p className="mb-4 max-w-3xl text-sm leading-relaxed text-ink-muted">
         Measured on the top startable players by season points — the same replacement-level tier the
         VORP baseline uses. Restricting to that tier matters: including everyone on record would drag
         the rate toward deep-bench players who never appear at all, which measures irrelevance rather
@@ -1729,11 +1729,11 @@ function BenchSection({ data }) {
         align={["left", "right", "right", "right", "left"]}
       >
         {rows.map((r) => (
-          <tr key={r.position} className="border-t border-white/5">
+          <tr key={r.position} className="border-t border-line/60">
             <td className="py-2 pr-3"><PositionChip position={r.position} /></td>
-            <td className="tabular py-2 pr-3 text-right text-slate-300">{pctOf(r.missed_game_rate, 1)}</td>
-            <td className="tabular py-2 pr-3 text-right text-slate-500">{fmt(r.mean_games, 1)}</td>
-            <td className="tabular py-2 pr-3 text-right font-semibold text-slate-200">
+            <td className="tabular py-2 pr-3 text-right text-ink-muted">{pctOf(r.missed_game_rate, 1)}</td>
+            <td className="tabular py-2 pr-3 text-right text-ink-faint">{fmt(r.mean_games, 1)}</td>
+            <td className="tabular py-2 pr-3 text-right font-semibold text-ink">
               {fmt(r.depth_value, 2)}
             </td>
             <td className="w-24 py-2">
@@ -1775,8 +1775,8 @@ const LiveScoreSection = ({ data }) => (
       </>
     }
   >
-    <div className="rounded-lg border border-white/5 bg-white/[0.03] px-4 py-3 text-center">
-      <code className="text-sm text-slate-200">
+    <div className="rounded-lg border border-line/60 bg-surface-raised px-4 py-3 text-center">
+      <code className="text-sm text-ink">
         score = VORP × <span className="text-emerald-300">need</span> ×{" "}
         <span className="text-sky-300">timing</span> ×{" "}
         <span className="text-amber-300">confidence</span>
@@ -1784,7 +1784,7 @@ const LiveScoreSection = ({ data }) => (
     </div>
 
     <div className="mt-4 grid gap-4 sm:grid-cols-2">
-      <Term title="Value (VORP)" tone="text-slate-200">
+      <Term title="Value (VORP)" tone="text-ink">
         Projected points above replacement, then dampened across positions so a quarterback's steep
         cliff to replacement level doesn't make every QB look like a first-rounder. Raw VORP isn't
         comparable between positions scoring on different scales.
@@ -1822,6 +1822,6 @@ const LiveScoreSection = ({ data }) => (
 const Term = ({ title, tone, children }) => (
   <div>
     <h4 className={`mb-1.5 text-sm font-semibold ${tone}`}>{title}</h4>
-    <p className="text-xs leading-relaxed text-slate-400">{children}</p>
+    <p className="text-xs leading-relaxed text-ink-muted">{children}</p>
   </div>
 );

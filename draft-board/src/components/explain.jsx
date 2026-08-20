@@ -148,9 +148,9 @@ export const ReasonChips = ({ player, nextPick, max = 3, exclude = [] }) => {
 /** The projection's plausible range, shown as text. */
 export const RangeText = ({ player }) => {
   const { ci_low: low, ci_high: high } = player;
-  if (low == null || high == null) return <span className="text-slate-600">—</span>;
+  if (low == null || high == null) return <span className="text-ink-ghost">—</span>;
   return (
-    <span className="tabular text-xs text-slate-400">
+    <span className="tabular text-xs text-ink-muted">
       {fmt(low, 0)}–{fmt(high, 0)}
     </span>
   );

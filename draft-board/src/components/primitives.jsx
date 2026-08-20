@@ -13,11 +13,13 @@ export const Badge = ({ tone = "neutral", children, title }) => (
 );
 
 export const Button = ({ onClick, children, title, tone = "default", size = "sm", disabled }) => {
+  // Solid surfaces with real borders, not white at 5% opacity. `primary` is the
+  // interactive blue; `solid` is the one filled call to action per screen.
   const tones = {
-    default: "border-white/10 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white",
-    primary: "border-emerald-400/30 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25",
-    danger: "border-rose-400/30 bg-rose-500/10 text-rose-300 hover:bg-rose-500/20",
-    solid: "border-transparent bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-semibold",
+    default: "border-line bg-surface-raised text-ink-muted hover:bg-surface-hover hover:text-ink",
+    primary: "border-accent/40 bg-accent/15 text-accent-hover hover:bg-accent/25",
+    danger: "border-bad/30 bg-bad/10 text-bad hover:bg-bad/20",
+    solid: "border-transparent bg-accent text-white hover:bg-accent-hover font-semibold",
   };
   const sizes = { sm: "h-7 px-2 text-xs", md: "h-9 px-3 text-sm", lg: "h-11 px-4 text-sm" };
   return (
@@ -25,7 +27,7 @@ export const Button = ({ onClick, children, title, tone = "default", size = "sm"
       onClick={onClick}
       title={title}
       disabled={disabled}
-      className={`inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border
+      className={`inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded border
         transition-colors disabled:cursor-not-allowed disabled:opacity-40
         ${tones[tone]} ${sizes[size]}`}
     >
@@ -43,9 +45,9 @@ export const Button = ({ onClick, children, title, tone = "default", size = "sm"
 export const Meter = ({ value, tone = "neutral", className = "" }) => {
   const width = Math.max(0, Math.min(1, Number(value) || 0)) * 100;
   return (
-    <div className={`h-1.5 w-full overflow-hidden rounded-full bg-white/10 ${className}`}>
+    <div className={`h-1 w-full overflow-hidden rounded-sm bg-surface-hover ${className}`}>
       <div
-        className={`h-full rounded-full transition-[width] duration-300 ${BAR_TONE[tone] || BAR_TONE.neutral}`}
+        className={`h-full rounded-sm transition-[width] duration-300 ${BAR_TONE[tone] || BAR_TONE.neutral}`}
         style={{ width: `${width}%` }}
       />
     </div>
@@ -63,7 +65,7 @@ export const SlotPips = ({ have, need, position }) => {
       {Array.from({ length: need }).map((_, i) => (
         <span
           key={i}
-          className={`h-2 w-2 rounded-full ${i < have ? dot : "bg-white/15"}`}
+          className={`h-2 w-2 rounded-sm ${i < have ? dot : "bg-surface-hover"}`}
         />
       ))}
     </span>
