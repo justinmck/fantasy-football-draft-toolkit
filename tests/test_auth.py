@@ -26,12 +26,6 @@ SWID = "{SENTINEL-1111-2222-3333-444444444444}"
 S2 = "S2-SENTINEL-do-not-leak"
 
 
-@pytest.fixture(autouse=True)
-def isolated_token_file(tmp_path, monkeypatch):
-    """Never touch the real credential store from a test."""
-    monkeypatch.setattr(auth, "TOKEN_FILE", tmp_path / "device_tokens.json")
-
-
 class _FakeClient:
     """Stands in for the settings read that proves espn_s2 works."""
     raises = None
@@ -166,10 +160,40 @@ class TestTokenStore:
         assert client.post("/auth/connect", json={"swid": SWID, "espn_s2": S2}).status_code == 200
 
 
-class TestFallback:
-    def test_env_credentials_still_work_with_no_token(self, monkeypatch):
-        """A checkout that has never signed in must keep working."""
-        monkeypatch.setattr(api, "load_credentials",
-                            lambda: EspnCredentials("780575", "env-swid", "env-s2"))
-        assert api._creds_for(None).swid == "env-swid"
-        assert api._creds_for("bogus-token").swid == "env-swid"
+class TestNoFallbackToTheOperator:
+    """The replacement for what used to be `TestFallback`.
+
+    That test asserted `api._creds_for(None).swid == "env-swid"` - that a
+    request with no token was served the *operator's* ESPN credentials from
+    `.env`. It encoded the vulnerability as the contract. On one laptop it was
+    merely untidy; the moment this app is reachable from the internet it means
+    every stranger is browsing as the person who deployed it.
+    """
+
+    def test_the_resolver_is_gone_entirely(self):
+        """Not renamed or guarded - removed, so it cannot be called by accident."""
+        assert not hasattr(api, "_creds_for")
+
+    def test_api_never_imports_operator_credentials(self):
+        """A structural guard: the symbol must not be reachable from a request.
+
+        `load_credentials` still exists for the notebooks and CLI scripts, which
+        legitimately run *as* the operator. It must simply never be in scope in
+        the request path, where re-adding a fallback would be a one-line edit.
+        """
+        source = Path(api.__file__).read_text()
+        assert "load_credentials" not in source
+
+    @pytest.mark.parametrize("headers", [
+        pytest.param({}, id="no-token"),
+        pytest.param({"X-Device-Token": "not-a-real-token"}, id="bogus-token"),
+    ])
+    def test_espn_endpoints_401_rather_than_acting_as_the_operator(self, monkeypatch, headers):
+        def must_not_be_called(*a, **k):     # pragma: no cover - the point is it isn't
+            raise AssertionError("ESPN was contacted without an identity")
+        monkeypatch.setattr(api, "list_leagues", must_not_be_called)
+
+        res = client.get("/espn/leagues", headers=headers)
+        assert res.status_code == 401
+        # And critically: no league names in the body.
+        assert "leagues" not in res.json()

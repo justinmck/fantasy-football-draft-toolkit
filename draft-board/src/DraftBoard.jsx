@@ -1817,7 +1817,7 @@ export default function DraftBoard() {
     const tick = async () => {
       if (document.hidden) return;
       try {
-        const res = await fetch(`${API_URL}/espn/sync/${sessionId}`);
+        const res = await apiGet(`/espn/sync/${sessionId}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (cancelled) return;
@@ -1847,11 +1847,19 @@ export default function DraftBoard() {
       setRounds(r);
       let session_id;
       try {
-        ({ session_id } = await apiPost("/session", {
+        // A caller with no token gets a guest one back: the manual-draft
+        // path shouldn't demand ESPN cookies, but the session still needs an
+        // owner so nobody else can read or write it.
+        const created = await apiPost("/session", {
           teams: t,
           roster_need: DEFAULT_ROSTER_NEED,
           rounds: r,
-        }));
+        });
+        session_id = created.session_id;
+        if (created.token) {
+          deviceToken = created.token;
+          saveDevice({ token: created.token });
+        }
       } catch {
         // No backend at all - the read-only snapshot is the only option.
         await loadOfflineFallback();

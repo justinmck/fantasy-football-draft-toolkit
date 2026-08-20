@@ -9,12 +9,20 @@ fixture) guarantees it's in place before `from src.api import app` runs in
 test_api.py.
 """
 import os
+import pathlib
 import sqlite3
 import tempfile
 
 _tmpdir = tempfile.TemporaryDirectory()
 _DB_PATH = os.path.join(_tmpdir.name, "fixture.db")
 os.environ["DATABASE_URL"] = f"sqlite:///{_DB_PATH}"
+
+# Never read or write the developer's real ESPN cookies from a test. Set before
+# src.auth is imported, and pointed at the same throwaway directory as the
+# fixture database.
+os.environ["APP_PEPPER"] = "test-pepper-not-a-secret"
+os.environ["APP_ENV"] = "test"
+_TOKEN_PATH = os.path.join(_tmpdir.name, "device_tokens.json")
 
 _conn = sqlite3.connect(_DB_PATH)
 _conn.executescript(
@@ -119,3 +127,78 @@ _conn.executemany(
 )
 _conn.commit()
 _conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Identity fixtures
+#
+# Every request now resolves to a Principal or gets a 401, so tests that used
+# to call the API anonymously need a token. These issue real ones through
+# src.auth rather than stubbing the resolver, so the ownership checks are
+# exercised rather than bypassed.
+# ---------------------------------------------------------------------------
+
+import pytest  # noqa: E402
+from starlette.testclient import TestClient  # noqa: E402
+
+import src.auth as _auth  # noqa: E402
+_auth.TOKEN_FILE = pathlib.Path(_TOKEN_PATH)
+
+from src.api import app  # noqa: E402
+
+# Distinct SWIDs so `user_id` differs, which is what makes the isolation tests
+# meaningful rather than accidentally passing.
+SWID_A = "{AAAAAAAA-1111-2222-3333-AAAAAAAAAAAA}"
+S2_A = "s2-for-user-a-" + "x" * 40
+SWID_B = "{REDACTED-ESPN-MEMBER-ID}"
+S2_B = "s2-for-user-b-" + "y" * 40
+
+
+@pytest.fixture(autouse=True)
+def _clean_token_store():
+    """Each test starts with an empty credential store."""
+    path = pathlib.Path(_TOKEN_PATH)
+    if path.exists():
+        path.unlink()
+    yield
+
+
+def _client_for(token: str) -> TestClient:
+    return TestClient(app, headers={"X-Device-Token": token})
+
+
+@pytest.fixture
+def user_a() -> TestClient:
+    """A signed-in ESPN user."""
+    return _client_for(_auth.issue(SWID_A, S2_A))
+
+
+@pytest.fixture
+def user_b() -> TestClient:
+    """A second signed-in user, for proving isolation."""
+    return _client_for(_auth.issue(SWID_B, S2_B))
+
+
+@pytest.fixture
+def guest() -> TestClient:
+    """Someone drafting by hand, with no ESPN account attached."""
+    return _client_for(_auth.issue_guest())
+
+
+@pytest.fixture
+def user_a_again() -> TestClient:
+    """User A signing in a second time - a new token, the same ESPN account.
+
+    Offered as a fixture rather than letting tests `from tests.conftest import
+    SWID_A`: that import re-executes this module under a second name, which
+    builds a fresh temporary directory and repoints TOKEN_FILE at it, quietly
+    emptying the credential store mid-test.
+    """
+    return _client_for(_auth.issue(SWID_A, S2_A))
+
+
+@pytest.fixture
+def user_a_id() -> str:
+    """The `Principal.user_id` that user A's sessions and jobs are owned by."""
+    from src.principal import user_id_for
+    return user_id_for(SWID_A)

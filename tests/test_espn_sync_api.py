@@ -24,12 +24,55 @@ from src.espn_draft import (
     EspnUnavailable,
 )
 
-client = TestClient(app)
+import src.auth as auth
+import src.leagues as leagues_cache
+
 FIXTURES = Path(__file__).parent / "fixtures"
 MY_TEAM = 8
 
 SWID_SENTINEL = "{SWID-SENTINEL-0000-0000-000000000000}"
 S2_SENTINEL = "S2-SENTINEL-abcdef0123456789"
+
+
+@pytest.fixture(autouse=True)
+def _fresh_league_cache():
+    """Reachability is cached per user; tests must not inherit each other's."""
+    leagues_cache.clear()
+    yield
+    leagues_cache.clear()
+
+
+@pytest.fixture
+def client():
+    """A signed-in client carrying the sentinel credentials.
+
+    These used to come from a `load_credentials` stub, i.e. from the operator's
+    `.env`. That path no longer exists: an unauthenticated request gets a 401
+    rather than the deployer's ESPN account, so the tests sign in like a real
+    user and the ownership checks are exercised rather than bypassed.
+    """
+    token = auth.issue(SWID_SENTINEL, S2_SENTINEL)
+    return TestClient(app, headers={"X-Device-Token": token})
+
+
+@pytest.fixture
+def other_client():
+    """A second signed-in user, for proving one cannot reach the other's board."""
+    token = auth.issue("{OTHER-9999-8888-7777-666666666666}", "S2-OTHER-abcdef")
+    return TestClient(app, headers={"X-Device-Token": token})
+
+
+def _allow_leagues(monkeypatch, *league_ids):
+    """Make `assert_league` accept these ids without calling ESPN.
+
+    Clears the cache first: reachability is memoised per user, so a test that
+    changes which leagues exist would otherwise be answered from the previous
+    call's set. In production the TTL handles this; here it has to be explicit.
+    """
+    leagues_cache.clear()
+    refs = [espn_draft.LeagueRef(league_id=str(i), name=f"L{i}", season=2026)
+            for i in league_ids]
+    monkeypatch.setattr(leagues_cache, "list_leagues", lambda creds, year: refs)
 
 
 @pytest.fixture(scope="module")
@@ -70,14 +113,10 @@ class FakeEspn:
 
 
 @pytest.fixture
-def connected(monkeypatch, draft_payload, mteam_payload):
+def connected(monkeypatch, draft_payload, mteam_payload, client):
     """A session wired to a fake ESPN, with the throttle disabled by default."""
     fake = FakeEspn(draft_payload, mteam_payload)
 
-    monkeypatch.setattr(
-        api, "load_credentials",
-        lambda: EspnCredentials("123", SWID_SENTINEL, S2_SENTINEL),
-    )
     # The synthetic mTeam fixture owns its SWID, so resolution has to be told
     # which one to look for; ownership matching itself is tested in
     # test_espn_draft.py against every brace/case spelling.
@@ -123,32 +162,29 @@ class TestConnect:
         mine = [i + 1 for i, t in enumerate(body["pick_order"]) if t == MY_TEAM]
         assert mine == body["my_picks"]
 
-    def test_unknown_session_is_404(self, monkeypatch):
-        monkeypatch.setattr(
-            api, "load_credentials",
-            lambda: EspnCredentials("123", SWID_SENTINEL, S2_SENTINEL),
-        )
+    def test_unknown_session_is_404(self, client):
         assert client.post("/espn/connect", json={"session_id": "nope"}).status_code == 404
 
-    def test_auth_failure_is_502_with_a_constant_message(self, monkeypatch):
-        def boom():
+    def test_auth_failure_is_502_with_a_constant_message(self, monkeypatch, client):
+        """ESPN rejecting the stored cookies, not a missing sign-in."""
+        def boom(*a, **k):
             raise EspnAuthError(AUTH_MESSAGE)
-        monkeypatch.setattr(api, "load_credentials", boom)
+        monkeypatch.setattr(api, "EspnDraftClient", boom)
         sid = client.post("/session", json={}).json()["session_id"]
         res = client.post("/espn/connect", json={"session_id": sid})
         assert res.status_code == 502
         assert res.json()["detail"] == AUTH_MESSAGE
 
-    def test_unreachable_is_503(self, monkeypatch):
-        def boom():
+    def test_unreachable_is_503(self, monkeypatch, client):
+        def boom(*a, **k):
             raise EspnUnavailable("Could not reach ESPN.")
-        monkeypatch.setattr(api, "load_credentials", boom)
+        monkeypatch.setattr(api, "EspnDraftClient", boom)
         sid = client.post("/session", json={}).json()["session_id"]
         assert client.post("/espn/connect", json={"session_id": sid}).status_code == 503
 
 
 class TestSync:
-    def test_picks_apply_without_anyone_clicking(self, connected):
+    def test_picks_apply_without_anyone_clicking(self, connected, client):
         sid, fake, _ = connected
         fake.upto = 3
         body = client.get(f"/espn/sync/{sid}").json()
@@ -156,7 +192,7 @@ class TestSync:
         assert body["drafted_count"] == 3
         assert body["current_pick"] == 4
 
-    def test_my_own_picks_fill_my_roster(self, connected):
+    def test_my_own_picks_fill_my_roster(self, connected, client):
         sid, fake, _ = connected
         fake.upto = 4  # team 8 drafted 4th in 2025
         body = client.get(f"/espn/sync/{sid}").json()
@@ -165,7 +201,7 @@ class TestSync:
         assert mine[0]["filled_slot"] is not None
         assert sum(v["have"] for v in body["roster_state"].values()) == 1
 
-    def test_other_teams_picks_leave_the_pool_without_touching_my_roster(self, connected):
+    def test_other_teams_picks_leave_the_pool_without_touching_my_roster(self, connected, client):
         sid, fake, _ = connected
         fake.upto = 3  # none of these are team 8's
         body = client.get(f"/espn/sync/{sid}").json()
@@ -173,7 +209,7 @@ class TestSync:
         assert body["drafted_count"] == 3
         assert all(v["have"] == 0 for v in body["roster_state"].values())
 
-    def test_version_moves_only_when_something_happened(self, connected):
+    def test_version_moves_only_when_something_happened(self, connected, client):
         sid, fake, _ = connected
         fake.upto = 5
         first = client.get(f"/espn/sync/{sid}").json()
@@ -184,7 +220,7 @@ class TestSync:
         third = client.get(f"/espn/sync/{sid}").json()
         assert third["version"] == first["version"] + 1
 
-    def test_full_draft_reports_complete(self, connected):
+    def test_full_draft_reports_complete(self, connected, client):
         sid, fake, _ = connected
         fake.upto = 224
         body = client.get(f"/espn/sync/{sid}").json()
@@ -193,7 +229,7 @@ class TestSync:
         assert body["drafted_count"] == 224
         assert body["bench_filled"] == 7
 
-    def test_auth_failure_keeps_the_board_alive(self, connected):
+    def test_auth_failure_keeps_the_board_alive(self, connected, client):
         """The sync failed, not the request. Losing the board mid-draft because
         a cookie expired would be worse than the expiry itself."""
         sid, fake, _ = connected
@@ -207,7 +243,7 @@ class TestSync:
         assert body["message"] == AUTH_MESSAGE
         assert body["drafted_count"] == 2  # state survived
 
-    def test_network_failure_serves_the_last_good_state(self, connected):
+    def test_network_failure_serves_the_last_good_state(self, connected, client):
         sid, fake, _ = connected
         fake.upto = 7
         client.get(f"/espn/sync/{sid}")
@@ -216,7 +252,7 @@ class TestSync:
         assert body["status"] == "stale"
         assert body["drafted_count"] == 7
 
-    def test_throttle_collapses_rapid_polls(self, monkeypatch, connected):
+    def test_throttle_collapses_rapid_polls(self, monkeypatch, connected, client):
         """StrictMode double-mounts and a second tab both multiply the poll
         rate; without the throttle that lands on ESPN."""
         sid, fake, _ = connected
@@ -226,13 +262,13 @@ class TestSync:
             client.get(f"/espn/sync/{sid}")
         assert fake.calls == before  # every one served from the last snapshot
 
-    def test_sync_without_connect_is_404(self):
+    def test_sync_without_connect_is_404(self, client):
         sid = client.post("/session", json={}).json()["session_id"]
         assert client.get(f"/espn/sync/{sid}").status_code == 404
 
 
 class TestDisconnect:
-    def test_keeps_the_session_and_its_picks(self, connected):
+    def test_keeps_the_session_and_its_picks(self, connected, client):
         sid, fake, _ = connected
         fake.upto = 10
         client.get(f"/espn/sync/{sid}")
@@ -245,13 +281,13 @@ class TestDisconnect:
         assert res.status_code == 200
         assert len(res.json()["draft_log"]) == 11
 
-    def test_disconnecting_when_never_connected_is_harmless(self):
+    def test_disconnecting_when_never_connected_is_harmless(self, client):
         sid = client.post("/session", json={}).json()["session_id"]
         assert client.post("/espn/disconnect", json={"session_id": sid}).status_code == 200
 
 
 class TestNoCredentialLeak:
-    def test_no_response_body_contains_a_credential(self, connected):
+    def test_no_response_body_contains_a_credential(self, connected, client):
         """espn_api's own exception formats espn_s2 and swid into its message.
         Nothing on this path may be able to do the same."""
         sid, fake, connect_body = connected
@@ -267,7 +303,7 @@ class TestNoCredentialLeak:
             assert S2_SENTINEL not in body
             assert "espn_s2" not in body
 
-    def test_sync_payload_is_json_safe(self, connected):
+    def test_sync_payload_is_json_safe(self, connected, client):
         """None must serialise as null - position, player_name and filled_slot
         are all nullable here, and NaN has 500ed this API before."""
         sid, fake, _ = connected
@@ -295,26 +331,22 @@ def settings_for(name, date=None):
 
 
 class TestLeaguesEndpoint:
-    def test_lists_every_football_league(self, monkeypatch):
-        monkeypatch.setattr(api, "load_credentials",
-                            lambda: EspnCredentials("", SWID_SENTINEL, S2_SENTINEL))
+    def test_lists_every_football_league(self, monkeypatch, client):
         monkeypatch.setattr(api, "list_leagues",
                             lambda creds, year: espn_draft.parse_fan_leagues(FAN, year))
         body = client.get("/espn/leagues").json()
         assert [l["name"] for l in body["leagues"]] == ["Sigma Fantasy", "McFL", "Sigmas"]
 
-    def test_leaks_no_credential(self, monkeypatch):
-        monkeypatch.setattr(api, "load_credentials",
-                            lambda: EspnCredentials("", SWID_SENTINEL, S2_SENTINEL))
+    def test_leaks_no_credential(self, monkeypatch, client):
         monkeypatch.setattr(api, "list_leagues",
                             lambda creds, year: espn_draft.parse_fan_leagues(FAN, year))
         text = client.get("/espn/leagues").text
         assert SWID_SENTINEL not in text and S2_SENTINEL not in text
 
-    def test_auth_failure_is_502_with_the_constant_message(self, monkeypatch):
-        def boom():
+    def test_auth_failure_is_502_with_the_constant_message(self, monkeypatch, client):
+        def boom(*a, **k):
             raise EspnAuthError(AUTH_MESSAGE)
-        monkeypatch.setattr(api, "load_credentials", boom)
+        monkeypatch.setattr(api, "list_leagues", boom)
         res = client.get("/espn/leagues")
         assert res.status_code == 502 and res.json()["detail"] == AUTH_MESSAGE
 
@@ -329,8 +361,6 @@ class TestUnreadableSettingsAreNotUnscheduledDrafts:
 
     @pytest.fixture(autouse=True)
     def _creds(self, monkeypatch):
-        monkeypatch.setattr(api, "load_credentials",
-                            lambda: EspnCredentials("", SWID_SENTINEL, S2_SENTINEL))
         monkeypatch.setattr(api, "list_leagues",
                             lambda creds, year: espn_draft.parse_fan_leagues(FAN, year))
 
@@ -343,7 +373,7 @@ class TestUnreadableSettingsAreNotUnscheduledDrafts:
                 raise exc
         return C
 
-    def test_every_league_failing_is_reported_as_stale_credentials(self, monkeypatch):
+    def test_every_league_failing_is_reported_as_stale_credentials(self, monkeypatch, client):
         monkeypatch.setattr(api, "EspnDraftClient",
                             self._client_raising(EspnAuthError(AUTH_MESSAGE)))
         body = client.get("/espn/leagues").json()
@@ -352,7 +382,7 @@ class TestUnreadableSettingsAreNotUnscheduledDrafts:
         # Still listed - the SWID worked, which is precisely the confusing part.
         assert len(body["leagues"]) == 3
 
-    def test_a_readable_league_means_the_credentials_are_fine(self, monkeypatch):
+    def test_a_readable_league_means_the_credentials_are_fine(self, monkeypatch, client):
         class C:
             def __init__(self, creds, year, league_id=None):
                 self.league_id = league_id
@@ -371,7 +401,7 @@ class TestUnreadableSettingsAreNotUnscheduledDrafts:
         # The others failed to answer, which is not the same as having no date.
         assert by_id["780575"]["unreadable"] is True
 
-    def test_a_genuinely_unscheduled_league_is_not_flagged(self, monkeypatch):
+    def test_a_genuinely_unscheduled_league_is_not_flagged(self, monkeypatch, client):
         class C:
             def __init__(self, *a, **k):
                 pass
@@ -392,7 +422,7 @@ class TestBiasIsScopedToItsLeague:
     would be asserting something never measured about people we've never seen.
     """
 
-    def _connect(self, monkeypatch, draft_payload, mteam_payload, league_id, name, date=None):
+    def _connect(self, monkeypatch, draft_payload, mteam_payload, client, league_id, name, date=None):
         fake = FakeEspn(draft_payload, mteam_payload)
         real_fetch = fake.fetch
 
@@ -401,8 +431,7 @@ class TestBiasIsScopedToItsLeague:
                 return settings_for(name, date)
             return real_fetch(view)
 
-        monkeypatch.setattr(api, "load_credentials",
-                            lambda: EspnCredentials("780575", SWID_SENTINEL, S2_SENTINEL))
+        _allow_leagues(monkeypatch, league_id)
         monkeypatch.setattr(api, "resolve_my_team_id", lambda payload, swid: MY_TEAM)
         monkeypatch.setattr(api, "EspnDraftClient",
                             lambda creds, year, **kw: EspnDraftClient(
@@ -415,8 +444,9 @@ class TestBiasIsScopedToItsLeague:
         assert res.status_code == 200, res.text
         return sid, res.json()
 
-    def test_fitted_league_gets_the_shift(self, monkeypatch, draft_payload, mteam_payload):
-        sid, body = self._connect(monkeypatch, draft_payload, mteam_payload, "780575", "McFL")
+    def test_fitted_league_gets_the_shift(self, monkeypatch, draft_payload, mteam_payload, client):
+        sid, body = self._connect(monkeypatch, draft_payload, mteam_payload, client,
+                                  "780575", "McFL")
         assert body["league"]["has_history"] is True
         rows = client.post("/recommend", json={"session_id": sid, "current_pick": 1,
                                                "next_pick": 12, "topn": 50}).json()["results"]
@@ -424,8 +454,8 @@ class TestBiasIsScopedToItsLeague:
         assert qb["bias_shift"] < -5
         assert qb["bias_reason"]
 
-    def test_a_different_league_gets_market_adp_only(self, monkeypatch, draft_payload, mteam_payload):
-        sid, body = self._connect(monkeypatch, draft_payload, mteam_payload,
+    def test_a_different_league_gets_market_adp_only(self, monkeypatch, draft_payload, mteam_payload, client):
+        sid, body = self._connect(monkeypatch, draft_payload, mteam_payload, client,
                                   "1224888142", "Sigma Fantasy", date=1787612400000)
         assert body["league"]["has_history"] is False
         rows = client.post("/recommend", json={"session_id": sid, "current_pick": 1,
@@ -441,19 +471,21 @@ class TestBiasIsScopedToItsLeague:
         assert qb["league_pick_est"] == qb["adp"]
 
     def test_scheduled_and_unscheduled_drafts_are_distinguishable(
-            self, monkeypatch, draft_payload, mteam_payload):
-        _, mcfl = self._connect(monkeypatch, draft_payload, mteam_payload, "780575", "McFL")
+            self, monkeypatch, draft_payload, mteam_payload, client):
+        _, mcfl = self._connect(monkeypatch, draft_payload, mteam_payload, client,
+                                  "780575", "McFL")
         assert mcfl["league"]["scheduled"] is False
         assert mcfl["league"]["draft_at"] is None
 
-        _, sigma = self._connect(monkeypatch, draft_payload, mteam_payload,
-                                 "1224888142", "Sigma Fantasy", date=1787612400000)
+        _, sigma = self._connect(monkeypatch, draft_payload, mteam_payload, client,
+                                  "1224888142", "Sigma Fantasy", date=1787612400000)
         assert sigma["league"]["scheduled"] is True
         assert sigma["league"]["draft_at"] == 1787612400000
         assert sigma["league"]["name"] == "Sigma Fantasy"
 
     def test_roster_need_is_adopted_from_the_league(
-            self, monkeypatch, draft_payload, mteam_payload):
-        _, body = self._connect(monkeypatch, draft_payload, mteam_payload, "780575", "McFL")
+            self, monkeypatch, draft_payload, mteam_payload, client):
+        _, body = self._connect(monkeypatch, draft_payload, mteam_payload, client,
+                                  "780575", "McFL")
         assert set(body["roster_state"]) == {"QB", "RB", "WR", "TE", "FLEX", "K", "DST"}
         assert body["roster_state"]["RB"]["need"] == 2

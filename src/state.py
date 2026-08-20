@@ -25,6 +25,9 @@ class DraftSession:
         # show "3/2" and, worse, open-slot math would go negative.
         self.depth = {}
         self.draft_log = []  # every pick made, in order, whichever team took it
+        # Which principal owns this board. Set by `new_session`; empty only for
+        # sessions constructed directly in tests.
+        self.owner = ""
 
     def _allocate(self, position: str | None) -> str | None:
         """Assign a drafted player to the slot they actually fill.
@@ -134,9 +137,22 @@ class DraftSession:
 SESSIONS = {}
 
 
-def new_session(teams: int, roster_need: dict, rounds: int | None = None) -> str:
-    sid = uuid.uuid4().hex[:8]
+def new_session(teams: int, roster_need: dict, rounds: int | None = None,
+                owner: str = "") -> str:
+    """Create a session owned by one principal.
+
+    The id is a full uuid4, not the first 8 hex characters it used to be. At 32
+    bits a session id is guessable, and a session id was a bearer capability:
+    anyone holding one could read the board, inject picks - `pick` is not
+    idempotent, so injected picks poison every later recommendation - poll ESPN
+    on the owner's cookies, or disconnect them mid-draft.
+
+    `owner` is a `Principal.user_id`, which is derived from the ESPN account
+    rather than the device token, so re-signing in mid-draft keeps the board.
+    """
+    sid = uuid.uuid4().hex
     SESSIONS[sid] = DraftSession(teams, roster_need, rounds=rounds)
+    SESSIONS[sid].owner = owner
     return sid
 
 

@@ -36,6 +36,7 @@ class Job:
     id: str
     kind: str
     key: str                      # what it's about, e.g. a league id
+    owner: str = ""               # Principal.user_id that started it
     status: str = "running"       # running | done | failed
     progress: float = 0.0         # 0..1
     message: str = ""
@@ -46,6 +47,8 @@ class Job:
 
     def to_dict(self) -> dict:
         return {
+            # `owner` is deliberately absent: it identifies an account, and
+            # this dict goes to the browser.
             "id": self.id, "kind": self.kind, "key": self.key,
             "status": self.status, "progress": round(self.progress, 3),
             "message": self.message, "result": self.result, "error": self.error,
@@ -65,27 +68,39 @@ def _reap() -> None:
         JOBS.pop(job_id, None)
 
 
-def find_active(kind: str, key: str) -> Job | None:
-    """A running job for the same thing, so a double-click doesn't start two."""
+def find_active(kind: str, key: str, owner: str = "") -> Job | None:
+    """A running job for the same thing, so a double-click doesn't start two.
+
+    Scoped by owner as well as key: two users pulling the same league must get
+    two jobs, because each runs under its own ESPN cookies. Sharing one would
+    hand user B a job performed with user A's credentials.
+    """
     with _LOCK:
         for job in JOBS.values():
-            if job.kind == kind and job.key == str(key) and job.status == "running":
+            if (job.kind == kind and job.key == str(key)
+                    and job.owner == owner and job.status == "running"):
                 return job
     return None
 
 
-def start(kind: str, key: str, fn) -> Job:
+def get_for(job_id: str, owner: str) -> Job | None:
+    """A job, but only for whoever started it."""
+    job = JOBS.get(job_id)
+    return job if job is not None and job.owner == owner else None
+
+
+def start(kind: str, key: str, fn, owner: str = "") -> Job:
     """Run `fn(report)` on a thread. `report(progress, message)` drives the UI.
 
     Returns the existing job if one is already running for this key - clicking
     "Run analysis" twice should watch one pull, not start a second one against
     the same league.
     """
-    existing = find_active(kind, key)
+    existing = find_active(kind, key, owner)
     if existing:
         return existing
 
-    job = Job(id=uuid.uuid4().hex[:12], kind=kind, key=str(key))
+    job = Job(id=uuid.uuid4().hex[:12], kind=kind, key=str(key), owner=owner)
     with _LOCK:
         _reap()
         JOBS[job.id] = job

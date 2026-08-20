@@ -14,12 +14,33 @@ from src.analysis import _pearson, league_analysis
 from src.api import app
 from src.db import engine
 
-client = TestClient(app)
+import src.auth as auth
+import src.leagues as leagues_cache
+
+# The analysis endpoints are now authenticated and league-scoped: `league_id`
+# is required and checked against the leagues the caller's own credentials can
+# reach. It used to be optional and unauthenticated, which let anyone read any
+# league's managers, standings and per-person draft tendencies by guessing a
+# small integer.
+LEAGUE = "780575"
 
 
-def test_analysis_endpoint_ok_without_draft_history():
+@pytest.fixture
+def client(monkeypatch):
+    import src.espn_draft as espn_draft
+    monkeypatch.setattr(
+        leagues_cache, "list_leagues",
+        lambda creds, year: [espn_draft.LeagueRef(league_id=LEAGUE, name="McFL",
+                                                  season=year)])
+    leagues_cache.clear()
+    token = auth.issue("{ANALYSIS-1111-2222-3333-444444444444}", "s2-analysis-" + "z" * 40)
+    yield TestClient(app, headers={"X-Device-Token": token})
+    leagues_cache.clear()
+
+
+def test_analysis_endpoint_ok_without_draft_history(client):
     """The fixture DB has no `players`/`teams` tables - this must not raise."""
-    res = client.get("/analysis")
+    res = client.get("/analysis", params={"league_id": LEAGUE})
     assert res.status_code == 200
     body = res.json()
     assert body["draft_performance"]["teams"] == []
@@ -28,37 +49,37 @@ def test_analysis_endpoint_ok_without_draft_history():
     assert body["projection_value"]["correlation"] is None
 
 
-def test_analysis_still_returns_reliability_tables():
+def test_analysis_still_returns_reliability_tables(client):
     """position_reliability exists in the fixture, so it should come through
     even though the draft-history half of the payload is empty."""
-    body = client.get("/analysis").json()
+    body = client.get("/analysis", params={"league_id": LEAGUE}).json()
     assert len(body["position_reliability"]) > 0
     assert {"position", "r2", "reliability"} <= set(body["position_reliability"][0])
 
 
-def test_analysis_accepts_year_override():
-    res = client.get("/analysis", params={"year": 2021})
+def test_analysis_accepts_year_override(client):
+    res = client.get("/analysis", params={"league_id": LEAGUE, "year": 2021})
     assert res.status_code == 200
     assert res.json()["year"] == 2021
 
 
-def test_analysis_cache_is_keyed_on_the_year():
+def test_analysis_cache_is_keyed_on_the_year(client):
     """The season switcher hits this endpoint once per year on the same
     database. A cache keyed only on the database's identity would serve the
     first year asked for to every subsequent request, and the page would look
     frozen while the chips moved."""
-    first = client.get("/analysis", params={"year": 2021}).json()
-    second = client.get("/analysis", params={"year": 2022}).json()
-    again = client.get("/analysis", params={"year": 2021}).json()
+    first = client.get("/analysis", params={"league_id": LEAGUE, "year": 2021}).json()
+    second = client.get("/analysis", params={"league_id": LEAGUE, "year": 2022}).json()
+    again = client.get("/analysis", params={"league_id": LEAGUE, "year": 2021}).json()
     assert first["year"] == 2021
     assert second["year"] == 2022
     assert again["year"] == 2021
 
 
-def test_analysis_payload_is_json_safe():
+def test_analysis_payload_is_json_safe(client):
     """No NaN anywhere: it isn't valid JSON and would 500 the endpoint, which
     is exactly the bug the recommender already carries a regression test for."""
-    raw = client.get("/analysis").text
+    raw = client.get("/analysis", params={"league_id": LEAGUE}).text
     assert "NaN" not in raw
     assert "Infinity" not in raw
 

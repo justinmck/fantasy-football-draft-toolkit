@@ -69,6 +69,7 @@ def issue(swid: str, espn_s2: str) -> str:
     token = secrets.token_urlsafe(_TOKEN_BYTES)
     store = _read()
     store[token] = {
+        "kind": "espn",
         "swid": swid,
         "espn_s2": espn_s2,
         "created": int(time.time()),
@@ -77,17 +78,55 @@ def issue(swid: str, espn_s2: str) -> str:
     return token
 
 
+def issue_guest() -> str:
+    """A token for someone drafting by hand, with no ESPN account attached.
+
+    The manual path - create a session, click picks - needs an owner so one
+    person's board isn't reachable by anyone who guesses a session id. It does
+    not need, and should not demand, ESPN cookies to get one.
+    """
+    token = secrets.token_urlsafe(_TOKEN_BYTES)
+    store = _read()
+    store[token] = {"kind": "guest", "created": int(time.time())}
+    _write(store)
+    return token
+
+
 def credentials_for(token: str | None) -> EspnCredentials | None:
-    """The credentials behind a token, or None if it isn't one we issued."""
+    """The ESPN credentials behind a token, or None.
+
+    None for a guest token as well as for an unknown one: neither can talk to
+    ESPN. Callers that need to tell those apart want `principal_for`.
+    """
+    p = principal_for(token)
+    return p.creds if p else None
+
+
+def principal_for(token: str | None):
+    """Resolve a token to a Principal, or None if we never issued it."""
+    from src.principal import ESPN, GUEST, Principal, guest_user_id, user_id_for
+
     if not token:
         return None
     entry = _read().get(token)
     if not entry:
         return None
-    return EspnCredentials(
-        league_id=str(os.getenv("LEAGUE_ID") or ""),
-        swid=str(entry.get("swid") or ""),
-        espn_s2=str(entry.get("espn_s2") or ""),
+
+    if entry.get("kind") == "guest":
+        return Principal(user_id=guest_user_id(token), kind=GUEST, token=token)
+
+    swid = str(entry.get("swid") or "")
+    espn_s2 = str(entry.get("espn_s2") or "")
+    if not (swid and espn_s2):
+        return None
+    return Principal(
+        user_id=user_id_for(swid),
+        kind=ESPN,
+        # `league_id` is deliberately empty. It used to be filled from the
+        # operator's LEAGUE_ID, which stamped one person's league onto every
+        # other user's credentials; every caller passes the league explicitly.
+        creds=EspnCredentials(league_id="", swid=swid, espn_s2=espn_s2),
+        token=token,
     )
 
 

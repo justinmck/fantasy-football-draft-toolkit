@@ -2,7 +2,7 @@ import logging
 import os
 import time
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
@@ -11,21 +11,23 @@ from src.settings import API_ORIGINS, TEAMS
 from src.analysis import league_analysis
 from src.db import engine
 from src.indexes import ensure_indexes
-from src.auth import credentials_for, forget, issue, verify
+from src.auth import credentials_for, forget, issue, issue_guest, principal_for, verify
 from src.schemas import (
     AnalysisRunBody, AuthConnectBody, EspnConnectBody, EspnDisconnectBody, SessionCreate,
     PickBody, RecommendBody,
 )
 from src.state import SESSIONS, new_session, get_session
+from src.principal import Principal, require_espn, require_principal
+from src.leagues import assert_league
 from src.recommender import recommend
 from src.scoring import RISK_AVERSION
 from src.biases import fit_league_bias, load_league_bias, persist_league_bias
 from src.espn_history import available_seasons, pull_season, store_season
-from src.jobs import find_active, get as get_job, start
+from src.jobs import find_active, get_for as get_job_for, start
 from src.migrations import add_league_id, seasons_for_league
 from src.espn_draft import (
     ESPN_SYNCS, DraftSync, EspnAuthError, EspnDraftClient, EspnUnavailable,
-    all_teams, list_leagues, load_credentials, resolve_my_team_id, team_display,
+    all_teams, list_leagues, resolve_my_team_id, team_display,
 )
 
 log = logging.getLogger(__name__)
@@ -93,9 +95,16 @@ def _db_version() -> tuple | None:
 
 
 @app.get("/analysis")
-def analysis(year: int | None = None, league_id: str | None = None,
-             session_id: str | None = None):
+def analysis(league_id: str, year: int | None = None,
+             session_id: str | None = None,
+             p: Principal = Depends(require_espn)):
     """Retrospective league analysis for the UI's Analysis tab.
+
+    `league_id` is required and checked against the leagues these credentials
+    can reach. It used to be optional, falling back to "the only league with
+    history" - which is either wrong or empty once more than one person's
+    history shares a database, and let anyone read any league's managers,
+    standings and per-person draft tendencies by guessing a number.
 
     `session_id` is how the analysis picks up the league's *settings*. A
     connected session has already adopted that league's `lineupSlotCounts`, and
@@ -109,8 +118,13 @@ def analysis(year: int | None = None, league_id: str | None = None,
     a table. Falls back to computing every time when the version can't be
     determined.
     """
+    league_id = assert_league(p, league_id, NEXT_SEASON)
     year = year or CURRENT_SEASON
+    # Only the caller's own session may shape the analysis; otherwise a guessed
+    # session id would leak another league's lineup through the baselines.
     session = SESSIONS.get(session_id) if session_id else None
+    if session is not None and getattr(session, "owner", "") != p.user_id:
+        session = None
     roster_need = dict(session.roster_need) if session else None
 
     def compute():
@@ -233,12 +247,12 @@ def _sync_payload(s, sync: DraftSync, new_picks=None) -> dict:
 # falls back to .env when there isn't one, so nothing breaks for a checkout
 # that has never signed in.
 
-def _creds_for(token: str | None):
-    """Token credentials if the device has signed in, else the environment."""
-    creds = credentials_for(token)
-    if creds and creds.swid and creds.espn_s2:
-        return creds
-    return load_credentials()
+# `_creds_for` used to live here. It returned the operator's own `.env`
+# credentials whenever a request carried no token, which meant an
+# unauthenticated stranger was served the operator's ESPN account. Requests now
+# resolve through `require_principal`/`require_espn` or get a 401; there is no
+# path from a request back to `.env`. Operator credentials remain available to
+# the notebooks and CLI scripts, which run *as* the operator.
 
 
 @app.post("/auth/connect")
@@ -283,16 +297,15 @@ def auth_forget(x_device_token: str | None = Header(default=None)):
 
 
 @app.get("/espn/leagues")
-def espn_leagues(year: int | None = None,
-                 x_device_token: str | None = Header(default=None)):
+def espn_leagues(year: int | None = None, p: Principal = Depends(require_espn)):
     """Every football league these credentials can reach.
 
     Keyed on the SWID rather than on a league id, so nobody has to go and find
     league ids by hand — which is the whole reason multi-league is workable.
     """
     year = year or NEXT_SEASON
+    creds = p.creds
     try:
-        creds = _creds_for(x_device_token)
         leagues = list_leagues(creds, year)
     except EspnAuthError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
@@ -337,19 +350,18 @@ def espn_leagues(year: int | None = None,
 
 
 @app.post("/espn/connect")
-def espn_connect(body: EspnConnectBody,
-                 x_device_token: str | None = Header(default=None)):
+def espn_connect(body: EspnConnectBody, p: Principal = Depends(require_espn)):
     """Attach a session to the live ESPN draft.
 
-    Credentials are read here, never at import: `src/api.py` is imported by the
-    whole test suite with no ESPN variables set, and loading them at module
-    scope would fail collection for every test in the project.
+    The league is checked against the ones these credentials can actually see,
+    so a guessed league id can't be attached to.
     """
-    s = _get_session_or_404(body.session_id)
+    s = _get_session_or_404(body.session_id, p)
     year = body.year or NEXT_SEASON
+    creds = p.creds
+    league_id = assert_league(p, body.league_id, year) if body.league_id else None
     try:
-        creds = _creds_for(x_device_token)
-        client = EspnDraftClient(creds, year, league_id=body.league_id)
+        client = EspnDraftClient(creds, year, league_id=league_id)
         teams_payload = client.team_payload()
         my_team_id = resolve_my_team_id(teams_payload, creds.swid)
         settings = client.settings()
@@ -413,9 +425,13 @@ def espn_connect(body: EspnConnectBody,
 
 
 @app.get("/espn/sync/{session_id}")
-def espn_sync(session_id: str):
-    """Poll ESPN and apply anything new. The workhorse."""
-    s = _get_session_or_404(session_id)
+def espn_sync(session_id: str, p: Principal = Depends(require_espn)):
+    """Poll ESPN and apply anything new. The workhorse.
+
+    Deliberately does not re-check league reachability: that was proven at
+    connect time, and a three-second poll must not wait on an ESPN round-trip.
+    """
+    s = _get_session_or_404(session_id, p)
     sync = _sync_or_404(session_id)
 
     # One session, one in-flight apply. Two overlapping polls could both read
@@ -454,12 +470,15 @@ def espn_sync(session_id: str):
 
 
 @app.post("/espn/disconnect")
-def espn_disconnect(body: EspnDisconnectBody):
+def espn_disconnect(body: EspnDisconnectBody,
+                    p: Principal = Depends(require_principal)):
     """Drop the sync but keep the session and everything drafted so far.
 
     The escape hatch: if ESPN breaks mid-draft the user must always be able to
-    fall back to clicking picks in by hand.
+    fall back to clicking picks in by hand. Ownership is checked because this
+    used to validate nothing at all - anyone could disconnect anyone.
     """
+    _get_session_or_404(body.session_id, p)
     ESPN_SYNCS.pop(body.session_id, None)
     return {"connected": False}
 
@@ -467,16 +486,18 @@ def espn_disconnect(body: EspnDisconnectBody):
 # --- per-league analysis ------------------------------------------------
 
 @app.get("/analysis/status")
-def analysis_status(league_id: str, year: int | None = None):
+def analysis_status(league_id: str, year: int | None = None,
+                    p: Principal = Depends(require_espn)):
     """What the Analysis tab needs to decide between the gate and the page.
 
     Cheap and local: reads what's stored rather than asking ESPN, so opening
     the tab costs nothing. Probing ESPN for which seasons *could* be pulled
     happens only when the user asks to run it.
     """
+    league_id = assert_league(p, league_id, NEXT_SEASON)
     year = year or CURRENT_SEASON
     seasons = seasons_for_league(engine, league_id)
-    running = find_active("history", league_id)
+    running = find_active("history", league_id, p.user_id)
     return {
         "league_id": league_id,
         "seasons": seasons,
@@ -489,18 +510,15 @@ def analysis_status(league_id: str, year: int | None = None):
 
 
 @app.post("/analysis/run")
-def analysis_run(body: AnalysisRunBody,
-                 x_device_token: str | None = Header(default=None)):
+def analysis_run(body: AnalysisRunBody, p: Principal = Depends(require_espn)):
     """Pull this league's completed seasons, then refit its bias.
 
     A background job: five seasons is a couple of minutes of waiting on ESPN,
     and a blocking request risks timing out with the database half-populated.
     """
-    league_id = str(body.league_id)
-    try:
-        creds = _creds_for(x_device_token)
-    except EspnAuthError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    year = CURRENT_SEASON
+    league_id = assert_league(p, body.league_id, NEXT_SEASON)
+    creds = p.creds
 
     first, last = body.since or 2020, body.through or CURRENT_SEASON
 
@@ -534,31 +552,55 @@ def analysis_run(body: AnalysisRunBody,
                 "written": {str(k): v for k, v in written.items()},
                 "picks_fitted": fit["meta"].get("n_picks", 0)}
 
-    return start("history", league_id, work).to_dict()
+    return start("history", league_id, work, owner=p.user_id).to_dict()
 
 
 @app.get("/analysis/job/{job_id}")
-def analysis_job(job_id: str):
-    job = get_job(job_id)
+def analysis_job(job_id: str, p: Principal = Depends(require_principal)):
+    job = get_job_for(job_id, p.user_id)
     if job is None:
         raise HTTPException(status_code=404, detail="job not found")
     return job.to_dict()
 
 
 @app.post("/session")
-def create_session(cfg: SessionCreate):
-    sid = new_session(cfg.teams, cfg.roster_need, rounds=cfg.rounds)
-    return {"session_id": sid}
+def create_session(cfg: SessionCreate,
+                   x_device_token: str | None = Header(default=None)):
+    """Start a board.
 
-def _get_session_or_404(session_id: str):
-    try:
-        return get_session(session_id)
-    except KeyError:
+    Deliberately the one endpoint that does not demand an existing identity:
+    drafting by hand is a legitimate way to use this, and shouldn't require
+    handing over ESPN cookies. Callers without a token get a guest one back and
+    are expected to send it from then on - the session still has an owner, so
+    nobody else can read or write it.
+    """
+    p = principal_for(x_device_token)
+    token = None
+    if p is None:
+        token = issue_guest()
+        p = principal_for(token)
+    sid = new_session(cfg.teams, cfg.roster_need, rounds=cfg.rounds, owner=p.user_id)
+    out = {"session_id": sid}
+    if token:
+        out["token"] = token
+    return out
+
+def _get_session_or_404(session_id: str, p: Principal):
+    """A session, but only for whoever owns it.
+
+    404 rather than 403 for someone else's session, deliberately: a 403 would
+    confirm the id exists, which is exactly the oracle this check closes. A
+    session id used to be a bearer capability - it granted read, pick injection,
+    ESPN polling on the owner's cookies, and disconnect, to anyone holding one.
+    """
+    session = SESSIONS.get(session_id)
+    if session is None or getattr(session, "owner", "") != p.user_id:
         raise HTTPException(status_code=404, detail="session not found")
+    return session
 
 @app.post("/pick")
-def pick(body: PickBody):
-    s = _get_session_or_404(body.session_id)
+def pick(body: PickBody, p: Principal = Depends(require_principal)):
+    s = _get_session_or_404(body.session_id, p)
     filled = s.pick(body.player_id, body.position, body.is_my_pick, body.player_name)
     return {
         "ok": True,
@@ -578,8 +620,8 @@ def pick(body: PickBody):
     }
 
 @app.post("/recommend")
-def rec(body: RecommendBody):
-    s = _get_session_or_404(body.session_id)
+def rec(body: RecommendBody, p: Principal = Depends(require_principal)):
+    s = _get_session_or_404(body.session_id, p)
     df = recommend(engine,
                    year=body.year or NEXT_SEASON,
                    session=s,
