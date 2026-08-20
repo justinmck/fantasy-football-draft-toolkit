@@ -12,7 +12,16 @@ from src.settings import API_ORIGINS, TEAMS
 from src.analysis import league_analysis
 from src.db import engine
 from src.indexes import ensure_indexes
-from src.auth import credentials_for, forget, issue, issue_guest, principal_for, verify
+from src import authdb
+from src.auth import (
+    credentials_for,
+    forget,
+    issue,
+    issue_guest,
+    migrate_legacy_store,
+    principal_for,
+    verify,
+)
 from src.schemas import (
     AnalysisRunBody, AuthConnectBody, EspnConnectBody, EspnDisconnectBody, SessionCreate,
     PickBody, RecommendBody,
@@ -53,6 +62,18 @@ try:
     add_bias_league_id(engine)
 except Exception as exc:  # pragma: no cover - depends on DB permissions
     log.warning("could not prepare database: %s", exc)
+
+try:
+    # Move any tokens from the old plaintext JSON store into the encrypted one.
+    # Without this, shipping the storage change would sign everyone out - a
+    # rotten way to deliver a security fix, since the visible symptom is "the
+    # app forgot me" rather than "your cookies are now encrypted".
+    moved = migrate_legacy_store()
+    if moved:
+        log.info("migrated %d device token(s) into the encrypted store", moved)
+    authdb.sweep()
+except Exception as exc:  # pragma: no cover
+    log.warning("could not prepare the credential store: %s", exc)
 
 # The fit is loaded per league, on demand. It used to be a module-level
 # `BIAS = load_league_bias(engine)` read once at import, which meant every

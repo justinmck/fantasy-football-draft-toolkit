@@ -9,24 +9,24 @@ script on the page cannot read the session cookies, and they don't travel on
 every request. That is the whole reason for the indirection - a simpler design
 would put SWID and espn_s2 straight into `localStorage`.
 
-Tokens are persisted to a file rather than an in-memory dict, because the point
-of the feature is that reopening the app just works; an in-memory store would
-sign the user out on every backend restart. The file is a credential store and
-is treated like one: gitignored, created 0600, never logged, never returned.
+This module is now the *policy* layer: what a sign-in requires, what a token
+means, when to refuse one. The storage underneath it is `src/authdb.py` - an
+encrypted SQLite file with hashed tokens and expiry, which replaced a plaintext
+JSON file that was rewritten whole on every write.
 
-`.env` remains a fallback so the notebooks and a fresh checkout keep working
-with no sign-in at all.
+A short in-process cache sits in front of it: the board polls every three
+seconds, and decrypting two cookies per poll for every connected user is work
+nobody needs. Short enough that a sign-out takes effect promptly.
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import os
-import secrets
+import threading
 import time
 from pathlib import Path
 
+from src import authdb
 from src.espn_draft import (
     S2_MESSAGE,
     EspnAuthError,
@@ -38,44 +38,49 @@ from src.espn_draft import (
 log = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-TOKEN_FILE = _REPO_ROOT / "data" / "device_tokens.json"
+# Only still referenced to migrate off it; see `authdb.import_legacy`.
+LEGACY_TOKEN_FILE = _REPO_ROOT / "data" / "device_tokens.json"
 
-# Long enough that guessing is hopeless; this is the only thing standing
-# between a request and someone's ESPN session.
-_TOKEN_BYTES = 32
+_CACHE_TTL = 60.0
+_CACHE_MAX = 2000
+_cache: dict = {}
+_cache_lock = threading.Lock()
 
 
-def _read() -> dict:
+def _cache_get(token: str):
+    with _cache_lock:
+        hit = _cache.get(token)
+    if hit and time.monotonic() - hit[1] < _CACHE_TTL:
+        return hit[0]
+    return None
+
+
+def _cache_put(token: str, principal) -> None:
+    with _cache_lock:
+        if len(_cache) > _CACHE_MAX:
+            _cache.clear()
+        _cache[token] = (principal, time.monotonic())
+
+
+def _cache_drop(token: str) -> None:
+    with _cache_lock:
+        _cache.pop(token, None)
+
+
+def migrate_legacy_store() -> int:
+    """Carry any pre-existing tokens into the encrypted store. Idempotent."""
     try:
-        return json.loads(TOKEN_FILE.read_text())
-    except (FileNotFoundError, ValueError):
-        return {}
-    except OSError as exc:  # pragma: no cover - permissions
-        log.warning("could not read device tokens: %s", exc)
-        return {}
-
-
-def _write(store: dict) -> None:
-    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    # Create with owner-only permissions *before* anything is written, so the
-    # credentials are never briefly world-readable.
-    fd = os.open(TOKEN_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as fh:
-        json.dump(store, fh)
+        return authdb.import_legacy(LEGACY_TOKEN_FILE)
+    except Exception as exc:  # pragma: no cover - never block boot on this
+        log.warning("could not migrate legacy token store: %s", exc)
+        return 0
 
 
 def issue(swid: str, espn_s2: str) -> str:
     """Store a credential pair and return the device token for it."""
-    token = secrets.token_urlsafe(_TOKEN_BYTES)
-    store = _read()
-    store[token] = {
-        "kind": "espn",
-        "swid": swid,
-        "espn_s2": espn_s2,
-        "created": int(time.time()),
-    }
-    _write(store)
-    return token
+    from src.principal import user_id_for
+    return authdb.insert(user_id=user_id_for(swid), kind="espn",
+                         swid=swid, espn_s2=espn_s2)
 
 
 def issue_guest() -> str:
@@ -85,11 +90,9 @@ def issue_guest() -> str:
     person's board isn't reachable by anyone who guesses a session id. It does
     not need, and should not demand, ESPN cookies to get one.
     """
-    token = secrets.token_urlsafe(_TOKEN_BYTES)
-    store = _read()
-    store[token] = {"kind": "guest", "created": int(time.time())}
-    _write(store)
-    return token
+    import secrets
+    return authdb.insert(user_id="guest:" + secrets.token_hex(8), kind="guest",
+                         swid=None, espn_s2=None)
 
 
 def credentials_for(token: str | None) -> EspnCredentials | None:
@@ -103,42 +106,45 @@ def credentials_for(token: str | None) -> EspnCredentials | None:
 
 
 def principal_for(token: str | None):
-    """Resolve a token to a Principal, or None if we never issued it."""
-    from src.principal import ESPN, GUEST, Principal, guest_user_id, user_id_for
+    """Resolve a token to a Principal, or None if it isn't a live one.
+
+    None covers unknown, expired, idle-expired and undecryptable alike. They
+    are the same event from the user's side - sign in again - and collapsing
+    them here means no caller can accidentally leak which it was.
+    """
+    from src.principal import ESPN, GUEST, Principal
 
     if not token:
         return None
-    entry = _read().get(token)
-    if not entry:
+    cached = _cache_get(token)
+    if cached is not None:
+        return cached
+
+    row = authdb.lookup(token)
+    if row is None:
+        _cache_drop(token)
         return None
 
-    if entry.get("kind") == "guest":
-        return Principal(user_id=guest_user_id(token), kind=GUEST, token=token)
-
-    swid = str(entry.get("swid") or "")
-    espn_s2 = str(entry.get("espn_s2") or "")
-    if not (swid and espn_s2):
-        return None
-    return Principal(
-        user_id=user_id_for(swid),
-        kind=ESPN,
-        # `league_id` is deliberately empty. It used to be filled from the
-        # operator's LEAGUE_ID, which stamped one person's league onto every
-        # other user's credentials; every caller passes the league explicitly.
-        creds=EspnCredentials(league_id="", swid=swid, espn_s2=espn_s2),
-        token=token,
-    )
+    if row["kind"] == "guest":
+        p = Principal(user_id=row["user_id"], kind=GUEST, token=token)
+    else:
+        p = Principal(
+            user_id=row["user_id"],
+            kind=ESPN,
+            # `league_id` is deliberately empty. It used to be filled from the
+            # operator's LEAGUE_ID, which stamped one person's league onto every
+            # other user's credentials; every caller passes the league explicitly.
+            creds=EspnCredentials(league_id="", swid=row["swid"],
+                                  espn_s2=row["espn_s2"]),
+            token=token,
+        )
+    _cache_put(token, p)
+    return p
 
 
 def forget(token: str | None) -> bool:
-    if not token:
-        return False
-    store = _read()
-    if token not in store:
-        return False
-    store.pop(token)
-    _write(store)
-    return True
+    _cache_drop(token)
+    return authdb.delete(token)
 
 
 def verify(swid: str, espn_s2: str, year: int) -> list:

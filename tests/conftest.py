@@ -22,6 +22,13 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_DB_PATH}"
 # fixture database.
 os.environ["APP_PEPPER"] = "test-pepper-not-a-secret"
 os.environ["APP_ENV"] = "test"
+# The credential store is its own SQLite file. Pointed at the throwaway
+# directory, and APP_SECRET generated per run, so a test can never read, write
+# or decrypt the developer's real cookies.
+os.environ["AUTH_DB_URL"] = f"sqlite:///{os.path.join(_tmpdir.name, 'auth.db')}"
+from cryptography.fernet import Fernet as _Fernet  # noqa: E402
+
+os.environ["APP_SECRET"] = _Fernet.generate_key().decode()
 _TOKEN_PATH = os.path.join(_tmpdir.name, "device_tokens.json")
 
 _conn = sqlite3.connect(_DB_PATH)

@@ -11,6 +11,7 @@ from starlette.testclient import TestClient
 
 import src.api as api
 import src.auth as auth
+from src import authdb
 from src.api import app
 from src.espn_draft import (
     AUTH_MESSAGE,
@@ -22,6 +23,18 @@ from src.espn_draft import (
 )
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def empty_credential_store():
+    """Each test starts with no tokens.
+
+    The store is a real SQLite file now rather than a dict, so it persists
+    across tests within a run; several of these assert on counts.
+    """
+    with authdb.engine().begin() as conn:
+        conn.exec_driver_sql("DELETE FROM device_tokens")
+    yield
 SWID = "{SENTINEL-1111-2222-3333-444444444444}"
 S2 = "S2-SENTINEL-do-not-leak"
 
@@ -101,7 +114,7 @@ class TestConnect:
     def test_a_rejected_pair_is_not_stored(self, espn_ok):
         _FakeClient.raises = EspnAuthError(AUTH_MESSAGE)
         client.post("/auth/connect", json={"swid": SWID, "espn_s2": SWID})
-        assert auth._read() == {}
+        assert authdb.count() == 0
 
     def test_an_unreachable_settings_call_is_not_blamed_on_the_cookie(self, espn_ok):
         """ESPN being down is not the user's cookie being wrong."""
@@ -139,7 +152,50 @@ class TestTokenStore:
     def test_file_is_owner_only(self, espn_ok):
         """It holds session cookies; it is a credential store."""
         client.post("/auth/connect", json={"swid": SWID, "espn_s2": S2})
-        assert oct(Path(auth.TOKEN_FILE).stat().st_mode)[-3:] == "600"
+        path = Path(str(authdb.engine().url)[len("sqlite:///"):])
+        assert oct(path.stat().st_mode)[-3:] == "600"
+
+    def test_the_bearer_token_is_not_stored(self):
+        """A stolen copy of this database must not yield working tokens."""
+        tok = authdb.insert(user_id="u", kind="espn", swid=SWID, espn_s2=S2)
+        with authdb.engine().begin() as conn:
+            blob = " ".join(str(r) for r in conn.exec_driver_sql(
+                "SELECT * FROM device_tokens").fetchall())
+        assert tok not in blob
+        assert authdb.hash_token(tok) in blob
+
+    def test_the_cookies_are_not_stored_in_the_clear(self):
+        """The whole point of encrypting at rest: a file that leaves the
+        machine - a commit, a backup, an scp of data/ - carries no cookies."""
+        authdb.insert(user_id="u", kind="espn", swid=SWID, espn_s2=S2)
+        raw = Path(str(authdb.engine().url)[len("sqlite:///"):]).read_bytes()
+        assert SWID.encode() not in raw
+        assert S2.encode() not in raw
+
+    def test_an_expired_token_stops_working(self):
+        tok = authdb.insert(user_id="u", kind="espn", swid=SWID, espn_s2=S2)
+        assert authdb.lookup(tok) is not None
+        with authdb.engine().begin() as conn:
+            conn.exec_driver_sql(
+                "UPDATE device_tokens SET expires = 1 WHERE token_hash = "
+                f"'{authdb.hash_token(tok)}'")
+        assert authdb.lookup(tok) is None
+
+    def test_an_idle_token_stops_working(self):
+        """Absolute expiry alone would let a stolen token live for a month."""
+        tok = authdb.insert(user_id="u", kind="espn", swid=SWID, espn_s2=S2)
+        with authdb.engine().begin() as conn:
+            conn.exec_driver_sql(
+                "UPDATE device_tokens SET last_used = 1 WHERE token_hash = "
+                f"'{authdb.hash_token(tok)}'")
+        assert authdb.lookup(tok) is None
+
+    def test_a_row_encrypted_under_a_lost_key_is_treated_as_signed_out(self, monkeypatch):
+        """Never a 500 mid-draft: an unreadable row is the same event as an
+        expired one, and the user is asked to sign in again."""
+        tok = authdb.insert(user_id="u", kind="espn", swid=SWID, espn_s2=S2)
+        monkeypatch.setattr(authdb, "unseal", lambda blob: None)
+        assert authdb.lookup(tok) is None
 
     def test_credentials_round_trip_but_only_via_the_token(self, espn_ok):
         tok = client.post("/auth/connect", json={"swid": SWID, "espn_s2": S2}).json()["token"]

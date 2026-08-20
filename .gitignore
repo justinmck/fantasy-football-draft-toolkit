@@ -6,8 +6,10 @@ notes
 .DS_Store
 .claude/
 .pytest_cache/
-# Credential store - see src/auth.py
-data/device_tokens.json
+# Credential stores - see src/auth.py and src/authdb.py. The glob covers
+# device_tokens.json.migrated, which still holds plaintext cookies until
+# it is deleted by hand.
+data/device_tokens.json*
 
 # Runtime database. The app writes to this at draft time, and it accumulates
 # real league history - team and manager names - as it goes. Committing it
