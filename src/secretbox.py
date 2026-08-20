@@ -13,13 +13,15 @@ plaintext.
 
 Two secrets, deliberately separate:
 
-- `APP_SECRET` encrypts the cookies. Rotating it re-encrypts rows lazily.
-- `APP_PEPPER` derives `user_id` from a SWID. It must **never** rotate: the
-  owner of a draft session is a `user_id`, so changing the pepper orphans every
-  session and signs everyone out mid-draft.
+- `APP_SECRET`, here, encrypts the cookies. Rotating it re-encrypts rows lazily
+  via `MultiFernet` and `APP_SECRET_OLD`.
+- `APP_PEPPER`, in `src/settings.py`, derives `user_id` from a SWID. It must
+  **never** rotate: the owner of a draft session is a `user_id`, so changing the
+  pepper orphans every session and signs everyone out mid-draft.
 
 Sharing one secret for both would couple those lifecycles, which is why they
-aren't.
+are separate - and why the pepper lives in `settings.py` rather than here, so
+there is exactly one loader for it.
 """
 
 from __future__ import annotations
@@ -34,7 +36,6 @@ log = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEV_SECRET = _REPO_ROOT / "data" / "runtime" / "dev_secret"
-_DEV_PEPPER = _REPO_ROOT / "data" / "runtime" / "dev_pepper"
 
 # Set APP_ENV=prod on a deployed host. It turns three things from warnings into
 # refusals: a generated dev secret, operator credentials from .env, and a
@@ -83,11 +84,6 @@ def _fernet() -> MultiFernet:
         if old:
             keys.append(Fernet(old.encode()))
     return MultiFernet(keys)
-
-
-def pepper() -> bytes:
-    """The HMAC pepper for `user_id`. Never rotate this - see the module docstring."""
-    return (os.getenv("APP_PEPPER") or _read_or_create(_DEV_PEPPER, "APP_PEPPER")).encode()
 
 
 def seal(plaintext: str) -> bytes:

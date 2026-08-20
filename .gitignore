@@ -17,3 +17,5 @@ data/device_tokens.json*
 # names. Rebuild it from the notebooks, or ship a reference copy instead.
 data/fantasy_data.db
 data/runtime/
+# data/reference.db IS tracked on purpose - it is the shipped subset,
+# rebuilt by notebooks/build_reference_db.py.

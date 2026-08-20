@@ -11,7 +11,7 @@ This README covers the engineering side: architecture, setup, and methodology.
 ## Architecture
 
 ```
-ESPN API  →  notebooks/NB01  →  SQLite (data/fantasy_data.db)
+ESPN API  →  notebooks/NB01  →  SQLite (data/runtime/fantasy_data.db)
                                        │
           ┌──────────────────┬─────────┼──────────────────┐
           │                  │         │                  │
@@ -161,7 +161,7 @@ The rebuild also recovers position from ESPN's `eligible_slots` when a player ha
 
 Run in order — each depends on tables/files the previous one produces:
 
-1. `NB01-data-collection.ipynb` — pulls raw league/player/draft data from ESPN into `data/raw/` and `data/fantasy_data.db`. (Projections are pulled by `pull_projections.py` above, not by this notebook — see why, there.)
+1. `NB01-data-collection.ipynb` — pulls raw league/player/draft data from ESPN into `data/raw/` and `data/runtime/fantasy_data.db`. (Projections are pulled by `pull_projections.py` above, not by this notebook — see why, there.)
 2. `NB02-data-processing.ipynb` — cleans and normalizes the raw data into the DB tables the rest of the project reads from.
 3. `NB03-analysis.ipynb` — retrospective VORP, draft-value charts and tables (exported to `docs/charts/`, `docs/tables/`).
 4. `NB04-draft-board.ipynb` — feature validation, model comparison, feature ablation, and the `players.json` export used as the draft board's offline fallback.
@@ -174,7 +174,7 @@ Two processes, run together on draft day:
 ```bash
 # terminal 1 — backend
 source .venv/bin/activate
-uvicorn src.api:app --reload
+uvicorn src.api:app          # no --reload; see Deploying
 
 # terminal 2 — frontend
 cd draft-board
@@ -194,6 +194,74 @@ The list contains **every** player, with the board's own pick marked by a trophy
 The **"Play it safe" slider** names the positions it's currently discounting and by how much, rather than showing a bare percentage. Its effect is genuinely uneven — K and DST get cut hard because their projections have historically explained none of the variance in what those players delivered, while skill positions sit within a few percent of each other — and a control whose consequences can't be seen may as well not exist. When the spread is too small to reorder anything, it says so.
 
 If the backend isn't reachable, the UI falls back to the static `players.json` snapshot exported by NB04. That fallback is **value only** — roster need, pick timing, and the position-reliability half of confidence all require a live session, and the UI says so rather than presenting a partial ranking as the real one.
+
+### Deploying it for other people
+
+The app was single-tenant until recently: any request without a device token
+was served the **operator's** ESPN cookies from `.env`. Before exposing it to
+anyone else, the following have to hold, and each has tests behind it.
+
+**Identity.** `require_principal` / `require_espn` are FastAPI dependencies, so
+authorization is applied at the signature rather than remembered per endpoint.
+No token means 401 — never the operator's account. `load_credentials()` survives
+only for the notebooks and CLI scripts, and raises outright when `APP_ENV=prod`.
+
+**Ownership.** Session ids are full uuid4 (they were 32 bits), and every session
+and job carries an owner. That owner is `HMAC(APP_PEPPER, swid)` rather than the
+device token, so re-signing in mid-draft keeps your board. Another user's
+session id returns **404, not 403** — a 403 would confirm the id exists.
+
+**Secrets.** Two, deliberately separate:
+
+| Variable | Purpose | Rotatable? |
+|---|---|---|
+| `APP_SECRET` | encrypts stored ESPN cookies | yes — old keys via `APP_SECRET_OLD` |
+| `APP_PEPPER` | derives `user_id` from a SWID | **no** — rotating it orphans every session |
+
+Both are generated into gitignored files in development and **must** be set in
+production, where a missing one refuses to boot rather than silently generating
+a value that changes on every redeploy.
+
+**Databases.** Three files, and the split matters:
+
+| File | Role | Git |
+|---|---|---|
+| `data/reference.db` | shipped subset: the ten league-independent tables, 0.4 MB | tracked |
+| `data/runtime/fantasy_data.db` | working copy, seeded from the reference on first boot | ignored |
+| `data/runtime/auth.db` | credential store, encrypted, 0600 | ignored |
+
+Rebuild the reference with `python notebooks/build_reference_db.py`. It drops
+every league-scoped table, nulls `players.current_team_name` (which holds real
+managers' team names even though the table is the national player list),
+vacuums so the dropped bytes are actually gone, and then **checks the resulting
+file** rather than trusting that it did all that.
+
+**Running it.**
+
+```bash
+uvicorn src.api:app --host 127.0.0.1 --port 8000 --workers 1 \
+        --proxy-headers --forwarded-allow-ips=127.0.0.1
+```
+
+- **`--workers 1` is load-bearing.** `SESSIONS`, `ESPN_SYNCS`, `JOBS` and the
+  rate-limit buckets are all in-process; a second worker gets its own copy of
+  each, so budgets double and sessions vanish depending on which worker answers.
+  Horizontal scale would need Redis, which is not worth building here.
+- **Never `--reload`** — it runs a second process, with the same consequence.
+- **TLS at a reverse proxy**, binding the app to loopback. ESPN session cookies
+  over plaintext HTTP is game over regardless of everything above. Set
+  `TRUSTED_PROXY=1` only when a proxy is actually in front, or the rate limiter
+  becomes bypassable with a forged `X-Forwarded-For`.
+- Scrub `X-Device-Token` from proxy access logs.
+- `API_ORIGINS` is validated at import: whitespace stripped, `*` rejected
+  alongside credentials, non-https refused in production, and a bad value
+  refuses to start rather than failing quietly at the first request.
+
+**Limits.** `/auth/connect` is 5 per burst then one per three minutes per IP,
+because every attempt makes an outbound ESPN call with supplied cookies.
+Analyses are one per user at a time, three an hour, on a bounded pool. Sessions
+expire after 12 idle hours, with a per-user cap so one person cannot evict
+everyone else's draft.
 
 ### Signing in, and being remembered
 
