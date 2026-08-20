@@ -20,6 +20,9 @@ from __future__ import annotations
 
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor
+
+from fastapi import HTTPException
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -57,6 +60,14 @@ class Job:
 
 
 JOBS: dict[str, Job] = {}
+
+# A pull is minutes of waiting on ESPN, so these are deliberately small: the
+# work is I/O bound and the constraint is ESPN's patience, not the CPU.
+MAX_CONCURRENT = 4
+MAX_QUEUED = 8
+MAX_PER_USER = 1
+
+_POOL = ThreadPoolExecutor(max_workers=MAX_CONCURRENT, thread_name_prefix="job")
 _LOCK = threading.Lock()
 
 
@@ -90,15 +101,33 @@ def get_for(job_id: str, owner: str) -> Job | None:
 
 
 def start(kind: str, key: str, fn, owner: str = "") -> Job:
-    """Run `fn(report)` on a thread. `report(progress, message)` drives the UI.
+    """Run `fn(report)` on the pool. `report(progress, message)` drives the UI.
 
     Returns the existing job if one is already running for this key - clicking
     "Run analysis" twice should watch one pull, not start a second one against
     the same league.
+
+    Raises 429 when the caller already has a job running, or the pool is
+    saturated. Each job is minutes of outbound ESPN traffic on one user's
+    cookies, so an unbounded thread-per-job was a way to turn this deployment
+    into a source of ESPN load.
     """
     existing = find_active(kind, key, owner)
     if existing:
         return existing
+
+    with _LOCK:
+        mine = [j for j in JOBS.values()
+                if j.owner == owner and j.status == "running"]
+        if owner and len(mine) >= MAX_PER_USER:
+            raise HTTPException(
+                status_code=429,
+                detail="You already have an analysis running. Wait for it to finish.")
+        running = sum(1 for j in JOBS.values() if j.status == "running")
+        if running >= MAX_CONCURRENT + MAX_QUEUED:
+            raise HTTPException(
+                status_code=429,
+                detail="The server is busy running analyses. Try again shortly.")
 
     job = Job(id=uuid.uuid4().hex[:12], kind=kind, key=str(key), owner=owner)
     with _LOCK:
@@ -125,7 +154,7 @@ def start(kind: str, key: str, fn, owner: str = "") -> Job:
         finally:
             job.finished = time.time()
 
-    threading.Thread(target=run, daemon=True, name=f"job-{job.id}").start()
+    _POOL.submit(run)
     return job
 
 

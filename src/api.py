@@ -3,7 +3,7 @@ import os
 import time
 from collections import OrderedDict
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
@@ -26,9 +26,11 @@ from src.schemas import (
     AnalysisRunBody, AuthConnectBody, EspnConnectBody, EspnDisconnectBody, SessionCreate,
     PickBody, RecommendBody,
 )
+from src import state as state_module
 from src.state import SESSIONS, new_session, get_session
 from src.principal import Principal, require_espn, require_principal
 from src.leagues import assert_league
+from src.limits import limit_analysis_run, limit_auth_connect
 from src.recommender import recommend
 from src.scoring import RISK_AVERSION
 from src.biases import fit_league_bias, load_league_bias, persist_league_bias
@@ -62,6 +64,12 @@ try:
     add_bias_league_id(engine)
 except Exception as exc:  # pragma: no cover - depends on DB permissions
     log.warning("could not prepare database: %s", exc)
+
+# Dropping a session must drop its ESPN sync too, or the sync keeps a live
+# client - and the user's cookies - alive for a board nobody can reach. A hook
+# rather than an import so `src/state.py` doesn't grow a dependency on
+# `src/espn_draft.py`.
+state_module.on_evict.append(lambda sid: ESPN_SYNCS.pop(sid, None))
 
 try:
     # Move any tokens from the old plaintext JSON store into the encrypted one.
@@ -295,8 +303,14 @@ def _sync_payload(s, sync: DraftSync, new_picks=None) -> dict:
 
 
 @app.post("/auth/connect")
-def auth_connect(body: AuthConnectBody):
-    """Verify a pair of ESPN cookies and remember them for this device."""
+def auth_connect(body: AuthConnectBody, request: Request):
+    """Verify a pair of ESPN cookies and remember them for this device.
+
+    Rate limited per IP, and globally. Every attempt makes an outbound request
+    to ESPN with whatever cookies were supplied, so an open endpoint here is a
+    credential oracle *and* a way to get this deployment throttled by ESPN.
+    """
+    limit_auth_connect(request)
     year = body.year or NEXT_SEASON
     swid, espn_s2 = body.swid.strip(), body.espn_s2.strip()
     if not swid or not espn_s2:
@@ -554,11 +568,17 @@ def analysis_run(body: AnalysisRunBody, p: Principal = Depends(require_espn)):
     A background job: five seasons is a couple of minutes of waiting on ESPN,
     and a blocking request risks timing out with the database half-populated.
     """
+    limit_analysis_run(p.user_id)
     year = CURRENT_SEASON
     league_id = assert_league(p, body.league_id, NEXT_SEASON)
     creds = p.creds
 
-    first, last = body.since or 2020, body.through or CURRENT_SEASON
+    # Clamped, not trusted: an unbounded range is an unbounded number of
+    # outbound ESPN calls on one request. Six seasons is more than any league
+    # in this database has.
+    first = max(int(body.since or 2020), 2015)
+    last = min(int(body.through or CURRENT_SEASON), CURRENT_SEASON)
+    last = min(last, first + 5)
 
     def work(report):
         report(0.02, "Checking which seasons exist…")

@@ -11,7 +11,7 @@ from starlette.testclient import TestClient
 
 import src.api as api
 import src.auth as auth
-from src import authdb
+from src import authdb, limits
 from src.api import app
 from src.espn_draft import (
     AUTH_MESSAGE,
@@ -27,13 +27,17 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def empty_credential_store():
-    """Each test starts with no tokens.
+    """Each test starts with no tokens and a full rate-limit budget.
 
     The store is a real SQLite file now rather than a dict, so it persists
-    across tests within a run; several of these assert on counts.
+    across tests within a run; several of these assert on counts. The limiter
+    is likewise process-global, and these tests post to /auth/connect far more
+    often than any human would - without a reset they trip it and every
+    assertion afterwards sees a 429.
     """
     with authdb.engine().begin() as conn:
         conn.exec_driver_sql("DELETE FROM device_tokens")
+    limits.reset()
     yield
 SWID = "{SENTINEL-1111-2222-3333-444444444444}"
 S2 = "S2-SENTINEL-do-not-leak"

@@ -1,3 +1,5 @@
+import threading
+import time
 import uuid
 
 from src.scoring import FLEX_ELIGIBLE, normalize_position
@@ -136,6 +138,63 @@ class DraftSession:
 
 SESSIONS = {}
 
+# A draft is a few hours; a day of idleness means it is over or abandoned.
+SESSION_TTL = 12 * 3600
+MAX_SESSIONS = 5000
+# Per user as well as globally. Without this, a global LRU is itself a
+# cross-tenant denial of service: one person opening sessions in a loop would
+# evict everyone else's live draft. The per-user cap means they can only ever
+# push out their own.
+MAX_PER_USER = 5
+
+_sweep_lock = threading.Lock()
+
+# Called with a session id when one is dropped. `src/api.py` registers a
+# callback that clears the matching ESPN sync, rather than this module
+# importing ESPN_SYNCS and creating a state -> espn_draft import edge.
+on_evict: list = []
+
+
+def _drop(sid: str) -> None:
+    SESSIONS.pop(sid, None)
+    for hook in on_evict:
+        try:
+            hook(sid)
+        except Exception:  # pragma: no cover - a bad hook must not break eviction
+            pass
+
+
+def sweep(now: float | None = None) -> int:
+    """Drop idle sessions, then the oldest if still over the caps.
+
+    SESSIONS was unbounded and never evicted, which made `POST /session` an
+    unauthenticated memory-exhaustion primitive.
+    """
+    t = time.time() if now is None else now
+    dropped = 0
+    with _sweep_lock:
+        for sid, sess in list(SESSIONS.items()):
+            if t - getattr(sess, "last_seen", t) > SESSION_TTL:
+                _drop(sid)
+                dropped += 1
+
+        by_user: dict = {}
+        for sid, sess in SESSIONS.items():
+            by_user.setdefault(getattr(sess, "owner", ""), []).append(sid)
+        for owner, sids in by_user.items():
+            if not owner or len(sids) <= MAX_PER_USER:
+                continue
+            sids.sort(key=lambda s: getattr(SESSIONS[s], "created", 0))
+            for sid in sids[:len(sids) - MAX_PER_USER]:
+                _drop(sid)
+                dropped += 1
+
+        while len(SESSIONS) > MAX_SESSIONS:
+            oldest = min(SESSIONS, key=lambda s: getattr(SESSIONS[s], "created", 0))
+            _drop(oldest)
+            dropped += 1
+    return dropped
+
 
 def new_session(teams: int, roster_need: dict, rounds: int | None = None,
                 owner: str = "") -> str:
@@ -150,9 +209,12 @@ def new_session(teams: int, roster_need: dict, rounds: int | None = None,
     `owner` is a `Principal.user_id`, which is derived from the ESPN account
     rather than the device token, so re-signing in mid-draft keeps the board.
     """
+    sweep()
     sid = uuid.uuid4().hex
-    SESSIONS[sid] = DraftSession(teams, roster_need, rounds=rounds)
-    SESSIONS[sid].owner = owner
+    sess = DraftSession(teams, roster_need, rounds=rounds)
+    sess.owner = owner
+    sess.created = sess.last_seen = time.time()
+    SESSIONS[sid] = sess
     return sid
 
 

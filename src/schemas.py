@@ -1,13 +1,16 @@
 from pydantic import BaseModel, Field
 from typing import Dict, Optional
 
+# Unbounded fields on a public endpoint are a denial-of-service surface: a
+# 40-team, 400-round session allocates real memory, and a 2 MB cookie string
+# gets encrypted and stored. These ceilings are all far above any real league.
 class SessionCreate(BaseModel):
-    teams: int = 14
+    teams: int = Field(default=14, ge=2, le=32)
     roster_need: Dict[str, int] = {"QB": 1, "RB": 2, "WR": 2, "TE": 1, "FLEX": 1, "K": 1, "DST": 1}
     # Total rounds in the draft. Optional: when set, need weighting escalates
     # as the drafter's remaining picks run out (src/scoring.roster_urgency).
     # When omitted, need weighting stays flat for the whole draft.
-    rounds: Optional[int] = None
+    rounds: Optional[int] = Field(default=None, ge=1, le=40)
 
 class PickBody(BaseModel):
     session_id: str
@@ -28,17 +31,21 @@ class EspnConnectBody(BaseModel):
 
 
 class AuthConnectBody(BaseModel):
-    swid: str
-    espn_s2: str
-    year: Optional[int] = None
+    # A SWID is a braced GUID (38 chars) and espn_s2 a few hundred characters.
+    # The ceilings stop someone posting megabytes to be encrypted and stored.
+    swid: str = Field(max_length=128)
+    espn_s2: str = Field(max_length=4096)
+    year: Optional[int] = Field(default=None, ge=2000, le=2100)
 
 
 class AnalysisRunBody(BaseModel):
-    league_id: str
+    # ESPN league ids are numeric. Constraining the shape here means the value
+    # can't be anything exotic by the time it reaches a query or a URL.
+    league_id: str = Field(pattern=r"^[0-9]{1,12}$")
     # Which seasons to look for. Defaults cover every season ESPN is likely to
     # still serve; seasons the league didn't exist for are skipped, not errors.
-    since: Optional[int] = None
-    through: Optional[int] = None
+    since: Optional[int] = Field(default=None, ge=2015, le=2100)
+    through: Optional[int] = Field(default=None, ge=2015, le=2100)
 
 
 class EspnDisconnectBody(BaseModel):
@@ -54,7 +61,7 @@ class RecommendBody(BaseModel):
     # current_pick; when they're equal there is no wait option and
     # src/scoring.availability_pressure returns a neutral 1.0 for everyone.
     next_pick: int
-    topn: int = 10
+    topn: int = Field(default=10, ge=1, le=300)
     # How much uncertainty is allowed to discount a player, 0-1. 0 ranks purely
     # on value/need/timing; higher values increasingly prefer the safer player
     # when the board is close. Defaults to src/scoring.RISK_AVERSION.
