@@ -183,6 +183,54 @@ const DraftWhenChip = ({ draftAt, scheduled, unreadable, className = "" }) => {
   );
 };
 
+// ---- Primary navigation ----
+//
+// A left icon rail, which is how FantasyPros (and most sports data sites)
+// carry primary navigation: a narrow dark column of icon + label, active item
+// marked with an accent edge. It replaced a horizontal segmented control in the
+// header - the shape chat apps and generated dashboards use - which was the
+// last big structural tell.
+//
+// Fixed rather than scrolling, because it is the one thing that has to be
+// reachable at any point in a 1,000-row board.
+function NavRail({ tab, onPick, items }) {
+  return (
+    <nav
+      aria-label="Sections"
+      className="fixed inset-y-0 left-0 z-30 hidden w-16 flex-col items-center
+        border-r border-line bg-surface-panel pt-3 md:flex"
+    >
+      <span className="mb-4 text-accent" title="Justin's Draft Assistant">
+        <Trophy size={20} />
+      </span>
+
+      {items.map((t) => {
+        const active = tab === t.id;
+        return (
+          <button
+            key={t.id}
+            onClick={() => onPick(t.id)}
+            title={t.label}
+            aria-label={t.label}
+            aria-current={active ? "page" : undefined}
+            className={`relative flex w-full flex-col items-center gap-1 py-2.5 transition-colors ${
+              active ? "text-accent-hover" : "text-ink-faint hover:text-ink-muted"
+            }`}
+          >
+            {/* The accent edge, not a filled pill: it marks the section
+                without competing with the data for attention. */}
+            {active && (
+              <span className="absolute left-0 top-0 h-full w-0.5 bg-accent" aria-hidden="true" />
+            )}
+            {t.icon}
+            <span className="text-[10px] font-medium leading-none">{t.short}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 // ---- League switcher ----
 //
 // Switching used to mean going home first. The name in the header is the menu,
@@ -370,8 +418,8 @@ function SignInScreen({ onSignIn, busy, error, notice }) {
           <button
             type="submit"
             disabled={busy || backendDown || !swid.trim() || !s2.trim()}
-            className="h-11 w-full rounded-lg bg-accent text-sm font-semibold text-white
- transition hover:bg-accent-hover disabled:opacity-50"
+            className="h-11 w-full rounded bg-accent-fill text-sm font-semibold text-white
+ transition hover:bg-accent-fill-hover disabled:opacity-50"
           >
             {busy ? "Connecting…" : "Connect ESPN account"}
           </button>
@@ -557,8 +605,8 @@ function SetupScreen({ onStart, starting, error, leagues, leaguesError,
         <button
           onClick={() => onStart({ teams, mySlot, rounds })}
           disabled={starting}
-          className="mt-6 h-11 w-full rounded-lg bg-accent text-sm font-semibold text-white
- transition hover:bg-accent-hover disabled:opacity-50"
+          className="mt-6 h-11 w-full rounded bg-accent-fill text-sm font-semibold text-white
+ transition hover:bg-accent-fill-hover disabled:opacity-50"
         >
           {starting ? "Starting…" : "Start draft"}
         </button>
@@ -2171,6 +2219,20 @@ export default function DraftBoard() {
   // Ranked on the list as currently ordered, so "RB1" means "first RB in what
   // you are looking at" rather than asserting a second, invisible ranking.
   const posRanks = useMemo(() => positionalRanks(filtered), [filtered]);
+
+  // Shared by the rail and the phone tabs, so the two can't drift.
+  const sections = useMemo(() => [
+    { id: "board", label: "Draft board", short: "Board", icon: <LayoutList size={17} /> },
+    ...(sync.connected
+      ? [{ id: "draftday", label: "Draft day", short: "Day", icon: <CalendarClock size={17} /> }]
+      : []),
+    { id: "analysis", label: "Analysis", short: "Stats", icon: <BarChart3 size={17} /> },
+  ], [sync.connected]);
+
+  const pickTab = useCallback((id) => {
+    if (id === "analysis") setAnalysisSeen(true);
+    setTab(id);
+  }, []);
   const customSort = sort.key !== "utility" || sort.dir !== "desc";
 
   // Open a player's row and bring it into view. Used by the top-three pills,
@@ -2228,15 +2290,19 @@ export default function DraftBoard() {
   }
 
   return (
-    <div className="min-h-screen">
-      <header className="sticky top-0 z-20 border-b border-line/60 bg-surface/85 backdrop-blur">
+    <div className="min-h-screen md:pl-16">
+      <NavRail tab={tab} onPick={pickTab} items={sections} />
+      <header className="sticky top-0 z-20 border-b border-line bg-surface">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4">
           <button
             onClick={goHome}
             title="Back to your leagues"
             className="flex items-center gap-2 rounded-lg px-1.5 py-1 transition hover:bg-surface-raised"
           >
-            <Trophy className="shrink-0 text-accent" size={18} />
+            {/* No mark here: the rail carries it from `md` up, and two
+                trophies on one screen is one too many. Below `md` the rail is
+                hidden, so it comes back. */}
+            <Trophy className="shrink-0 text-accent md:hidden" size={18} />
             <span className="hidden font-semibold tracking-tight sm:inline">
               Justin's Draft Assistant
             </span>
@@ -2254,29 +2320,22 @@ export default function DraftBoard() {
             />
           )}
 
-          <div className="flex items-center gap-1 rounded-lg border border-line bg-surface-panel p-1">
-            {[
-              { id: "board", label: "Draft board", icon: <LayoutList size={12} /> },
-              ...(sync.connected
-                ? [{ id: "draftday", label: "Draft day", icon: <CalendarClock size={12} /> }]
-                : []),
-              { id: "analysis", label: "Analysis", icon: <BarChart3 size={12} /> },
-            ].map((t) => (
+          {/* Below `md` the rail is hidden and the sections come back as a
+              compact segmented control - a 64px column is too much of a phone
+              screen to give up. */}
+          <div className="flex items-center gap-1 rounded border border-line bg-surface-panel p-1 md:hidden">
+            {sections.map((t) => (
               <button
                 key={t.id}
-                onClick={() => {
-                  if (t.id === "analysis") setAnalysisSeen(true);
-                  setTab(t.id);
-                }}
+                onClick={() => pickTab(t.id)}
                 title={t.label}
                 aria-label={t.label}
                 aria-current={tab === t.id ? "page" : undefined}
-                className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors sm:px-2.5 ${
+                className={`flex items-center gap-1.5 rounded-sm px-2 py-1 text-xs font-medium transition-colors ${
                   tab === t.id ? "bg-surface-hover text-ink" : "text-ink-faint hover:text-ink-muted"
                 }`}
               >
                 {t.icon}
-                <span className="hidden sm:inline">{t.label}</span>
               </button>
             ))}
           </div>

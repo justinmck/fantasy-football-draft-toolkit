@@ -19,7 +19,7 @@ export const Button = ({ onClick, children, title, tone = "default", size = "sm"
     default: "border-line bg-surface-raised text-ink-muted hover:bg-surface-hover hover:text-ink",
     primary: "border-accent/40 bg-accent/15 text-accent-hover hover:bg-accent/25",
     danger: "border-bad/30 bg-bad/10 text-bad hover:bg-bad/20",
-    solid: "border-transparent bg-accent text-white hover:bg-accent-hover font-semibold",
+    solid: "border-transparent bg-accent-fill text-white hover:bg-accent-fill-hover font-semibold",
   };
   const sizes = { sm: "h-7 px-2 text-xs", md: "h-9 px-3 text-sm", lg: "h-11 px-4 text-sm" };
   return (

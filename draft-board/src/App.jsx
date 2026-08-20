@@ -34,8 +34,8 @@ class ErrorBoundary extends React.Component {
           </p>
           <button
             onClick={() => window.location.reload()}
-            className="mt-5 h-10 w-full rounded-lg bg-accent text-sm font-semibold text-white
-              transition hover:bg-accent-hover"
+            className="mt-5 h-10 w-full rounded-lg bg-accent-fill text-sm font-semibold text-white
+              transition hover:bg-accent-fill-hover"
           >
             Reload the board
           </button>

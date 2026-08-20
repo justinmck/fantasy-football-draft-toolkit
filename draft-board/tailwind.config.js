@@ -47,10 +47,17 @@ export default {
         // Interactive: links, active states, focus, primary buttons. Emerald
         // stops being the brand here and goes back to meaning "good value",
         // which is what it means in the data.
+        // Two roles, two values, because they have opposite contrast needs.
+        // As *text* on a dark panel the accent must be light (4.9:1); as a
+        // *fill* behind white text it must be dark (5.2:1). One value cannot
+        // do both - #3b82f6 as a button fill puts white text at 3.7:1, which
+        // is how the primary call to action ended up failing AA.
         accent: {
-          DEFAULT: "#3b82f6",
+          DEFAULT: "#3b82f6",   // text, icons, active edges — 4.9:1 on panel
           hover: "#60a5fa",
           soft: "#1e3a8a",
+          fill: "#2563eb",      // button backgrounds — 5.2:1 with white text
+          "fill-hover": "#1d4ed8",
         },
         good: "#34d399",
         bad: "#f87171",

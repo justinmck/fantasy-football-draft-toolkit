@@ -276,8 +276,8 @@ function RunGate({ leagueName, status, onRun, job, error }) {
           <button
             onClick={() => onRun()}
             disabled={status === null}
-            className="mt-6 h-11 w-full rounded-lg bg-accent text-sm font-semibold text-white
- transition hover:bg-accent-hover disabled:opacity-50"
+            className="mt-6 h-11 w-full rounded bg-accent-fill text-sm font-semibold text-white
+ transition hover:bg-accent-fill-hover disabled:opacity-50"
           >
             {has ? "Run analysis" : "Run analysis (pulls this league's history)"}
           </button>
