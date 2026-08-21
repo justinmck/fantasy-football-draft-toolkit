@@ -244,11 +244,15 @@ const BarChart = ({ rows, unit, tone }) => {
               style={cols}
               className={`grid items-center gap-2 py-1 ${r.highlight ? "bg-surface-raised" : ""}`}
             >
-              <span className="min-w-0 truncate text-xs text-ink" title={r.sub || r.label}>
-                {r.label}
-                {r.highlight && <span className="ml-1 text-[10px] text-ink-faint">you</span>}
+              <span className="min-w-0" title={r.sub ? `${r.label} — ${r.sub}` : r.label}>
+                <span className="block truncate text-xs leading-tight text-ink">
+                  {r.label}
+                  {r.highlight && <span className="ml-1 text-[10px] text-ink-faint">you</span>}
+                </span>
                 {r.sub && (
-                  <span className="ml-1.5 text-[10px] text-ink-ghost">{r.sub}</span>
+                  <span className="block truncate text-[10px] leading-tight text-ink-ghost">
+                    {r.sub}
+                  </span>
                 )}
               </span>
 
@@ -1144,6 +1148,7 @@ function TrophyCaseSection({ data, leagueName, myTeamName }) {
 
 function CareerSection({ data, leagueName, myTeamName }) {
   const cp = data.career_performance || {};
+  const allSeasons = data.trophy_case?.seasons || data.seasons || [];
   const managers = cp.managers || [];
   if (!managers.length) {
     return (
@@ -1193,7 +1198,7 @@ function CareerSection({ data, leagueName, myTeamName }) {
     <Section
       id="career"
       icon={<Crown size={17} />}
-      eyebrow={`Every season on record · ${(cp.seasons || []).join(", ")}`}
+      eyebrow={`Graded seasons · ${(cp.seasons || []).join(", ")}`}
       title="Who drafts best"
       action={<ShareButton {...share(card, "who-drafts-best", shareText)} />}
       blurb={
@@ -1211,8 +1216,8 @@ function CareerSection({ data, leagueName, myTeamName }) {
         rows={managers.map((m) => ({
           key: m.team_id,
           label: m.team_name,
-          sub: [`${m.seasons_n}s`, m.titles ? `${m.titles} title${m.titles > 1 ? "s" : ""}` : null,
-                `finish ${fmt(m.avg_finish, 1)}`].filter(Boolean).join(" · "),
+          sub: [m.titles ? `${m.titles} title${m.titles > 1 ? "s" : ""}` : null,
+                `avg finish ${fmt(m.avg_finish, 1)}`].filter(Boolean).join(" · "),
           value: m.avg_vorp,
           valueText: `${m.avg_vorp > 0 ? "+" : ""}${fmt(m.avg_vorp, 1)}`,
           highlight: isMine(m),
@@ -1228,8 +1233,16 @@ function CareerSection({ data, leagueName, myTeamName }) {
       />
       <Note>
         Best single season: {managers[0].best_year} ({fmt(managers[0].best_vorp, 0)} for{" "}
-        {managers[0].team_name}). The sparkline is each manager's own six-year shape — a flat line
-        is consistency, a spike is one good year carrying a reputation.
+        {managers[0].team_name}). The sparkline is each manager's own shape across those seasons —
+        a flat line is consistency, a spike is one good year carrying a reputation.
+        {allSeasons.length > (cp.seasons || []).length && (
+          <>
+            {" "}Covers {(cp.seasons || []).length} of the league's {allSeasons.length} seasons:
+            grading a pick means comparing it to the market price it went against, and ESPN
+            publishes no average draft position before {(cp.seasons || [])[0]}. The trophy case and
+            the luck table, which need only the standings, cover all of them.
+          </>
+        )}
       </Note>
     </Section>
   );
