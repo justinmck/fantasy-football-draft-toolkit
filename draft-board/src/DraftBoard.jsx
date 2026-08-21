@@ -6,6 +6,8 @@ import {
   BarChart3,
   CalendarClock,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Info,
   LayoutList,
   Radio,
@@ -236,6 +238,100 @@ function NavRail({ tab, onPick, items }) {
 // Switching used to mean going home first. The name in the header is the menu,
 // so the league you're looking at and the control that changes it are the same
 // thing.
+/**
+ * Which season the retrospective half of the Analysis tab describes.
+ *
+ * It began inside that page, in the heading of the one group it governs, which
+ * was honest about its scope and invisible the moment you scrolled past it.
+ * Up here it is reachable from anywhere - and since the Analysis tab leaves the
+ * header's right-hand group entirely empty (Explain and Reset are board-only),
+ * it costs nothing to sit beside.
+ *
+ * Compact by necessity: seven year chips is 300px and would wrap the header on
+ * a phone. The arrows are kept because stepping back a year at a time is how
+ * a trend actually gets read.
+ */
+function SeasonMenu({ seasons, year, onPick, busy }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const away = (e) => { if (!box.current?.contains(e.target)) setOpen(false); };
+    const esc = (e) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", away);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+
+  const i = seasons.indexOf(year);
+  const step = (d) => {
+    const next = seasons[i + d];
+    if (next != null) onPick(next);
+  };
+
+  return (
+    <div className="relative flex items-center gap-0.5 rounded-lg border border-line bg-surface-panel
+ px-1 py-0.5" ref={box}>
+      <button
+        onClick={() => step(-1)}
+        disabled={i <= 0 || busy}
+        aria-label="Earlier season"
+        className="rounded p-1 text-ink-faint transition hover:text-ink disabled:opacity-25"
+      >
+        <ChevronLeft size={13} />
+      </button>
+
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title="Which season the retrospective sections describe"
+        aria-expanded={open}
+        className="flex items-center gap-1 rounded px-1.5 py-1 text-xs text-ink-muted transition
+ hover:text-ink"
+      >
+        <span className="hidden text-ink-ghost sm:inline">Season</span>
+        <span className="tabular font-medium text-ink">{year}</span>
+        <ChevronDown size={11} className={`shrink-0 ${open ? "rotate-180 transition" : "transition"}`} />
+      </button>
+
+      <button
+        onClick={() => step(1)}
+        disabled={i < 0 || i >= seasons.length - 1 || busy}
+        aria-label="Later season"
+        className="rounded p-1 text-ink-faint transition hover:text-ink disabled:opacity-25"
+      >
+        <ChevronRight size={13} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full z-30 mt-1.5 w-40 overflow-hidden rounded-xl border
+ border-line bg-surface-panel shadow-lg shadow-black/60">
+          {/* Named, because a bare list of years in the app header would not
+              say what it changes. */}
+          <div className="px-3 py-2 text-[10px] uppercase tracking-wider text-ink-ghost">
+            Season sections
+          </div>
+          {[...seasons].reverse().map((y) => (
+            <button
+              key={y}
+              onClick={() => { setOpen(false); if (y !== year) onPick(y); }}
+              aria-current={y === year ? "true" : undefined}
+              className={`flex w-full items-center px-3 py-2 text-left text-xs transition ${
+                y === year ? "bg-accent/10 text-accent-hover" : "text-ink-muted hover:bg-surface-raised"
+              }`}
+            >
+              <span className="tabular">{y}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LeagueMenu({ leagues, currentId, currentName, onSwitch, onReconnect, onSignOut }) {
   const [open, setOpen] = useState(false);
   const box = useRef(null);
@@ -975,7 +1071,7 @@ function DraftDay({ league, pickCtx, order, teamsList, rosterState, picksRemaini
   // Every second, always. This used to drop to a 30s tick outside the final
   // hour to save renders, which meant the seconds digit moved twice a minute
   // and looked broken - so it was hidden, and then the countdown didn't count.
-  // Re-rendering four spans once a second is not a cost worth optimising.
+  // Re-rendering four spans once a second is not a cost worth optimizing.
   useEffect(() => {
     if (!draftAt) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -1635,6 +1731,10 @@ export default function DraftBoard() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
   const [showLegend, setShowLegend] = useState(false);
+  // Published by the Analysis tab while it has more than one season to show.
+  // `setSeasonNav` is passed down directly because its identity is stable -
+  // an inline callback here would re-fire the effect on every render.
+  const [seasonNav, setSeasonNav] = useState(null);
   // Both stored as ids, not player objects, so they keep showing fresh numbers
   // after a re-rank instead of a stale snapshot. `expandedId` is the inline
   // row; `selectedId` is the full side panel.
@@ -2347,6 +2447,7 @@ export default function DraftBoard() {
           )}
 
           <div className="ml-auto flex items-center gap-2">
+            {tab === "analysis" && seasonNav && <SeasonMenu {...seasonNav} />}
             {tab === "board" && loading && <span className="text-xs text-ink-faint">Updating…</span>}
             {tab === "board" && err && (
               <span className="max-w-[16rem] truncate text-xs text-rose-400">{err}</span>
@@ -2413,6 +2514,9 @@ export default function DraftBoard() {
               myTeamName={sync.team?.name}
               sessionId={sessionId}
               authHeaders={authHeaders()}
+              // The season switcher is rendered in the app header, so the page
+              // publishes its season state up rather than owning the control.
+              onSeasonNav={setSeasonNav}
             />
           </Suspense>
         </div>

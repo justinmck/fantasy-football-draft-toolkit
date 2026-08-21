@@ -1,10 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
   BarChart3,
-  ChevronLeft,
-  ChevronRight,
   Crown,
   Database,
   Fingerprint,
@@ -14,10 +12,11 @@ import {
   ShieldCheck,
   Target,
   TrendingDown,
+  Trophy,
 } from "lucide-react";
 
 import { fmt, fmtAdp } from "../theme";
-import ShareButton, { drawRankedCard } from "./share";
+import ShareButton, { share } from "./share";
 import { PositionChip } from "./primitives";
 
 /**
@@ -96,7 +95,7 @@ const DivergingBar = ({ value, max }) => {
   );
 };
 
-const ShareBar = ({ value, tone = "bg-sky-400" }) => (
+const RatioBar = ({ value, tone = "bg-sky-400" }) => (
   <div className="h-2 w-full overflow-hidden rounded-full bg-surface-hover">
     <div
       className={`h-full rounded-full ${tone}`}
@@ -146,21 +145,16 @@ function correlationVerdict(corr) {
   };
 }
 
-// Two groups, in the order people actually care about them.
-//
-// The page used to open with data provenance and replacement-level theory and
-// reach "did drafting well matter?" third, with the generic half interleaved
-// through the league-specific half. The split was already known - the
-// no-history banner names the four sections that grade past drafts, and
-// `PROMISES` carries a `needsHistory` flag per item - it just never drove the
-// order.
 // Three groups, in the order people care about them.
 //
-// The split between all-time and single-season matters more than it looks:
-// the season switcher only governs the middle group, and putting it at the top
-// of the page implied it governed everything. It now lives in that group's
-// header, next to the only sections it changes.
+// The split between all-time and single-season matters more than it looks.
+// The season switcher governs the middle group only, and it now sits in the
+// app header where it is reachable from any scroll position - which reopens
+// the risk that it reads as page-global. The Season heading therefore states
+// the year it is bound to, so the connection is visible without a second
+// control duplicating the first.
 const SECTIONS = [
+  { group: "All time", id: "titles", label: "Championships" },
   { group: "All time", id: "career", label: "Who drafts best" },
   { group: "All time", id: "picks", label: "Best and worst picks ever" },
   { group: "All time", id: "luck", label: "Who got lucky" },
@@ -317,7 +311,7 @@ function RunGate({ leagueName, status, onRun, job, error }) {
 }
 
 export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
-                                  sessionId, authHeaders = {} }) {
+                                  sessionId, authHeaders = {}, onSeasonNav }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [status, setStatus] = useState(null);
@@ -396,6 +390,35 @@ export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
 
   // Poll the job. Stops on its own the moment it isn't running, so a finished
   // pull doesn't leave an interval behind.
+  // The switcher itself lives in the app header, where it stays reachable from
+  // any scroll position. Only the value travels; `showYear` is still the thing
+  // that refetches, so there is one code path for changing season either way.
+  //
+  // Publishing has to be idempotent. The naive version sent a fresh object on
+  // every effect run, which set state in the parent, which re-rendered this
+  // component, which published again - React caught it as "Maximum update
+  // depth exceeded". Comparing the values rather than the object identity ends
+  // the cycle at the first repeat.
+  const pickRef = useRef(showYear);
+  pickRef.current = showYear;
+  const pick = React.useCallback((y) => pickRef.current(y), []);
+
+  const publishedRef = useRef(null);
+  useEffect(() => {
+    if (!onSeasonNav) return;
+    const live = data && data !== "loading" && (data.seasons?.length || 0) > 1;
+    const key = live ? `${data.seasons.join(",")}|${data.year}|${switching}` : "";
+    if (key === publishedRef.current) return;
+    publishedRef.current = key;
+    onSeasonNav(live
+      ? { seasons: data.seasons, year: data.year, onPick: pick, busy: switching }
+      : null);
+  }, [data, switching, pick, onSeasonNav]);
+
+  // Unmount only - clearing it on every effect run would blank the header
+  // control and immediately restore it, once per render.
+  useEffect(() => () => onSeasonNav?.(null), [onSeasonNav]);
+
   useEffect(() => {
     if (!job || job.status !== "running") return;
     let cancelled = false;
@@ -457,10 +480,7 @@ export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
           graded against projections and actual scoring and doesn't need them.
         </div>
       )}
-      {/* Above the contents, because it governs everything under it: the
-          retrospective sections all describe one season, and this is which. */}
       <Contents />
-      {/* Dimmed rather than replaced while a season loads - see showYear. */}
       {/* Dimmed rather than replaced while a season loads - see showYear. */}
       <div className={`mt-5 space-y-5 transition-opacity ${switching ? "opacity-40" : ""}`}>
         <GroupHeading
@@ -468,33 +488,36 @@ export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
           blurb="Every season this league has played, pooled. The questions that don't depend
                  on which year you're looking at."
         />
+        <TrophyCaseSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
         <CareerSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
         <PicksSection data={data} myTeamName={myTeamName} />
         <LuckSection data={data} myTeamName={myTeamName} />
-        <LeagueBiasSection data={data} />
+        <LeagueBiasSection data={data} leagueName={leagueName} />
 
         <GroupHeading
           title="Season"
           blurb="One season at a time. Everything in this group follows the year on the right."
           aside={
-            data.seasons?.length > 1 ? (
-              <YearSwitcher seasons={data.seasons} year={data.year} onPick={showYear}
-                            busy={switching} />
-            ) : null
+            <span className="label shrink-0 text-ink-muted">
+              {data.year}
+              {data.seasons?.length > 1 && (
+                <span className="ml-1.5 normal-case text-ink-ghost">— change it in the header</span>
+              )}
+            </span>
           }
         />
         <DraftPerformanceSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
         <ExpectationsSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
         <MarketSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
         <ReachersSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
-        <RoundsSection data={data} />
+        <RoundsSection data={data} leagueName={leagueName} />
 
         <GroupHeading
           title="How it's measured"
           blurb="The machinery behind the numbers above - how replacement level is set, how far
                  the projections can be trusted, and what the live board does with all of it."
         />
-        <ReplacementSection data={data} />
+        <ReplacementSection data={data} leagueName={leagueName} />
         <AccuracySection data={data} />
         <PositionReliabilitySection data={data} />
         <RookieSection data={data} />
@@ -508,68 +531,6 @@ export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
 }
 
 // ---------------------------------------------------------------------------
-
-/**
- * Season navigation for the retrospective half of the page.
- *
- * The analysis used to show whichever season the league last drafted in and
- * nothing else, which is a strange thing to do with six seasons of history
- * sitting in the database — "did drafting matter?" is a much better question
- * asked of six drafts than of one, and the answer moves year to year.
- */
-function YearSwitcher({ seasons, year, onPick, busy }) {
-  if (!seasons?.length) return null;
-  const i = seasons.indexOf(year);
-  const step = (d) => {
-    const next = seasons[i + d];
-    if (next != null) onPick(next);
-  };
-
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="label shrink-0">Season</span>
-
-      {/* Arrows as well as chips: stepping back one year at a time is how you
-          actually read a trend, and it's one target instead of aiming at a
-          different chip each time. */}
-      <div className="flex items-center gap-1 rounded-lg border border-line bg-surface-panel p-1">
-        <button
-          onClick={() => step(-1)}
-          disabled={i <= 0 || busy}
-          aria-label="Earlier season"
-          className="rounded p-1 text-ink-faint transition hover:text-ink disabled:opacity-25"
-        >
-          <ChevronLeft size={14} />
-        </button>
-
-        {seasons.map((y) => (
-          <button
-            key={y}
-            onClick={() => onPick(y)}
-            aria-current={y === year ? "true" : undefined}
-            disabled={busy}
-            className={`tabular rounded-md px-2 py-0.5 text-xs font-medium transition-colors ${
-              y === year ? "bg-surface-hover text-ink" : "text-ink-faint hover:text-ink-muted"
-            }`}
-          >
-            {y}
-          </button>
-        ))}
-
-        <button
-          onClick={() => step(1)}
-          disabled={i < 0 || i >= seasons.length - 1 || busy}
-          aria-label="Later season"
-          className="rounded p-1 text-ink-faint transition hover:text-ink disabled:opacity-25"
-        >
-          <ChevronRight size={14} />
-        </button>
-      </div>
-
-      {busy && <span className="text-xs text-ink-faint">Loading…</span>}
-    </div>
-  );
-}
 
 const Intro = ({ data, leagueName }) => (
   <div className="card p-5 sm:p-6">
@@ -601,7 +562,7 @@ const Intro = ({ data, leagueName }) => (
         ? "Drafting well genuinely predicted finishing well in this league. "
         : "Whether drafting well predicts finishing well can't be checked here yet — that needs completed drafts. "}
       ESPN's projections are decent and beat the market overall, but not reliably at the top
-      of the board where picks are actually agonised over. A regression trained to improve on them
+      of the board where picks are actually agonized over. A regression trained to improve on them
       fails to — the projection is at its ceiling. So the board's job isn't to out-forecast anyone:
       it's to apply the three things a projection contains no information about at all, which are
       your roster, the clock, and how much the number can be trusted.
@@ -638,15 +599,22 @@ const GroupHeading = ({ title, blurb, aside }) => (
 );
 
 const Contents = () => {
+  // Keyed as a string rather than a Set, so the "did this actually change?"
+  // check below is a comparison rather than a deep equality walk.
   const [present, setPresent] = useState(null);
 
+  // Deliberately no dependency array: sections appear and disappear as data
+  // arrives, and there is no prop here that tracks that. The bail-out is what
+  // makes that safe - setting a fresh Set unconditionally re-rendered, which
+  // re-ran the effect, which set state again, until React gave up with
+  // "Maximum update depth exceeded" several hundred times a second.
   useEffect(() => {
-    const ids = new Set(
-      [...document.querySelectorAll("section[id]")].map((el) => el.id));
-    setPresent(ids);
+    const key = [...document.querySelectorAll("section[id]")].map((el) => el.id).join(",");
+    setPresent((prev) => (prev === key ? prev : key));
   });
 
-  const shown = present ? SECTIONS.filter((s) => present.has(s.id)) : SECTIONS;
+  const ids = present === null ? null : new Set(present.split(","));
+  const shown = ids ? SECTIONS.filter((s) => ids.has(s.id)) : SECTIONS;
   const groups = [...new Map(shown.map((s) => [s.group, s.group])).keys()];
   let n = 0;
   return (
@@ -681,13 +649,25 @@ const Contents = () => {
 
 // --- 2. replacement level ------------------------------------------------
 
-function ReplacementSection({ data }) {
+function ReplacementSection({ data, leagueName }) {
   const rl = data.replacement_levels || {};
   const rows = rl.positions || [];
   const needs = Object.entries(data.roster_needs || {});
+  const card = {
+    eyebrow: `${leagueName || "This league"} · ${data.year}`,
+    title: "What VORP is measured over",
+    table: {
+      head: ["Pos", "Startable", "Replacement", "Best", "Pool"],
+      rows: rows.map((r) => [r.position, r.starters_league_wide, fmt(r.baseline_points, 0),
+                             fmt(r.best_points, 0), r.pool]),
+    },
+    footer: "Read the gap between replacement and the best available, not the columns themselves.",
+    note: "Replacement is the last player who'd still be starting somewhere in the league.",
+  };
   return (
     <Section
       id="vorp"
+      action={<ShareButton {...share(card, "replacement-level")} />}
       icon={<Ruler size={17} />}
       eyebrow="NB03 — the measuring stick"
       title={`Replacement level: what VORP is actually over, ${data.year}`}
@@ -756,6 +736,151 @@ const NeedsHistory = ({ id, icon, eyebrow, title, what }) => (
                   Once it has played a season, this section {what}.</>} />
 );
 
+function TrophyCaseSection({ data, leagueName, myTeamName }) {
+  const tc = data.trophy_case || {};
+  const franchises = tc.franchises || [];
+  if (!franchises.length) {
+    return (
+      <NeedsHistory
+        id="titles" icon={<Trophy size={17} />} eyebrow="The trophy case"
+        title="Championships"
+        what="counts every title this league has awarded, and who has one"
+      />
+    );
+  }
+
+  const seasons = tc.seasons || [];
+  const champions = franchises.filter((f) => f.titles > 0);
+  // The best drafter having no title is the kind of thing a league argues
+  // about for a decade, so it is worth stating rather than leaving to be
+  // noticed two sections later.
+  const bestDrafter = (data.career_performance?.managers || [])[0];
+  const bestDrafterDry =
+    bestDrafter && franchises.find((f) => f.team_id === bestDrafter.team_id && !f.titles);
+
+  const card = {
+    eyebrow: `${leagueName || "This league"} · ${seasons.join(", ")}`,
+    title: "Championships",
+    stats: [
+      { value: String(tc.distinct_champions ?? champions.length), label: "different champions" },
+      { value: String(seasons.length), label: "seasons played" },
+      { value: String(tc.never_won ?? 0), label: "franchises still waiting", tone: "dim" },
+    ],
+    rows: franchises.map((f) => ({
+      label: f.team_name,
+      sub: f.titles
+        ? `won ${f.title_years.join(", ")}`
+        : f.runner_ups
+          ? `${f.runner_ups} runner-up finish${f.runner_ups > 1 ? "es" : ""}, never won`
+          : `best finish ${ordinal(f.best_finish)}`,
+      value: f.titles,
+      valueText: f.titles ? `${f.titles}×` : "none",
+      highlight: !!myTeamName && f.team_name === myTeamName,
+    })),
+    footer: tc.repeat_champion
+      ? `${tc.distinct_champions} different champions in ${seasons.length} seasons.`
+      : `${seasons.length} seasons, ${tc.distinct_champions} champions — nobody has gone back to back.`,
+    note: bestDrafterDry
+      ? `${bestDrafterDry.team_name} drafts best in the league and has never won it.`
+      : "Counted from final standings, so a franchise keeps its titles through a rename.",
+  };
+
+  return (
+    <Section
+      id="titles"
+      action={<ShareButton {...share(card, "championships")} />}
+      icon={<Trophy size={17} />}
+      eyebrow={`The trophy case · ${seasons.join(", ")}`}
+      title="Championships"
+      blurb={
+        <>
+          Who has actually won this thing. Titles follow the franchise rather than the name on it,
+          so a manager keeps their trophies through a rename — and a league that has never had the
+          same winner twice says something the draft numbers don't.
+        </>
+      }
+    >
+      <Figures cols={3}>
+        <Figure value={tc.distinct_champions ?? champions.length} label="different champions"
+                tone="text-warn" />
+        <Figure value={seasons.length} label="seasons played" />
+        <Figure value={tc.never_won ?? 0} label="franchises still waiting" tone="text-ink-muted" />
+      </Figures>
+
+      <Table
+        head={["Franchise", "Titles", "2nd", "Top 3", "Last", "Best"]}
+        align={["left", "left", "right", "right", "right", "right"]}
+      >
+        {franchises.map((f) => {
+          const mine = !!myTeamName && f.team_name === myTeamName;
+          return (
+            <tr key={f.team_id} className={`border-t border-line/60 ${mine ? "bg-surface-raised" : ""}`}>
+              <td className="py-2 pr-3 text-ink">
+                {f.team_name}
+                {mine && <span className="ml-1.5 text-[10px] text-ink-faint">you</span>}
+                {f.former_names?.length > 0 && (
+                  <span className="ml-1.5 text-[11px] text-ink-ghost"
+                        title={`formerly ${f.former_names.join(", ")}`}>
+                    formerly {f.former_names[f.former_names.length - 1]}
+                  </span>
+                )}
+              </td>
+              <td className="py-2 pr-3">
+                {f.titles > 0 ? (
+                  <span className="flex items-center gap-1 text-warn"
+                        title={`Won ${f.title_years.join(", ")}`}>
+                    {Array.from({ length: f.titles }, (_, i) => <Trophy key={i} size={13} />)}
+                    <span className="tabular ml-1 text-xs text-ink-muted">
+                      {f.title_years.join(", ")}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="text-ink-ghost">—</span>
+                )}
+              </td>
+              <td className="tabular py-2 pr-3 text-right text-ink-muted">{f.runner_ups || "—"}</td>
+              <td className="tabular py-2 pr-3 text-right text-ink-muted">{f.podiums || "—"}</td>
+              <td className="tabular py-2 pr-3 text-right text-ink-faint">{f.last_place || "—"}</td>
+              <td className="tabular py-2 text-right text-ink-faint">{ordinal(f.best_finish)}</td>
+            </tr>
+          );
+        })}
+      </Table>
+
+      <Verdict tone={tc.repeat_champion ? "info" : "warn"}>
+        {tc.repeat_champion ? (
+          <>
+            <strong>{tc.distinct_champions} different champions</strong> in {seasons.length}{" "}
+            seasons, and at least one repeat winner. {tc.never_won} of {franchises.length}{" "}
+            franchises are still waiting for a first.
+          </>
+        ) : (
+          <>
+            <strong>Nobody has won it twice.</strong> {seasons.length} seasons,{" "}
+            {tc.distinct_champions} champions, no repeats — which is roughly what you'd expect if
+            the title were close to a coin flip among the contenders, and is worth holding in mind
+            against every claim of drafting skill further down this page.
+          </>
+        )}
+        {bestDrafterDry && (
+          <>
+            {" "}The sharpest exhibit: <strong>{bestDrafterDry.team_name}</strong> drafts better
+            than anyone else in the league and has {bestDrafterDry.runner_ups
+              ? `finished second ${bestDrafterDry.runner_ups} time${bestDrafterDry.runner_ups > 1 ? "s" : ""} without winning`
+              : "never won it"}.
+          </>
+        )}
+      </Verdict>
+
+      <Note>
+        Read from final standings rather than from the draft, so a season the league played but has
+        no stored picks for still counts its champion. "Last" is last place that season, which moves
+        as the league changes size.
+      </Note>
+    </Section>
+  );
+}
+
 function CareerSection({ data, leagueName, myTeamName }) {
   const cp = data.career_performance || {};
   const managers = cp.managers || [];
@@ -778,9 +903,8 @@ function CareerSection({ data, leagueName, myTeamName }) {
   const seasonMax = Math.max(
     ...managers.flatMap((m) => (m.by_season || []).map((r) => Math.abs(r.avg_vorp || 0))), 1);
 
-  const shareCard = () =>
-    drawRankedCard({
-      eyebrow: `${league} · ${(cp.seasons || []).join("-")}`,
+  const card = {
+      eyebrow: `${league} · ${(cp.seasons || []).join(", ")}`,
       title: "Who drafts best, all time",
       rows: managers.map((m) => ({
         label: m.team_name,
@@ -791,10 +915,10 @@ function CareerSection({ data, leagueName, myTeamName }) {
       })),
       footer: "Average VORP per pick, across every season on record.",
       note: "Graded on what those players actually went on to score.",
-    });
+  };
 
   const shareText = [
-    `${league} — who drafts best, ${(cp.seasons || []).join("-")}`,
+    `${league} — who drafts best, ${(cp.seasons || []).join(", ")}`,
     "",
     ...managers.map((m, i) =>
       `${String(i + 1).padStart(2)}. ${m.team_name}${isMine(m) ? " (me)" : ""} — ` +
@@ -810,7 +934,7 @@ function CareerSection({ data, leagueName, myTeamName }) {
       icon={<Crown size={17} />}
       eyebrow={`Every season on record · ${(cp.seasons || []).join(", ")}`}
       title="Who drafts best"
-      action={<ShareButton draw={shareCard} text={shareText} filename="who-drafts-best" />}
+      action={<ShareButton {...share(card, "who-drafts-best", shareText)} />}
       blurb={
         <>
           One season of drafting is mostly luck. This is every season this league has played,
@@ -884,6 +1008,23 @@ function PicksSection({ data, myTeamName }) {
     );
   }
 
+  const card = {
+    eyebrow: "Every season on record",
+    title: "Best picks in league history",
+    rows: best.map((p) => ({
+      label: p.player_name,
+      sub: `${p.year} · pick ${p.pick} · ${p.team_name}`,
+      value: p.vorp,
+      valueText: `${fmt(p.vorp, 0)} VORP`,
+      highlight: !!myTeamName && p.team_name === myTeamName,
+    })),
+    footer: worst.length
+      ? `Worst pick on record: ${worst[0].player_name}, ${worst[0].year}, pick ${worst[0].pick} — ` +
+        `${fmt(worst[0].vorp, 0)} VORP.`
+      : null,
+    note: "Value against where the player actually went, not raw points.",
+  };
+
   const Row = ({ p, tone }) => {
     const mine = !!myTeamName && p.team_name === myTeamName;
     return (
@@ -909,6 +1050,7 @@ function PicksSection({ data, myTeamName }) {
   return (
     <Section
       id="picks"
+      action={<ShareButton {...share(card, "best-picks-ever")} />}
       icon={<Gem size={17} />}
       eyebrow="Every season on record"
       title="Best and worst picks ever"
@@ -949,10 +1091,24 @@ function LuckSection({ data, myTeamName }) {
     );
   }
   const max = Math.max(...teams.map((t) => Math.abs(t.luck || 0)), 1);
+  const card = {
+    eyebrow: `Points against placings · ${(lk.seasons || []).join(", ")}`,
+    title: "Who got lucky",
+    rows: teams.map((t) => ({
+      label: t.team_name,
+      sub: `scored ${fmt(t.avg_points_rank, 1)} on average, finished ${fmt(t.avg_finish, 1)}`,
+      value: t.luck,
+      valueText: `${t.luck > 0 ? "+" : ""}${fmt(t.luck, 1)}`,
+      highlight: !!myTeamName && t.team_name === myTeamName,
+    })),
+    footer: "Places better than the scoring deserved, averaged across every season.",
+    note: "Positive means a kind schedule; negative means the points were there and the wins weren't.",
+  };
 
   return (
     <Section
       id="luck"
+      action={<ShareButton {...share(card, "who-got-lucky")} />}
       icon={<Activity size={17} />}
       eyebrow={`Points against placings · ${(lk.seasons || []).join(", ")}`}
       title="Who got lucky"
@@ -1018,10 +1174,28 @@ function ExpectationsSection({ data, leagueName, myTeamName }) {
 
   const rated = teams.filter((t) => t.draft_projected_rank != null);
   const max = Math.max(...rated.map((t) => Math.abs(t.beat_by || 0)), 1);
+  const card = {
+    eyebrow: `${leagueName || "This league"} · against the preseason line`,
+    title: `Who beat their projection, ${ex.year}`,
+    rows: [...rated]
+      .sort((a, b) => (b.beat_by || 0) - (a.beat_by || 0))
+      .map((t) => ({
+        label: t.team_name,
+        sub: `projected ${ordinal(t.draft_projected_rank)}, finished ${ordinal(t.final_standing)}`,
+        value: t.beat_by,
+        valueText: `${t.beat_by > 0 ? "+" : ""}${t.beat_by}`,
+        highlight: !!myTeamName && t.team_name === myTeamName,
+      })),
+    footer: ex.missing
+      ? `${ex.missing} of ${teams.length} teams had no preseason ranking stored and are left out.`
+      : "ESPN's own preseason ranking, against where everyone actually finished.",
+    note: "A different question from drafting well - you can draft badly and still clear a low bar.",
+  };
 
   return (
     <Section
       id="expectations"
+      action={<ShareButton {...share(card, `beat-projection-${ex.year}`)} />}
       icon={<Target size={17} />}
       eyebrow="Against the preseason line"
       title={`Who beat their projection, ${ex.year}`}
@@ -1111,10 +1285,31 @@ function ReachersSection({ data, leagueName, myTeamName }) {
   // Negative shrunk = drafts earlier than the market. Sorted most-eager first.
   const rows = [...managers].sort((a, b) => (a.shrunk || 0) - (b.shrunk || 0));
   const max = Math.max(...rows.map((m) => Math.abs(m.shrunk || 0)), 1);
+  const card = {
+    eyebrow: `${leagueName || "This league"} · habit against payoff`,
+    title: "Who reaches, and whether it pays",
+    rows: rows.map((m) => {
+      const t = tally[m.team_name] || { steals: 0, reaches: 0 };
+      const early = (m.shrunk || 0) < 0;
+      return {
+        label: m.team_name,
+        sub: `${m.n} picks · ${t.steals} steals, ${t.reaches} busts` +
+             (m.p_perm != null && m.p_perm < 0.05 ? " · significant" : ""),
+        // Negated so "reaches early" is the positive direction on the card,
+        // which is the way the section is phrased.
+        value: -(m.shrunk || 0),
+        valueText: `${Math.abs(m.shrunk).toFixed(1)} ${early ? "early" : "late"}`,
+        highlight: !!myTeamName && m.team_name === myTeamName,
+      };
+    }),
+    footer: `Picks earlier or later than the national market, across every season on record.`,
+    note: `Steals and busts counted from ${data.year}'s top eight of each, so a small sample by construction.`,
+  };
 
   return (
     <Section
       id="reachers"
+      action={<ShareButton {...share(card, "who-reaches")} />}
       icon={<Fingerprint size={17} />}
       eyebrow="Habit against payoff"
       title="Who reaches, and whether it pays"
@@ -1193,8 +1388,7 @@ function DraftPerformanceSection({ data, leagueName, myTeamName }) {
       : null;
   const shareNote = "Average VORP of every player drafted, scored on what they actually went on to do.";
 
-  const shareCard = () =>
-    drawRankedCard({
+  const card = {
       eyebrow: league,
       title: shareTitle,
       rows: teams.map((t) => ({
@@ -1206,7 +1400,7 @@ function DraftPerformanceSection({ data, leagueName, myTeamName }) {
       })),
       footer: shareFooter,
       note: shareNote,
-    });
+  };
 
   const shareText = [
     `${league} — who drafted best, ${data.year}`,
@@ -1240,8 +1434,7 @@ function DraftPerformanceSection({ data, leagueName, myTeamName }) {
       icon={<Crown size={17} />}
       eyebrow="NB03 — the premise"
       title={`Did drafting well actually matter? ${data.year}`}
-      action={<ShareButton draw={shareCard} text={shareText}
-                           filename={`who-drafted-best-${data.year}`} />}
+      action={<ShareButton {...share(card, `who-drafted-best-${data.year}`, shareText)} />}
       blurb={
         <>
           This is the question the entire tool rests on. If the draft didn't predict the season,
@@ -1330,20 +1523,33 @@ function DraftPerformanceSection({ data, leagueName, myTeamName }) {
 
 // --- 4. draft capital ----------------------------------------------------
 
-function RoundsSection({ data }) {
+function RoundsSection({ data, leagueName }) {
   const rounds = data.draft_value_by_round || [];
   if (!rounds.length) return null;
   const max = Math.max(...rounds.map((r) => Math.abs(r.avg_vorp || 0)), 1);
+  const card = {
+    eyebrow: `${leagueName || "This league"} · ${data.year}`,
+    title: "How fast draft capital decays",
+    rows: rounds.map((r) => ({
+      label: `Round ${r.round}`,
+      sub: `${pctOf(r.hit_rate)} beat replacement`,
+      value: r.avg_vorp,
+      valueText: fmt(r.avg_vorp, 0),
+    })),
+    footer: "Average VORP returned by each round, and the share of picks that were worth a roster spot.",
+    note: "One outlier moves a round's average a long way in a single season.",
+  };
   return (
     <Section
       id="rounds"
+      action={<ShareButton {...share(card, `draft-capital-${data.year}`)} />}
       icon={<Layers size={17} />}
       eyebrow="NB03 — where value lives"
       title={`How fast draft capital decays, ${data.year}`}
       blurb={
         <>
           Average VORP returned by each round, with the share of picks in that round that beat
-          replacement at all. This is what makes the first two rounds worth agonising over and the
+          replacement at all. This is what makes the first two rounds worth agonizing over and the
           back half worth treating as lottery tickets.
         </>
       }
@@ -1394,7 +1600,7 @@ function Sparkline({ rows, max }) {
   );
 }
 
-function LeagueBiasSection({ data }) {
+function LeagueBiasSection({ data, leagueName }) {
   const lb = data.league_bias || {};
   const positions = lb.position || [];
   // The stored fit belongs to whichever league was last processed. Showing it
@@ -1446,9 +1652,38 @@ function LeagueBiasSection({ data }) {
     .sort((a, b) => Math.abs(b.mean) - Math.abs(a.mean))
     .slice(0, 8);
 
+  // The position effects, because they are the ones the board applies. The
+  // NFL-team and manager tendencies get a line in the footer rather than a
+  // second ranking - one card, one finding.
+  const topManager = managers[0];
+  const card = {
+    eyebrow: `${leagueName || "This league"} · league fingerprint`,
+    title: "How this league drafts differently",
+    stats: [
+      { value: meta.n_picks ?? "—", label: "picks with a market price" },
+      { value: fmt(meta.resid_sd, 1), label: "typical gap from ADP, in picks" },
+      { value: meta.years?.replace(/,/g, " ") ?? "—", label: "seasons measured" },
+    ],
+    rows: (lb.position || []).map((x) => ({
+      label: x.position,
+      sub: `${x.n} picks · t = ${fmt(x.t, 2)}`,
+      // Negated so "taken earlier than the market" reads as the positive
+      // direction, matching the way the section is phrased.
+      value: -(x.shrunk || 0),
+      valueText: `${Math.abs(x.shrunk) < 2 ? "no effect" :
+        `${fmt(Math.abs(x.shrunk), 1)} picks ${x.shrunk < 0 ? "early" : "late"}`}`,
+    })),
+    footer: [
+      topTeam && `${topTeam.pro_team} players go ${fmt(Math.abs(topTeam.shrunk), 1)} picks ${topTeam.shrunk < 0 ? "earlier" : "later"} here.`,
+      topManager && `${topManager.team_name} reaches ${fmt(Math.abs(topManager.shrunk), 1)} picks early.`,
+    ].filter(Boolean).join(" "),
+    note: "Shrunk toward zero in proportion to how little data supports each estimate.",
+  };
+
   return (
     <Section
       id="bias"
+      action={<ShareButton {...share(card, "league-fingerprint")} />}
       icon={<Fingerprint size={17} />}
       eyebrow="Live tool — league fingerprint"
       title="How this league drafts differently from the market"
@@ -1667,8 +1902,7 @@ function MarketSection({ data, leagueName, myTeamName }) {
   // and less welcome thing to send.
   const league = leagueName || "This league";
   const top = steals.slice(0, 8);
-  const shareCard = () =>
-    drawRankedCard({
+  const card = {
       eyebrow: `${league} · ${data.year}`,
       title: "Best value of the draft",
       rows: top.map((p) => ({
@@ -1680,7 +1914,7 @@ function MarketSection({ data, leagueName, myTeamName }) {
       })),
       footer: "Value over replacement, against where the market said they'd go.",
       note: "Steals are late picks that paid off — the thing the board is trying to find a season early.",
-    });
+  };
 
   const shareText = [
     `${league} — best value of the ${data.year} draft`,
@@ -1700,8 +1934,7 @@ function MarketSection({ data, leagueName, myTeamName }) {
     icon={<Gem size={17} />}
     eyebrow="NB03 — where the crowd was wrong"
     title={`Steals and reaches, ${data.year}`}
-    action={<ShareButton draw={shareCard} text={shareText}
-                         filename={`best-value-${data.year}`} />}
+    action={<ShareButton {...share(card, `best-value-${data.year}`, shareText)} />}
     blurb={
       <>
         Draft delta is pick number minus ADP, so a positive number means a player lasted longer than
@@ -1730,9 +1963,28 @@ function AccuracySection({ data }) {
   const overall = pa.overall;
   const seasons = pa.by_season || [];
   if (!overall) return null;
+  const card = {
+    eyebrow: "Grading the forecast",
+    title: "How accurate are the projections?",
+    stats: [
+      { value: fmt(overall.r2, 2), label: "R² — variance explained" },
+      { value: fmt(overall.rmse, 0), label: "RMSE — typical miss, in VORP" },
+      { value: fmt(overall.bias, 1), label: "mean signed error" },
+      { value: overall.n?.toLocaleString(), label: "player-seasons graded" },
+    ],
+    rows: seasons.map((y) => ({
+      label: String(y.year),
+      sub: `±${fmt(y.rmse, 0)} VORP`,
+      value: Math.max(0, y.r2 ?? 0),
+      valueText: `R² ${fmt(y.r2, 2)}`,
+    })),
+    footer: `About ${pctOf(overall.r2)} of the variance in what players delivered is explained by their projection.`,
+    note: "Both projection and outcome converted to VORP per season, so they sit on one scale.",
+  };
   return (
     <Section
       id="accuracy"
+      action={<ShareButton {...share(card, "projection-accuracy")} />}
       icon={<Activity size={17} />}
       eyebrow="NB05 — grading the forecast"
       title="How accurate are the projections, really?"
@@ -1757,7 +2009,7 @@ function AccuracySection({ data }) {
         {seasons.map((s) => (
           <div key={s.year} className="grid grid-cols-[3rem_minmax(0,1fr)_9rem] items-center gap-3">
             <span className="tabular text-xs text-ink-faint">{s.year}</span>
-            <ShareBar value={Math.max(0, s.r2 ?? 0)} />
+            <RatioBar value={Math.max(0, s.r2 ?? 0)} />
             <span className="tabular text-right text-xs text-ink-muted">
               R² {fmt(s.r2, 2)}
               <span className="ml-2 text-ink-ghost">±{fmt(s.rmse, 0)}</span>
@@ -1787,9 +2039,22 @@ function AccuracySection({ data }) {
 function PositionReliabilitySection({ data }) {
   const rows = data.position_reliability || [];
   if (!rows.length) return null;
+  const card = {
+    eyebrow: "The confidence column",
+    title: "How forecastable each position is",
+    rows: rows.map((p) => ({
+      label: p.position,
+      sub: `±${fmt(p.rmse, 0)} VORP typical miss`,
+      value: p.r2,
+      valueText: `R² ${fmt(p.r2, 2)}`,
+    })),
+    footer: "A negative R² means the projection did worse than guessing the average every time.",
+    note: "Which is why the board discounts kickers and defenses heavily.",
+  };
   return (
     <Section
       id="positions"
+      action={<ShareButton {...share(card, "position-reliability")} />}
       icon={<ShieldCheck size={17} />}
       eyebrow="NB05 — the confidence column"
       title="Some positions are far more forecastable than others"
@@ -1805,7 +2070,7 @@ function PositionReliabilitySection({ data }) {
         {rows.map((p) => (
           <div key={p.position} className="grid grid-cols-[3rem_minmax(0,1fr)_9rem] items-center gap-3">
             <PositionChip position={p.position} />
-            <ShareBar
+            <RatioBar
               value={Math.max(0, p.r2 ?? 0)}
               tone={(p.r2 ?? 0) <= 0.05 ? "bg-rose-400" : "bg-sky-400"}
             />
@@ -1839,9 +2104,24 @@ function RookieSection({ data }) {
   const rookie = (data.rookie_reliability || []).find((r) => r.group === "rookie");
   const vet = (data.rookie_reliability || []).find((r) => r.group === "veteran");
   if (!rookie || !vet) return null;
+  const card = {
+    eyebrow: "Unproven players",
+    title: "Less predictable, but not worse",
+    stats: [
+      { value: fmt(vet.r2, 2), label: "R² — veterans" },
+      { value: fmt(rookie.r2, 2), label: "R² — unproven", tone: "warn" },
+      { value: pctOf(rookie.reliability_factor), label: "what an unproven projection is worth", tone: "warn" },
+      { value: `+${fmt(Math.abs(rookie.mean_signed_error), 0)}`,
+        label: "VORP they beat their projection by", tone: "good" },
+    ],
+    footer: `Unproven players out-delivered their projections by ${fmt(Math.abs(rookie.mean_signed_error), 0)} VORP, ` +
+            `against ${fmt(Math.abs(vet.mean_signed_error), 0)} for veterans.`,
+    note: "They're under-projected, not over-projected - the board discounts them for uncertainty only.",
+  };
   return (
     <Section
       id="rookies"
+      action={<ShareButton {...share(card, "unproven-players")} />}
       icon={<BarChart3 size={17} />}
       eyebrow="NB05 — unproven players"
       title="Less predictable, but not worse"
@@ -1892,9 +2172,22 @@ function RookieSection({ data }) {
 function BenchmarkSection({ data }) {
   const scopes = data.adp_benchmark?.scopes || [];
   if (!scopes.length) return null;
+  const card = {
+    eyebrow: "Projections against the crowd",
+    title: "Do the projections beat the market?",
+    table: {
+      head: ["Scope", "Projection", "Market", "Won"],
+      rows: scopes.map((x) => [x.scope, fmt(x.mean_projection, 3), fmt(x.mean_market, 3),
+                               `${x.seasons_won}/${x.seasons}`]),
+      highlight: scopes.map((x, i) => (x.mean_projection > x.mean_market ? i : -1)).filter((i) => i >= 0),
+    },
+    footer: "Mean Spearman rank correlation with actual VORP. Higher is better.",
+    note: "ADP isn't independent of these projections, so this is correlated rankers, not a controlled test.",
+  };
   return (
     <Section
       id="benchmark"
+      action={<ShareButton {...share(card, "projections-vs-market")} />}
       icon={<Target size={17} />}
       eyebrow="NB05 — the benchmark that matters"
       title="Do the projections beat the market?"
@@ -1941,7 +2234,7 @@ function BenchmarkSection({ data }) {
       <Verdict tone="warn">
         Across the full pool the projections beat the market clearly and in every season. But the
         full pool flatters both rankers — separating stars from deep-bench players is easy, and
-        nobody agonises over it on draft day. Restricted to the top of the board, where picks
+        nobody agonizes over it on draft day. Restricted to the top of the board, where picks
         actually get decided, the edge narrows sharply and the season-by-season record is close to a
         coin flip. <strong>The honest read: the projections are good, but not decisively better
         than the crowd where it counts.</strong>
@@ -1961,7 +2254,7 @@ function BenchmarkSection({ data }) {
 const RankerBar = ({ label, value, tone }) => (
   <div className="grid grid-cols-[7rem_minmax(0,1fr)_3rem] items-center gap-3">
     <span className="text-xs text-ink-muted">{label}</span>
-    <ShareBar value={value} tone={tone} />
+    <RatioBar value={value} tone={tone} />
     <span className="tabular text-right text-xs text-ink-muted">{fmt(value, 3)}</span>
   </div>
 );
@@ -1977,9 +2270,29 @@ function ModelSection({ data }) {
   const base = ablation[0];
   const full = ablation[ablation.length - 1];
 
+  const card = {
+    eyebrow: "Can we out-predict the projection?",
+    title: "Adding features, and gaining nothing",
+    stats: selected ? [
+      { value: fmt(selected.holdout_r2, 3), label: `holdout R² (${selected.holdout_year}, never seen)` },
+      { value: fmt(selected.holdout_rmse, 1), label: "holdout RMSE, in VORP" },
+      { value: selected.model, label: "model selected by cross-validation" },
+    ] : [],
+    table: ablation.length ? {
+      head: ["Feature set", "n", "Holdout R²", "Δ R²"],
+      rows: ablation.map((a) => [a.feature_set, a.n_features, fmt(a.holdout_r2, 3),
+                                 `${a.r2_gain > 0 ? "+" : ""}${fmt(a.r2_gain, 3)}`]),
+    } : null,
+    footer: base && full
+      ? `Every feature group added past the projection itself moves holdout R² by ${fmt((full.holdout_r2 ?? 0) - (base.holdout_r2 ?? 0), 3)}.`
+      : null,
+    note: "Walk-forward split: trained on earlier seasons, tested on one it never saw.",
+  };
+
   return (
     <Section
       id="model"
+      action={<ShareButton {...share(card, "model-ablation")} />}
       icon={<Activity size={17} />}
       eyebrow="NB04 — can we do better?"
       title="Trying to out-predict the projection (and failing)"
@@ -2130,9 +2443,22 @@ function BenchSection({ data }) {
   const rows = data.bench_depth?.availability || [];
   if (!rows.length) return null;
   const maxDepth = Math.max(...rows.map((r) => r.depth_value || 0), 1);
+  const card = {
+    eyebrow: "Live tool — depth",
+    title: "What a bench spot is actually worth",
+    rows: rows.map((r) => ({
+      label: r.position,
+      sub: `${pctOf(r.missed_game_rate, 1)} of games missed`,
+      value: r.depth_value,
+      valueText: fmt(r.depth_value, 2),
+    })),
+    footer: "How often the position's starters miss time, weighted by how many of them you start.",
+    note: "Which is why the board will suggest a fourth running back and never a second kicker.",
+  };
   return (
     <Section
       id="bench"
+      action={<ShareButton {...share(card, "bench-depth")} />}
       icon={<Layers size={17} />}
       eyebrow="Live tool — depth"
       title="What a bench spot is actually worth"
@@ -2164,7 +2490,7 @@ function BenchSection({ data }) {
               {fmt(r.depth_value, 2)}
             </td>
             <td className="w-24 py-2">
-              <ShareBar value={(r.depth_value || 0) / maxDepth} tone="bg-teal-400" />
+              <RatioBar value={(r.depth_value || 0) / maxDepth} tone="bg-teal-400" />
             </td>
           </tr>
         ))}
@@ -2188,9 +2514,23 @@ function BenchSection({ data }) {
 
 // --- 12. the live score --------------------------------------------------
 
+const LIVE_CARD = {
+  eyebrow: "Putting it together",
+  title: "What the live board computes",
+  stats: [
+    { value: "VORP", label: "projected points above replacement, dampened across positions" },
+    { value: "× need", label: "open starting slots, escalating as your picks run out", tone: "good" },
+    { value: "× timing", label: "chance the player survives to your next turn" },
+    { value: "× confidence", label: "how far the projection can be trusted here", tone: "warn" },
+  ],
+  footer: "score = VORP × need × timing × confidence",
+  note: "Each multiplier is returned separately, so every row can say which factor is driving it.",
+};
+
 const LiveScoreSection = ({ data }) => (
   <Section
     id="live"
+    action={<ShareButton {...share(LIVE_CARD, "live-score")} />}
     icon={<Target size={17} />}
     eyebrow="Putting it together"
     title="What the live board actually computes"

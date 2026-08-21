@@ -515,6 +515,9 @@ def luck(engine, seasons: list[int]) -> dict:
     # as `expectations`, so "+3" reads the same way on both.
     df["luck"] = df["points_rank"] - df["final_standing"]
 
+    # Sorted so `last` really is the most recent name rather than whichever row
+    # the database returned last.
+    df = df.sort_values("year")
     by_team = (
         df.groupby("team_id")
         .agg(team_name=("team_name", "last"), seasons_n=("year", "nunique"),
@@ -526,6 +529,76 @@ def luck(engine, seasons: list[int]) -> dict:
     )
     return {"teams": _records(by_team),
             "seasons": sorted(int(y) for y in df["year"].unique())}
+
+
+_TROPHY_SQL = """
+SELECT team_id, team_name, year, final_standing
+FROM teams
+WHERE league_id = :league_id AND final_standing IS NOT NULL
+"""
+
+
+def trophy_case(engine, seasons: list[int]) -> dict:
+    """Who has actually won this league.
+
+    Championships were computed already - `career_performance` counts them - but
+    from the *draft* frame, so a season a franchise played and has no draft rows
+    for simply doesn't exist. `teams` is where standings live, so that is what
+    this reads. The difference is not hypothetical: it is the gap between "won
+    it in a year we have picks for" and "won it".
+
+    Deliberately not filtered on `points_for` the way `luck` is. A season can
+    carry a final standing with no scoring rows behind it, and dropping its
+    champion would be the one error nobody would forgive.
+    """
+    ctx = _ctx(engine)
+    if not _has_table(ctx, "teams") or not ctx.league_id:
+        return {"franchises": [], "seasons": []}
+    df = pd.read_sql(text(_TROPHY_SQL), _engine_of(engine),
+                     params={"league_id": ctx.league_id})
+    if seasons:
+        df = df[df["year"].isin(seasons)]
+    if df.empty:
+        return {"franchises": [], "seasons": []}
+
+    # Last place is per season, because leagues change size.
+    last_of = df.groupby("year")["final_standing"].max()
+    df["is_last"] = df["final_standing"] == df["year"].map(last_of)
+
+    rows = []
+    for team_id, g in df.groupby("team_id"):
+        # Sort before taking the latest name. Without this the "current" name is
+        # whichever row the database happened to return last.
+        g = g.sort_values("year")
+        names = list(dict.fromkeys(g["team_name"]))
+        current = names[-1]
+        titles = g[g["final_standing"] == 1]
+        rows.append({
+            "team_id": int(team_id),
+            "team_name": current,
+            "former_names": [n for n in names if n != current],
+            "seasons_n": int(g["year"].nunique()),
+            "titles": int(len(titles)),
+            "title_years": [int(y) for y in titles["year"].sort_values()],
+            "runner_ups": int((g["final_standing"] == 2).sum()),
+            "podiums": int((g["final_standing"] <= 3).sum()),
+            "last_place": int(g["is_last"].sum()),
+            "best_finish": int(g["final_standing"].min()),
+        })
+
+    # Most titles first, then the near-misses, then the best single finish -
+    # so a franchise with three runner-ups outranks one that has never placed.
+    rows.sort(key=lambda r: (-r["titles"], -r["runner_ups"], -r["podiums"],
+                             r["best_finish"], r["team_name"]))
+
+    champions = [r for r in rows if r["titles"]]
+    return {
+        "franchises": rows,
+        "seasons": sorted(int(y) for y in df["year"].unique()),
+        "distinct_champions": len(champions),
+        "repeat_champion": any(r["titles"] > 1 for r in champions),
+        "never_won": sum(1 for r in rows if not r["titles"]),
+    }
 
 
 _EXPECTATIONS_SQL = """
@@ -661,7 +734,7 @@ def adp_benchmark(engine, through: int) -> dict:
     214.7, only that he should go before the next guy.
 
     Reported over three scopes because the full pool flatters every ranker:
-    separating stars from deep-bench players is easy and nobody agonises over it
+    separating stars from deep-bench players is easy and nobody agonizes over it
     on draft day. The top-50 scope asks the decision-relevant question.
 
     One caveat the UI repeats: ADP is not independent of these projections —
@@ -805,8 +878,9 @@ def league_analysis(engine, year: int | None = None, league_id: str | None = Non
         "replacement_levels": replacement_levels(engine, year),
         "draft_value_by_round": draft_value_by_round(engine, year),
         "draft_performance": draft_performance(engine, year),
-        # Across every stored season, not just the selected one. This is the
-        # question the page now opens with.
+        # Across every stored season, not just the selected one. These are the
+        # questions the page now opens with.
+        "trophy_case": trophy_case(engine, seasons),
         "career_performance": career_performance(engine, seasons),
         "expectations": expectations(engine, year),
         "best_and_worst_picks": best_and_worst_picks(engine, seasons),

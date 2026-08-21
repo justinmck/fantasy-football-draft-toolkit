@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import create_engine
 
-from src.analysis import _Ctx, career_performance, expectations
+from src.analysis import _Ctx, career_performance, expectations, trophy_case
 
 LEAGUE = "780575"
 
@@ -155,3 +155,59 @@ class TestExpectations:
     def test_teams_without_a_projection_sort_last(self, engine_no_projections):
         out = expectations(_Ctx(engine_no_projections, league_id=LEAGUE), 2025)
         assert out["teams"], "teams with no projection must still be listed"
+
+
+class TestTrophyCase:
+    """Championships, read from `teams` rather than from the draft join.
+
+    `career_performance` already counts titles, but off the *draft* frame - so a
+    season a franchise played and has no picks stored for is invisible to it. A
+    championship is the one number in this league nobody will accept being
+    quietly wrong, so it comes from the standings table directly.
+    """
+
+    def test_a_title_won_under_an_old_name_belongs_to_the_current_one(self, engine):
+        """Team 11 won in 2025 as "B Mac" having been "Gerald Pea's Football
+        Team" in 2024. One franchise, one trophy, listed under today's name."""
+        out = trophy_case(_Ctx(engine, league_id=LEAGUE), [2024, 2025])
+        champs = [f for f in out["franchises"] if f["titles"]]
+        assert len(champs) == 1
+        assert champs[0]["team_name"] == "B Mac"
+        assert champs[0]["former_names"] == ["Gerald Pea's Football Team"]
+        assert champs[0]["title_years"] == [2025]
+
+    def test_names_that_differ_by_a_space_stay_separate(self, engine):
+        out = trophy_case(_Ctx(engine, league_id=LEAGUE), [2024, 2025])
+        assert {f["team_id"] for f in out["franchises"]} == {11, 12}
+
+    def test_a_champion_with_no_scoring_rows_still_counts(self, engine):
+        """`luck` filters on `points_for > 0`; copying that filter here would
+        drop the champion of any season stored without scoring totals."""
+        import sqlite3
+        path = engine.url.database
+        conn = sqlite3.connect(path)
+        conn.execute("UPDATE teams SET points_for = NULL WHERE year = 2025")
+        conn.commit()
+        conn.close()
+        out = trophy_case(_Ctx(engine, league_id=LEAGUE), [2024, 2025])
+        assert [f["title_years"] for f in out["franchises"] if f["titles"]] == [[2025]]
+
+    def test_runner_ups_outrank_never_placed(self, engine):
+        """A franchise with no title but a second-place finish sorts above one
+        that has never been near it - the ordering is the finding."""
+        out = trophy_case(_Ctx(engine, league_id=LEAGUE), [2024, 2025])
+        assert out["franchises"][0]["titles"] == 1
+        assert out["never_won"] == 1
+
+    def test_no_repeat_champion_is_reported_as_such(self, engine):
+        out = trophy_case(_Ctx(engine, league_id=LEAGUE), [2024, 2025])
+        assert out["distinct_champions"] == 1
+        assert out["repeat_champion"] is False
+
+    def test_a_league_with_no_standings_is_empty_not_an_error(self, engine):
+        import sqlite3
+        conn = sqlite3.connect(engine.url.database)
+        conn.execute("UPDATE teams SET final_standing = NULL")
+        conn.commit()
+        conn.close()
+        assert trophy_case(_Ctx(engine, league_id=LEAGUE), [2024, 2025])["franchises"] == []
