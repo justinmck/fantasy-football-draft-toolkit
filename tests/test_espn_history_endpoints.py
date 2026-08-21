@@ -113,3 +113,68 @@ class TestAvailableSeasons:
         script["/seasons/"] = FakeResponse(404)
         script["/leagueHistory/"] = FakeResponse(200, [{"teams": []}])
         assert espn_history.available_seasons(CREDS, LEAGUE, range(2016, 2019)) == []
+
+
+class TestAuthFailureIsNotAlwaysAuthFailure:
+    """ESPN answers 401 for a season your league never had.
+
+    You hold no membership in a league-season that never happened, so "you
+    weren't in this league in 2010" and "these cookies are bad" arrive as the
+    same status code. Treating the first as the second meant widening the probe
+    range from 2020 to 2010 aborted every pull with "ESPN rejected these
+    credentials" - against credentials that worked perfectly for 2020-2025.
+    """
+
+    def _by_year(self, monkeypatch, table):
+        seen = []
+
+        def fake_get(creds, league_id, year, view, headers=None):
+            seen.append(year)
+            outcome = table.get(year, "missing")
+            if outcome == "auth":
+                raise EspnAuthError("nope")
+            if outcome == "down":
+                raise EspnUnavailable("nope")
+            if outcome == "missing":
+                return {}
+            return {"teams": [{"id": 1}]}
+
+        monkeypatch.setattr(espn_history, "_get", fake_get)
+        return seen
+
+    def test_early_years_that_401_do_not_abort_the_probe(self, monkeypatch):
+        table = {y: "auth" for y in range(2010, 2020)}
+        table.update({y: "ok" for y in range(2020, 2026)})
+        self._by_year(monkeypatch, table)
+        assert espn_history.available_seasons(CREDS, LEAGUE, range(2010, 2026)) == \
+            list(range(2020, 2026))
+
+    def test_dead_cookies_still_raise(self, monkeypatch):
+        """Nothing succeeded, so the 401s really were about the credentials."""
+        table = {y: "auth" for y in range(2010, 2026)}
+        self._by_year(monkeypatch, table)
+        with pytest.raises(EspnAuthError):
+            espn_history.available_seasons(CREDS, LEAGUE, range(2010, 2026))
+
+    def test_newest_season_is_probed_first(self, monkeypatch):
+        """So a genuine auth failure is disproved on the first request rather
+        than after sixteen."""
+        seen = self._by_year(monkeypatch, {y: "ok" for y in range(2010, 2026)})
+        espn_history.available_seasons(CREDS, LEAGUE, range(2010, 2026))
+        assert seen[0] == 2025
+        assert seen == sorted(seen, reverse=True)
+
+    def test_a_league_with_no_seasons_at_all_is_empty_not_an_error(self, monkeypatch):
+        self._by_year(monkeypatch, {y: "missing" for y in range(2010, 2026)})
+        assert espn_history.available_seasons(CREDS, LEAGUE, range(2010, 2026)) == []
+
+    def test_transient_outages_are_not_mistaken_for_dead_cookies(self, monkeypatch):
+        self._by_year(monkeypatch, {y: "down" for y in range(2010, 2026)})
+        assert espn_history.available_seasons(CREDS, LEAGUE, range(2010, 2026)) == []
+
+    def test_results_come_back_in_ascending_order(self, monkeypatch):
+        table = {y: "auth" for y in range(2010, 2018)}
+        table.update({y: "ok" for y in range(2018, 2026)})
+        self._by_year(monkeypatch, table)
+        out = espn_history.available_seasons(CREDS, LEAGUE, range(2010, 2026))
+        assert out == sorted(out), "callers store seasons in order"

@@ -118,17 +118,36 @@ def available_seasons(creds: EspnCredentials, league_id: str, years) -> list[int
 
     A league created this year has none, and that is the state the Analysis tab
     has to explain rather than fail on. Detected by asking for teams: a season
-    the league didn't exist for returns 404 or no teams.
+    the league didn't exist for returns 404, or no teams.
+
+    **Or 401.** You hold no membership in a league-season that never happened,
+    and ESPN does not distinguish that from cookies it dislikes - so probing a
+    year before the league existed looks exactly like being signed out. Letting
+    that propagate meant one such year aborted the whole pull and blamed the
+    user's credentials, which is how widening the range from 2020 to 2010 broke
+    a league whose cookies were perfectly good.
+
+    So an auth failure is only believed when *nothing* succeeded. One good
+    season proves the cookies work, which makes every other 401 a statement
+    about that season rather than about the credentials.
+
+    Newest first, so the proof usually arrives on the first request.
     """
-    found = []
-    for year in years:
+    found, successes, auth_failures = [], 0, 0
+    for year in sorted({int(y) for y in years}, reverse=True):
         try:
             payload = _get(creds, league_id, year, "mTeam")
         except EspnUnavailable:
             continue  # transient; treat as unknown rather than as "no season"
+        except EspnAuthError:
+            auth_failures += 1
+            continue
+        successes += 1
         if payload.get("teams"):
             found.append(int(year))
-    return found
+    if not successes and auth_failures:
+        raise EspnAuthError(AUTH_MESSAGE)
+    return sorted(found)
 
 
 def _teams_frame(payload: dict, league_id: str, year: int) -> pd.DataFrame:
