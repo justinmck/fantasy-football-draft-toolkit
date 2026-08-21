@@ -67,9 +67,9 @@ const Section = ({ id, icon, eyebrow, title, blurb, action, children }) => {
 
 const SectionShell = ({ id, icon, eyebrow, title, blurb, action, children,
                         collapsible, open, onToggle }) => (
-  <section id={id} className="card scroll-mt-20 p-5 sm:p-6">
-    {eyebrow && <div className="label mb-1.5">{eyebrow}</div>}
-    <div className="mb-2 flex items-start gap-2">
+  <section className={`card scroll-mt-20 ${open ? "p-4 sm:p-5" : "px-4 py-2.5"}`} id={id}>
+    {eyebrow && open && <div className="label mb-1.5">{eyebrow}</div>}
+    <div className={`flex items-start gap-2 ${open ? "mb-2" : ""}`}>
       <span className="mt-0.5 shrink-0 text-emerald-400">{icon}</span>
       {collapsible ? (
         <button
@@ -78,7 +78,7 @@ const SectionShell = ({ id, icon, eyebrow, title, blurb, action, children,
           aria-controls={`${id}-body`}
           className="group flex min-w-0 flex-1 items-start gap-2 text-left"
         >
-          <h2 className="text-lg font-semibold tracking-tight text-ink">{title}</h2>
+          <h2 className="text-base font-semibold tracking-tight text-ink">{title}</h2>
           <ChevronDown
             size={16}
             aria-hidden="true"
@@ -87,7 +87,7 @@ const SectionShell = ({ id, icon, eyebrow, title, blurb, action, children,
           />
         </button>
       ) : (
-        <h2 className="text-lg font-semibold tracking-tight text-ink">{title}</h2>
+        <h2 className="text-base font-semibold tracking-tight text-ink">{title}</h2>
       )}
       {/* Share sits on the title row of the sections worth sending, so it
           reads as part of the finding rather than a toolbar over the page.
@@ -96,18 +96,35 @@ const SectionShell = ({ id, icon, eyebrow, title, blurb, action, children,
       {action && <div className="ml-auto">{action}</div>}
     </div>
     <div id={`${id}-body`} hidden={!open}>
-      {blurb && <div className="mb-5 max-w-3xl text-sm leading-relaxed text-ink-muted">{blurb}</div>}
+      {blurb && <div className="mb-3 max-w-3xl text-xs leading-relaxed text-ink-muted">{blurb}</div>}
       {children}
     </div>
   </section>
 );
 
 const Sub = ({ children }) => (
-  <h3 className="mb-2 mt-6 text-sm font-semibold text-ink first:mt-0">{children}</h3>
+  <h3 className="mb-1.5 mt-4 text-xs font-semibold text-ink first:mt-0">{children}</h3>
 );
 
+/**
+ * The caveats, folded away.
+ *
+ * Every section carried three or four lines of "why it's measured this way"
+ * open by default. The writing earns its place - it is usually the difference
+ * between a number and a defensible number - but not at ~100px of first view
+ * per section, eighteen times.
+ */
 const Note = ({ children }) => (
-  <p className="mt-3 max-w-3xl text-xs leading-relaxed text-ink-faint">{children}</p>
+  <details className="group mt-3 max-w-3xl">
+    <summary className="cursor-pointer list-none text-[11px] text-ink-ghost transition
+      hover:text-ink-faint">
+      <span className="underline decoration-dotted underline-offset-2">
+        Why it's measured this way
+      </span>
+      <span className="ml-1 inline-block transition-transform group-open:rotate-90">›</span>
+    </summary>
+    <p className="mt-1.5 text-xs leading-relaxed text-ink-faint">{children}</p>
+  </details>
 );
 
 /**
@@ -127,7 +144,7 @@ const ReferenceNote = ({ data }) => {
   const ref = data.reference_league_id;
   if (!ref || !data.league_id || String(ref) === String(data.league_id)) return null;
   return (
-    <div className="mt-4 rounded border border-amber-400/20 bg-amber-500/5 px-3 py-2 text-xs
+    <div className="mt-4 rounded border border-amber-400/20 bg-amber-500/5 px-3 py-1.5 text-xs
       leading-relaxed text-amber-200/80">
       <strong>Not measured on your league.</strong> This section ships with the tool, fitted once
       on a reference league. It describes how ESPN's projections behave in general — which is what
@@ -145,37 +162,22 @@ const Verdict = ({ tone = "calm", children }) => {
     info: "border-sky-400/20 bg-sky-500/5 text-sky-200/90",
   };
   return (
-    <p className={`mt-4 max-w-3xl rounded-lg border px-3.5 py-2.5 text-sm leading-relaxed ${tones[tone]}`}>
+    <p className={`mt-3 max-w-3xl rounded border px-3 py-2 text-xs leading-relaxed ${tones[tone]}`}>
       {children}
     </p>
   );
 };
 
 const Figure = ({ value, label, tone = "text-ink" }) => (
-  <div className="rounded-xl border border-line/60 bg-surface-raised px-4 py-3">
-    <div className={`tabular text-2xl font-semibold ${tone}`}>{value}</div>
-    <div className="mt-0.5 text-xs leading-snug text-ink-faint">{label}</div>
+  <div className="rounded border border-line/60 bg-surface-raised px-3 py-2">
+    <div className={`tabular text-lg font-semibold leading-tight ${tone}`}>{value}</div>
+    <div className="mt-0.5 text-[11px] leading-snug text-ink-faint">{label}</div>
   </div>
 );
 
 const Figures = ({ children, cols = 3 }) => (
-  <div className={`grid gap-3 sm:grid-cols-2 lg:grid-cols-${cols}`}>{children}</div>
+  <div className={`grid gap-2 sm:grid-cols-2 lg:grid-cols-${cols}`}>{children}</div>
 );
-
-/** Signed bar growing from a shared center line, for +/- quantities. */
-const DivergingBar = ({ value, max }) => {
-  const half = Math.min(Math.abs(value) / (max || 1), 1) * 50;
-  const positive = value >= 0;
-  return (
-    <div className="relative h-2 w-full overflow-hidden rounded-full bg-surface-hover">
-      <div className="absolute inset-y-0 left-1/2 w-px bg-line-strong" />
-      <div
-        className={`absolute inset-y-0 rounded-full ${positive ? "bg-emerald-400" : "bg-rose-400"}`}
-        style={positive ? { left: "50%", width: `${half}%` } : { right: "50%", width: `${half}%` }}
-      />
-    </div>
-  );
-};
 
 const RatioBar = ({ value, tone = "bg-sky-400" }) => (
   <div className="h-2 w-full overflow-hidden rounded-full bg-surface-hover">
@@ -186,15 +188,108 @@ const RatioBar = ({ value, tone = "bg-sky-400" }) => (
   </div>
 );
 
+/**
+ * A ranked list where the bar *is* the row.
+ *
+ * The page drew these as an 8px bar in a `w-24` table cell: 96px of encoding
+ * inside a 992px column, with 896px of every row left empty and the actual
+ * comparison happening in a column of numbers beside it. Given the width, a bar
+ * is the fastest thing on the page to read; given 96px it is decoration.
+ *
+ * Two sections already did this correctly on a grid - this is that layout,
+ * generalized, plus the thing none of them had: a scale. A signed quantity
+ * drawn with no zero tick and no axis values cannot be read at all, only
+ * ranked, which throws away the magnitude the bar was drawn to show.
+ *
+ * `rows` is the shape `drawRankedCard` takes in share.jsx, on purpose - a
+ * section builds one array and uses it for the page and the share card rather
+ * than mapping the same data twice and letting the two drift.
+ */
+const BarChart = ({ rows, unit, tone }) => {
+  if (!rows?.length) return null;
+  const values = rows.map((r) => Number(r.value) || 0);
+  const max = Math.max(...values.map(Math.abs), 1);
+  const diverging = values.some((v) => v < 0);
+  const fmtTick = (v) => `${v > 0 && diverging ? "+" : ""}${fmt(v, Math.abs(v) < 10 ? 1 : 0)}`;
+  // An optional extra column, for a per-row sparkline. Inline rather than a
+  // Tailwind class because the template varies at runtime and Tailwind only
+  // ships classes it can see in the source.
+  const hasAside = rows.some((r) => r.aside);
+  const cols = { gridTemplateColumns: `minmax(7rem,13rem) minmax(0,1fr)${hasAside ? " 5rem" : ""} 5rem` };
+
+  return (
+    <div className="w-full">
+      {/* Drawn once for the chart rather than per row: the scale is a property
+          of the axis, and repeating it fourteen times is what made the old
+          layout need a separate column of numbers. */}
+      <div className="mb-1 grid items-end gap-2 text-[10px] text-ink-ghost" style={cols}>
+        <span />
+        <span className="flex justify-between border-b border-line pb-0.5">
+          <span>{diverging ? fmtTick(-max) : "0"}</span>
+          {diverging && <span className="text-ink-faint">0</span>}
+          <span>{fmtTick(max)}</span>
+        </span>
+        {hasAside && <span />}
+        <span className="text-right">{unit}</span>
+      </div>
+
+      <div className="divide-y divide-line/40">
+        {rows.map((r, i) => {
+          const v = Number(r.value) || 0;
+          const negative = v < 0;
+          const pct = Math.min(Math.abs(v) / max, 1) * (diverging ? 50 : 100);
+          return (
+            <div
+              key={r.key ?? r.label ?? i}
+              style={cols}
+              className={`grid items-center gap-2 py-1 ${r.highlight ? "bg-surface-raised" : ""}`}
+            >
+              <span className="min-w-0 truncate text-xs text-ink" title={r.sub || r.label}>
+                {r.label}
+                {r.highlight && <span className="ml-1 text-[10px] text-ink-faint">you</span>}
+                {r.sub && (
+                  <span className="ml-1.5 text-[10px] text-ink-ghost">{r.sub}</span>
+                )}
+              </span>
+
+              <span className="relative block h-3.5 w-full rounded-sm bg-surface-hover">
+                {diverging && (
+                  <span className="absolute inset-y-0 left-1/2 w-px bg-line-strong" aria-hidden="true" />
+                )}
+                <span
+                  className={`absolute inset-y-0 rounded-sm ${
+                    tone || (negative ? "bg-rose-400" : "bg-emerald-400")}`}
+                  style={
+                    diverging
+                      ? (negative ? { right: "50%", width: `${pct}%` } : { left: "50%", width: `${pct}%` })
+                      : { left: 0, width: `${Math.max(pct, 0.6)}%` }
+                  }
+                />
+              </span>
+
+              {hasAside && <span className="flex justify-end">{r.aside}</span>}
+
+              <span className={`tabular text-right text-xs font-medium ${
+                negative ? "text-bad" : "text-ink-muted"}`}>
+                {r.valueText ?? fmt(v, 1)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const Table = ({ head, children, align = [] }) => (
   <div className="overflow-x-auto">
-    <table className="w-full border-collapse text-sm">
+    <table className="w-full border-collapse text-xs">
       <thead>
         <tr className="text-ink-faint">
           {head.map((h, i) => (
             <th
               key={h}
-              className={`py-2 pr-3 text-[11px] font-medium uppercase tracking-wider ${
+              className={`py-1.5 pr-3 text-[10px] font-medium uppercase tracking-wider ${
                 align[i] === "right" ? "text-right" : "text-left"
               }`}
             >
@@ -361,7 +456,7 @@ function RunGate({ leagueName, status, onRun, job, error }) {
         </div>
 
         {error && (
-          <div className="mt-3 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-xs leading-relaxed text-rose-300">
+          <div className="mt-3 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-1.5 text-xs leading-relaxed text-rose-300">
             {error}
           </div>
         )}
@@ -568,6 +663,7 @@ export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
   return (
     <div className="mx-auto max-w-5xl p-4">
       <Intro data={data} leagueName={leagueName} />
+      <Headline data={data} myTeamName={myTeamName} />
       {!data.has_history && (
         <div className="mt-4 rounded-xl border border-amber-400/25 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-200">
           <strong>This league has no completed prior drafts</strong>, so the four sections that
@@ -578,7 +674,7 @@ export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
       )}
       <Contents />
       {/* Dimmed rather than replaced while a season loads - see showYear. */}
-      <div className={`mt-5 space-y-5 transition-opacity ${switching ? "opacity-40" : ""}`}>
+      <div className={`mt-4 space-y-3 transition-opacity ${switching ? "opacity-40" : ""}`}>
         <GroupHeading
           title="All time"
           blurb="Every season this league has played, pooled. The questions that don't depend
@@ -628,26 +724,95 @@ export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
 
 // ---------------------------------------------------------------------------
 
+/**
+ * The answers, before the argument.
+ *
+ * The page opened with three paragraphs of what it is, then asked the reader to
+ * scroll sixteen screens to find out who won anything. These are the five facts
+ * people came for, each linking to the section that argues for it - so the board
+ * is the contents as well as the summary.
+ *
+ * Every tile is derived; one whose data is missing is dropped rather than
+ * rendered blank, so a league in its first season gets a short board instead of
+ * a row of dashes.
+ */
+function Headline({ data, myTeamName }) {
+  const tc = data.trophy_case || {};
+  const franchises = tc.franchises || [];
+  const managers = data.career_performance?.managers || [];
+  const steal = (data.best_and_worst_picks?.best || [])[0];
+  const lucky = (data.luck?.teams || [])[0];
+
+  const mostTitles = franchises.find((f) => f.titles > 0);
+  const reigning = franchises
+    .filter((f) => f.title_years?.length)
+    .sort((a, b) => Math.max(...b.title_years) - Math.max(...a.title_years))[0];
+  const bestDrafter = managers[0];
+  const mine = (name) => !!myTeamName && name === myTeamName;
+
+  const tiles = [
+    mostTitles && {
+      href: "#titles", label: "Most titles", value: `${mostTitles.titles}×`,
+      who: mostTitles.team_name, mine: mine(mostTitles.team_name),
+    },
+    reigning && {
+      href: "#titles", label: "Reigning champion",
+      value: String(Math.max(...reigning.title_years)),
+      who: reigning.team_name, mine: mine(reigning.team_name),
+    },
+    bestDrafter && {
+      href: "#career", label: "Best drafter",
+      value: `${bestDrafter.avg_vorp > 0 ? "+" : ""}${fmt(bestDrafter.avg_vorp, 1)}`,
+      who: bestDrafter.team_name, mine: mine(bestDrafter.team_name),
+    },
+    steal && {
+      href: "#picks", label: "Biggest steal", value: fmt(steal.vorp, 0),
+      who: `${steal.player_name} · ${steal.year} pick ${steal.pick}`, mine: mine(steal.team_name),
+    },
+    lucky && {
+      href: "#luck", label: "Luckiest",
+      value: `${lucky.luck > 0 ? "+" : ""}${fmt(lucky.luck, 1)}`,
+      who: lucky.team_name, mine: mine(lucky.team_name),
+    },
+  ].filter(Boolean);
+
+  if (!tiles.length) return null;
+
+  return (
+    <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+      {tiles.map((t) => (
+        <a
+          key={t.label}
+          href={t.href}
+          className={`rounded border px-3 py-2.5 transition hover:border-line-strong ${
+            t.mine ? "border-accent/40 bg-accent/5" : "border-line bg-surface-panel"}`}
+        >
+          <div className="label text-[10px]">{t.label}</div>
+          <div className="tabular mt-0.5 text-xl font-semibold text-ink">{t.value}</div>
+          <div className="mt-0.5 truncate text-[11px] text-ink-faint" title={t.who}>
+            {t.who}
+            {t.mine && <span className="ml-1 text-accent">you</span>}
+          </div>
+        </a>
+      ))}
+    </div>
+  );
+}
+
 const Intro = ({ data, leagueName }) => (
-  <div className="card p-5 sm:p-6">
+  <div className="card p-4 sm:p-5">
     <div className="label mb-1.5">
       {leagueName || "This league"}
       {data.seasons?.length ? ` · ${data.seasons.join(", ")}` : ""}
     </div>
-    <h1 className="text-xl font-semibold tracking-tight text-ink">
+    <h1 className="text-lg font-semibold tracking-tight text-ink">
       What the board is built on
     </h1>
-    <p className="mt-2 max-w-3xl text-sm leading-relaxed text-ink-muted">
-      Five notebooks sit behind the draft board. They pull{" "}
-      <strong className="text-ink-muted">{leagueName || "this league"}</strong>'s history out of
-      ESPN, clean it, measure who actually drafted well, fit and validate a next-season projection,
-      and then grade how much that projection was worth. This page is all of it in one place — the
-      methods, the numbers, and what they mean.
-    </p>
-    <p className="mt-3 max-w-3xl text-sm leading-relaxed text-ink-muted">
-      Everything below is recomputed from the database each time this page loads, so it can never
-      disagree with the board itself. Retrospective figures cover the{" "}
-      <strong className="text-ink-muted">{data.year}</strong> season unless a wider range is stated.
+    <p className="mt-1.5 max-w-3xl text-xs leading-relaxed text-ink-faint">
+      <strong className="text-ink-muted">{leagueName || "This league"}</strong>'s own history,
+      recomputed from the database on every load so it can never disagree with the board. Anything
+      about a single season covers{" "}
+      <strong className="text-ink-muted">{data.year}</strong> unless it says otherwise.
     </p>
     {/* The first claim is a measurement, so it's only made where it was
         measured. Stating it for a league with no completed drafts would be
@@ -685,12 +850,12 @@ const Intro = ({ data, leagueName }) => (
  * changes neither.
  */
 const GroupHeading = ({ title, blurb, aside }) => (
-  <div className="!mt-10 border-t border-line pt-6 first:!mt-0 first:border-0 first:pt-0">
+  <div className="!mt-6 border-t border-line pt-4 first:!mt-0 first:border-0 first:pt-0">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h2 className="text-lg font-semibold tracking-tight text-ink">{title}</h2>
       {aside}
     </div>
-    {blurb && <p className="mt-1.5 max-w-3xl text-sm leading-relaxed text-ink-muted">{blurb}</p>}
+    {blurb && <p className="mt-1 max-w-3xl text-xs leading-relaxed text-ink-muted">{blurb}</p>}
   </div>
 );
 
@@ -714,9 +879,9 @@ const Contents = () => {
   const groups = [...new Map(shown.map((s) => [s.group, s.group])).keys()];
   let n = 0;
   return (
-    <nav className="card mt-5 p-4">
+    <nav className="card mt-3 p-3">
       {groups.map((g) => (
-        <div key={g} className="mb-3 last:mb-0">
+        <div key={g} className="mb-2 last:mb-0">
           <div className="label mb-2">{g}</div>
           <div className="flex flex-wrap gap-1.5">
             {shown.filter((s) => s.group === g).map((s) => {
@@ -725,8 +890,8 @@ const Contents = () => {
                 <a
                   key={s.id}
                   href={`#${s.id}`}
-                  className="rounded-md bg-surface-raised px-2.5 py-1 text-xs text-ink-muted transition
-                    hover:bg-surface-hover hover:text-ink"
+                  className="rounded-sm bg-surface-raised px-2 py-0.5 text-[11px] text-ink-muted
+                    transition hover:bg-surface-hover hover:text-ink"
                 >
                   <span className="tabular mr-1.5 text-ink-ghost">{n}</span>
                   {s.label}
@@ -791,13 +956,13 @@ function ReplacementSection({ data, leagueName }) {
         >
           {rows.map((r) => (
             <tr key={r.position} className="border-t border-line/60">
-              <td className="py-2 pr-3"><PositionChip position={r.position} /></td>
-              <td className="tabular py-2 pr-3 text-right text-ink-muted">{r.starters_league_wide}</td>
-              <td className="tabular py-2 pr-3 text-right font-semibold text-ink">
+              <td className="py-1.5 pr-3"><PositionChip position={r.position} /></td>
+              <td className="tabular py-1.5 pr-3 text-right text-ink-muted">{r.starters_league_wide}</td>
+              <td className="tabular py-1.5 pr-3 text-right font-semibold text-ink">
                 {fmt(r.baseline_points, 0)}
               </td>
-              <td className="tabular py-2 pr-3 text-right text-ink-muted">{fmt(r.best_points, 0)}</td>
-              <td className="tabular py-2 text-right text-ink-ghost">{r.pool}</td>
+              <td className="tabular py-1.5 pr-3 text-right text-ink-muted">{fmt(r.best_points, 0)}</td>
+              <td className="tabular py-1.5 text-right text-ink-ghost">{r.pool}</td>
             </tr>
           ))}
         </Table>
@@ -911,7 +1076,7 @@ function TrophyCaseSection({ data, leagueName, myTeamName }) {
           const mine = !!myTeamName && f.team_name === myTeamName;
           return (
             <tr key={f.team_id} className={`border-t border-line/60 ${mine ? "bg-surface-raised" : ""}`}>
-              <td className="py-2 pr-3 text-ink">
+              <td className="py-1.5 pr-3 text-ink">
                 {f.team_name}
                 {mine && <span className="ml-1.5 text-[10px] text-ink-faint">you</span>}
                 {f.former_names?.length > 0 && (
@@ -921,7 +1086,7 @@ function TrophyCaseSection({ data, leagueName, myTeamName }) {
                   </span>
                 )}
               </td>
-              <td className="py-2 pr-3">
+              <td className="py-1.5 pr-3">
                 {f.titles > 0 ? (
                   <span className="flex items-center gap-1 text-warn"
                         title={`Won ${f.title_years.join(", ")}`}>
@@ -934,10 +1099,10 @@ function TrophyCaseSection({ data, leagueName, myTeamName }) {
                   <span className="text-ink-ghost">—</span>
                 )}
               </td>
-              <td className="tabular py-2 pr-3 text-right text-ink-muted">{f.runner_ups || "—"}</td>
-              <td className="tabular py-2 pr-3 text-right text-ink-muted">{f.podiums || "—"}</td>
-              <td className="tabular py-2 pr-3 text-right text-ink-faint">{f.last_place || "—"}</td>
-              <td className="tabular py-2 text-right text-ink-faint">{ordinal(f.best_finish)}</td>
+              <td className="tabular py-1.5 pr-3 text-right text-ink-muted">{f.runner_ups || "—"}</td>
+              <td className="tabular py-1.5 pr-3 text-right text-ink-muted">{f.podiums || "—"}</td>
+              <td className="tabular py-1.5 pr-3 text-right text-ink-faint">{f.last_place || "—"}</td>
+              <td className="tabular py-1.5 text-right text-ink-faint">{ordinal(f.best_finish)}</td>
             </tr>
           );
         })}
@@ -1041,45 +1206,26 @@ function CareerSection({ data, leagueName, myTeamName }) {
         </>
       }
     >
-      <div className="space-y-1">
-        {managers.map((m, i) => (
-          <div
-            key={m.team_id}
-            className={`grid grid-cols-[1.5rem_minmax(0,1fr)_5rem_4.5rem] items-center gap-3
-              rounded px-2 py-1.5 ${isMine(m) ? "bg-surface-raised" : ""}`}
-          >
-            <span className="tabular text-xs text-ink-ghost">{i + 1}</span>
-            <div className="min-w-0">
-              <div className="flex items-baseline gap-2">
-                <span className="truncate text-sm text-ink">{m.team_name}</span>
-                {isMine(m) && <span className="text-[10px] text-ink-faint">you</span>}
-                {m.titles > 0 && (
-                  <span
-                    className="shrink-0 rounded-sm bg-warn/15 px-1 text-[10px] font-bold text-warn"
-                    title={`${m.titles} championship${m.titles > 1 ? "s" : ""}`}
-                  >
-                    {m.titles}×
-                  </span>
-                )}
-              </div>
-              <div className="mt-0.5 text-[11px] text-ink-faint">
-                {m.seasons_n} seasons · avg finish {fmt(m.avg_finish, 1)}
-                {m.former_names?.length ? ` · formerly ${m.former_names.join(", ")}` : ""}
-              </div>
-            </div>
-            {/* Each manager against their own average, so this reads as
-                "a good year for them" rather than "a good year". */}
+      <BarChart
+        unit="avg VORP"
+        rows={managers.map((m) => ({
+          key: m.team_id,
+          label: m.team_name,
+          sub: [`${m.seasons_n}s`, m.titles ? `${m.titles} title${m.titles > 1 ? "s" : ""}` : null,
+                `finish ${fmt(m.avg_finish, 1)}`].filter(Boolean).join(" · "),
+          value: m.avg_vorp,
+          valueText: `${m.avg_vorp > 0 ? "+" : ""}${fmt(m.avg_vorp, 1)}`,
+          highlight: isMine(m),
+          // Each manager against their own average, so this reads as "a good
+          // year for them" rather than "a good year".
+          aside: (
             <Sparkline
               rows={(m.by_season || []).map((r) => ({ year: r.year, mean: r.avg_vorp }))}
               max={seasonMax}
             />
-            <span className={`tabular text-right text-sm font-semibold ${
-              m.avg_vorp >= 0 ? "text-good" : "text-bad"}`}>
-              {m.avg_vorp > 0 ? "+" : ""}{fmt(m.avg_vorp, 1)}
-            </span>
-          </div>
-        ))}
-      </div>
+          ),
+        }))}
+      />
       <Note>
         Best single season: {managers[0].best_year} ({fmt(managers[0].best_vorp, 0)} for{" "}
         {managers[0].team_name}). The sparkline is each manager's own six-year shape — a flat line
@@ -1125,17 +1271,17 @@ function PicksSection({ data, myTeamName }) {
     const mine = !!myTeamName && p.team_name === myTeamName;
     return (
       <tr className={`border-t border-line/60 ${mine ? "bg-surface-raised" : ""}`}>
-        <td className="tabular py-2 pr-3 text-ink-faint">{p.year}</td>
-        <td className="py-2 pr-3 text-ink">
+        <td className="tabular py-1.5 pr-3 text-ink-faint">{p.year}</td>
+        <td className="py-1.5 pr-3 text-ink">
           {p.player_name}
           <span className="ml-1.5 text-[11px] text-ink-faint">{p.position}</span>
         </td>
-        <td className="tabular py-2 pr-3 text-right text-ink-muted">{p.pick}</td>
-        <td className="tabular py-2 pr-3 text-right text-ink-faint">{fmtAdp(p.adp)}</td>
+        <td className="tabular py-1.5 pr-3 text-right text-ink-muted">{p.pick}</td>
+        <td className="tabular py-1.5 pr-3 text-right text-ink-faint">{fmtAdp(p.adp)}</td>
         <td className={`tabular py-2 pr-3 text-right font-semibold ${tone}`}>
           {fmt(p.vorp, 0)}
         </td>
-        <td className="py-2 pr-3 text-ink-faint">
+        <td className="py-1.5 pr-3 text-ink-faint">
           {p.team_name}
           {mine && <span className="ml-1.5 text-[10px] text-ink-faint">you</span>}
         </td>
@@ -1217,35 +1363,17 @@ function LuckSection({ data, myTeamName }) {
         </>
       }
     >
-      <Table head={["Manager", "Seasons", "Scored", "Finished", "Luck"]}>
-        {teams.map((t) => {
-          const mine = !!myTeamName && t.team_name === myTeamName;
-          return (
-            <tr key={t.team_id} className={`border-t border-line/60 ${mine ? "bg-surface-raised" : ""}`}>
-              <td className="py-2 pr-3 text-ink">
-                {t.team_name}
-                {mine && <span className="ml-1.5 text-[10px] text-ink-faint">you</span>}
-              </td>
-              <td className="tabular py-2 pr-3 text-right text-ink-faint">{t.seasons_n}</td>
-              <td className="tabular py-2 pr-3 text-right text-ink-muted">
-                {fmt(t.avg_points_rank, 1)}
-              </td>
-              <td className="tabular py-2 pr-3 text-right text-ink-muted">
-                {fmt(t.avg_finish, 1)}
-              </td>
-              <td className="py-2 pr-3">
-                <div className="flex items-center justify-end gap-2">
-                  <span className={`tabular text-sm font-semibold ${
-                    t.luck > 0.5 ? "text-good" : t.luck < -0.5 ? "text-bad" : "text-ink-faint"}`}>
-                    {t.luck > 0 ? "+" : ""}{fmt(t.luck, 1)}
-                  </span>
-                  <div className="w-24"><DivergingBar value={t.luck} max={max} /></div>
-                </div>
-              </td>
-            </tr>
-          );
-        })}
-      </Table>
+      <BarChart
+        unit="places"
+        rows={teams.map((t) => ({
+          key: t.team_id,
+          label: t.team_name,
+          sub: `${fmt(t.avg_points_rank, 1)} → ${fmt(t.avg_finish, 1)}`,
+          value: t.luck,
+          valueText: `${t.luck > 0 ? "+" : ""}${fmt(t.luck, 1)}`,
+          highlight: !!myTeamName && t.team_name === myTeamName,
+        }))}
+      />
       <Note>
         Both columns are average places across {(lk.seasons || []).length} seasons, so lower is
         better in each. A team scoring 8th on average and finishing 5th has been getting a kind
@@ -1304,40 +1432,25 @@ function ExpectationsSection({ data, leagueName, myTeamName }) {
         </>
       }
     >
-      <Table head={["Team", "Projected", "Finished", "Difference"]}>
-        {teams.map((t) => {
-          const mine = !!myTeamName && t.team_name === myTeamName;
-          const unknown = t.draft_projected_rank == null;
-          return (
-            <tr key={`${t.team_id}-${t.team_name}`}
-                className={`border-t border-line/60 ${mine ? "bg-surface-raised" : ""}`}>
-              <td className="py-2 pr-3 text-ink">
-                {t.team_name}
-                {mine && <span className="ml-1.5 text-[10px] text-ink-faint">you</span>}
-              </td>
-              <td className="tabular py-2 pr-3 text-right text-ink-muted">
-                {unknown ? <span className="text-ink-ghost">—</span> : ordinal(t.draft_projected_rank)}
-              </td>
-              <td className="tabular py-2 pr-3 text-right text-ink-muted">
-                {ordinal(t.final_standing)}
-              </td>
-              <td className="py-2 pr-3">
-                {unknown ? (
-                  <span className="text-xs text-ink-ghost">no projection on record</span>
-                ) : (
-                  <div className="flex items-center justify-end gap-2">
-                    <span className={`tabular text-sm font-semibold ${
-                      t.beat_by > 0 ? "text-good" : t.beat_by < 0 ? "text-bad" : "text-ink-faint"}`}>
-                      {t.beat_by > 0 ? "+" : ""}{t.beat_by}
-                    </span>
-                    <div className="w-24"><DivergingBar value={t.beat_by} max={max} /></div>
-                  </div>
-                )}
-              </td>
-            </tr>
-          );
-        })}
-      </Table>
+      <BarChart
+        unit="places"
+        rows={[...rated]
+          .sort((a, b) => (b.beat_by || 0) - (a.beat_by || 0))
+          .map((t) => ({
+            key: `${t.team_id}-${t.team_name}`,
+            label: t.team_name,
+            sub: `${ordinal(t.draft_projected_rank)} → ${ordinal(t.final_standing)}`,
+            value: t.beat_by,
+            valueText: `${t.beat_by > 0 ? "+" : ""}${t.beat_by}`,
+            highlight: !!myTeamName && t.team_name === myTeamName,
+          }))}
+      />
+      {teams.length > rated.length && (
+        <p className="mt-2 text-[11px] text-ink-ghost">
+          {teams.length - rated.length} of {teams.length} teams have no preseason ranking stored
+          and are left out rather than scored against a zero.
+        </p>
+      )}
       {ex.missing > 0 && (
         <Note>
           {ex.missing} of {teams.length} teams have no preseason ranking stored for {ex.year} —
@@ -1425,41 +1538,27 @@ function ReachersSection({ data, leagueName, myTeamName }) {
         </>
       }
     >
-      <Table head={["Manager", "Picks", "Tendency", "Steals", "Busts"]}>
-        {rows.map((m) => {
-          const mine = !!myTeamName && m.team_name === myTeamName;
+      <BarChart
+        unit="picks early"
+        rows={rows.map((m) => {
           const t = tally[keyOf(m)] || { steals: 0, reaches: 0 };
           const early = (m.shrunk || 0) < 0;
           const solid = m.p_perm != null && m.p_perm < 0.05;
-          return (
-            <tr key={m.team_id ?? m.team_name}
-                className={`border-t border-line/60 ${mine ? "bg-surface-raised" : ""}`}>
-              <td className="py-2 pr-3 text-ink">
-                {m.team_name}
-                {mine && <span className="ml-1.5 text-[10px] text-ink-faint">you</span>}
-              </td>
-              <td className="tabular py-2 pr-3 text-right text-ink-faint">{m.n}</td>
-              <td className="py-2 pr-3">
-                <div className="flex items-center justify-end gap-2">
-                  <span className={`tabular text-xs ${early ? "text-bad" : "text-ink-muted"}`}>
-                    {Math.abs(m.shrunk).toFixed(1)} {early ? "early" : "late"}
-                  </span>
-                  <div className="w-20"><DivergingBar value={-(m.shrunk || 0)} max={max} /></div>
-                  {/* Marked only when it survives the permutation test - the
-                      rest are tendencies, not findings. */}
-                  {solid && (
-                    <span className="text-[10px] text-good" title={`p = ${fmt(m.p_perm, 3)}`}>
-                      ✓
-                    </span>
-                  )}
-                </div>
-              </td>
-              <td className="tabular py-2 pr-3 text-right text-good">{t.steals || "—"}</td>
-              <td className="tabular py-2 pr-3 text-right text-bad">{t.reaches || "—"}</td>
-            </tr>
-          );
+          return {
+            key: m.team_id ?? m.team_name,
+            label: m.team_name,
+            sub: [`${m.n} picks`,
+                  t.steals ? `${t.steals} steal${t.steals > 1 ? "s" : ""}` : null,
+                  t.reaches ? `${t.reaches} bust${t.reaches > 1 ? "s" : ""}` : null,
+                  solid ? "✓" : null].filter(Boolean).join(" · "),
+            // Negated so reaching early is the positive direction, matching the
+            // way the section is phrased and the share card is built.
+            value: -(m.shrunk || 0),
+            valueText: `${fmt(Math.abs(m.shrunk), 1)} ${early ? "early" : "late"}`,
+            highlight: !!myTeamName && m.team_name === myTeamName,
+          };
         })}
-      </Table>
+      />
       <Note>
         Steals and busts are counted from {data.year}'s top eight of each, so they're a small
         sample by construction — a manager with none isn't necessarily careful, they may just not
@@ -1591,29 +1690,17 @@ function DraftPerformanceSection({ data, leagueName, myTeamName }) {
       )}
 
       <Sub>Every team, drafted value against finish</Sub>
-      <div className="space-y-2">
-        {teams.map((t, i) => (
-          <div key={t.team_name} className="grid grid-cols-[1.5rem_minmax(0,1fr)_4.5rem] items-center gap-3">
-            <span className="tabular text-xs text-ink-ghost">{i + 1}</span>
-            <div className="min-w-0">
-              <div className="mb-1 flex items-baseline justify-between gap-2">
-                <span className="truncate text-sm text-ink-muted">{t.team_name}</span>
-                <span className="tabular shrink-0 text-xs text-ink-faint">
-                  {fmt(t.avg_vorp, 1)} avg VORP
-                </span>
-              </div>
-              <DivergingBar value={t.avg_vorp} max={maxVorp} />
-            </div>
-            <span
-              className={`tabular text-right text-xs font-semibold ${
-                t.final_standing <= 3 ? "text-emerald-400" : "text-ink-faint"
-              }`}
-            >
-              {ordinal(t.final_standing)}
-            </span>
-          </div>
-        ))}
-      </div>
+      <BarChart
+        unit="avg VORP"
+        rows={teams.map((t) => ({
+          key: t.team_name,
+          label: t.team_name,
+          sub: `finished ${ordinal(t.final_standing)}`,
+          value: t.avg_vorp,
+          valueText: `${t.avg_vorp > 0 ? "+" : ""}${fmt(t.avg_vorp, 1)}`,
+          highlight: isMine(t),
+        }))}
+      />
       <Note>
         The exceptions are the interesting part. A team can draft near the bottom and still win —
         which is the honest reminder that r = {fmt(corr?.r, 2)} is a tendency across a league, not a
@@ -1656,18 +1743,16 @@ function RoundsSection({ data, leagueName }) {
         </>
       }
     >
-      <div className="space-y-2">
-        {rounds.map((r) => (
-          <div key={r.round} className="grid grid-cols-[2.5rem_minmax(0,1fr)_7rem] items-center gap-3">
-            <span className="tabular text-xs text-ink-faint">R{r.round}</span>
-            <DivergingBar value={r.avg_vorp} max={max} />
-            <span className="tabular text-right text-xs text-ink-muted">
-              {fmt(r.avg_vorp, 0)}
-              <span className="ml-2 text-ink-ghost">{pctOf(r.hit_rate)} hit</span>
-            </span>
-          </div>
-        ))}
-      </div>
+      <BarChart
+        unit="avg VORP"
+        rows={rounds.map((r) => ({
+          key: r.round,
+          label: `Round ${r.round}`,
+          sub: `${pctOf(r.hit_rate)} hit`,
+          value: r.avg_vorp,
+          valueText: fmt(r.avg_vorp, 0),
+        }))}
+      />
       <Note>
         "Hit" means the pick returned more than replacement level — i.e. it was worth a roster spot
         at all. The decline isn't smooth, and the noise in later rounds is real: with roughly{" "}
@@ -1835,21 +1920,21 @@ function LeagueBiasSection({ data, leagueName }) {
       </Verdict>
 
       <Sub>By position — applied</Sub>
-      <p className="mb-3 max-w-3xl text-xs leading-relaxed text-ink-faint">
+      <Note>
         All six are shown, including the ones with no effect — hiding the null rows is how a table
         like this turns into a leaderboard. <strong className="text-ink-muted">Shrunk</strong> is the
         number the board actually uses: each estimate is pulled toward zero in proportion to how
         little data supports it.
-      </p>
+      </Note>
       <Table
         head={["Pos", "n", "Raw mean", "t", "Applied", "Per season"]}
         align={["left", "right", "right", "right", "right", "left"]}
       >
         {positions.map((p) => (
           <tr key={p.position} className="border-t border-line/60">
-            <td className="py-2 pr-3"><PositionChip position={p.position} /></td>
-            <td className="tabular py-2 pr-3 text-right text-ink-ghost">{p.n}</td>
-            <td className="tabular py-2 pr-3 text-right text-ink-muted">{fmt(p.mean, 1)}</td>
+            <td className="py-1.5 pr-3"><PositionChip position={p.position} /></td>
+            <td className="tabular py-1.5 pr-3 text-right text-ink-ghost">{p.n}</td>
+            <td className="tabular py-1.5 pr-3 text-right text-ink-muted">{fmt(p.mean, 1)}</td>
             <td className={`tabular py-2 pr-3 text-right ${Math.abs(p.t) >= 2 ? "text-ink-muted" : "text-ink-ghost"}`}>
               {fmt(p.t, 2)}
             </td>
@@ -1858,7 +1943,7 @@ function LeagueBiasSection({ data, leagueName }) {
                 : p.shrunk < 0 ? "text-rose-300" : "text-emerald-300"}`}>
               {p.shrunk > 0 ? "+" : ""}{fmt(p.shrunk, 1)}
             </td>
-            <td className="py-2">
+            <td className="py-1.5">
               <Sparkline rows={seasonsFor(posSeason, "position", p.position)} max={maxPos} />
             </td>
           </tr>
@@ -1923,28 +2008,28 @@ function LeagueBiasSection({ data, leagueName }) {
       {topTeam && (
         <>
           <Sub>By NFL team — applied</Sub>
-          <p className="mb-3 max-w-3xl text-xs leading-relaxed text-ink-faint">
+          <Note>
             Measured after removing each season's position effects, so this isn't just "they draft a
             lot of quarterbacks". Only teams the fit still moves by two or more picks are listed; the
             remaining {32 - teams.length} are inside the noise and a ranked table of them would
             manufacture meaning that isn't there.
-          </p>
+          </Note>
           <Table
             head={["Team", "n", "Raw mean", "t", "Applied", "Per season"]}
             align={["left", "right", "right", "right", "right", "left"]}
           >
             {teams.map((t) => (
               <tr key={t.pro_team} className="border-t border-line/60">
-                <td className="py-2 pr-3 font-medium text-ink">{t.pro_team}</td>
-                <td className="tabular py-2 pr-3 text-right text-ink-ghost">{t.n}</td>
-                <td className="tabular py-2 pr-3 text-right text-ink-muted">{fmt(t.mean, 1)}</td>
+                <td className="py-1.5 pr-3 font-medium text-ink">{t.pro_team}</td>
+                <td className="tabular py-1.5 pr-3 text-right text-ink-ghost">{t.n}</td>
+                <td className="tabular py-1.5 pr-3 text-right text-ink-muted">{fmt(t.mean, 1)}</td>
                 <td className={`tabular py-2 pr-3 text-right ${Math.abs(t.t) >= 2 ? "text-ink-muted" : "text-ink-ghost"}`}>
                   {fmt(t.t, 2)}
                 </td>
                 <td className={`tabular py-2 pr-3 text-right font-semibold ${t.shrunk < 0 ? "text-rose-300" : "text-emerald-300"}`}>
                   {t.shrunk > 0 ? "+" : ""}{fmt(t.shrunk, 1)}
                 </td>
-                <td className="py-2">
+                <td className="py-1.5">
                   <Sparkline rows={seasonsFor(teamSeason, "pro_team", t.pro_team)} max={maxPos} />
                 </td>
               </tr>
@@ -1964,19 +2049,19 @@ function LeagueBiasSection({ data, leagueName }) {
       {managers.length > 0 && (
         <>
           <Sub>By manager — measured, not applied</Sub>
-          <p className="mb-3 max-w-3xl text-xs leading-relaxed text-ink-faint">
+          <Note>
             Some managers reliably reach; others reliably wait. Real, but deliberately{" "}
             <strong className="text-ink-muted">not</strong> applied to the board: this effect belongs
             to a drafter, not a player, and the tool has no idea which of your league-mates is on the
             clock at any given pick. Franchises with fewer than {fullSeasons} seasons are excluded.
-          </p>
+          </Note>
           <Table head={["Manager", "n", "Mean", "t", "Shrunk"]} align={["left", "right", "right", "right", "right"]}>
             {managers.map((m) => (
               <tr key={m.team_id} className="border-t border-line/60">
-                <td className="py-2 pr-3 text-ink-muted">{m.team_name || `Team ${m.team_id}`}</td>
-                <td className="tabular py-2 pr-3 text-right text-ink-ghost">{m.n}</td>
-                <td className="tabular py-2 pr-3 text-right text-ink-muted">{fmt(m.mean, 1)}</td>
-                <td className="tabular py-2 pr-3 text-right text-ink-faint">{fmt(m.t, 2)}</td>
+                <td className="py-1.5 pr-3 text-ink-muted">{m.team_name || `Team ${m.team_id}`}</td>
+                <td className="tabular py-1.5 pr-3 text-right text-ink-ghost">{m.n}</td>
+                <td className="tabular py-1.5 pr-3 text-right text-ink-muted">{fmt(m.mean, 1)}</td>
+                <td className="tabular py-1.5 pr-3 text-right text-ink-faint">{fmt(m.t, 2)}</td>
                 <td className={`tabular py-2 text-right font-semibold ${m.shrunk < 0 ? "text-rose-300" : "text-emerald-300"}`}>
                   {m.shrunk > 0 ? "+" : ""}{fmt(m.shrunk, 1)}
                 </td>
@@ -1996,19 +2081,19 @@ function LeagueBiasSection({ data, leagueName }) {
       {strictPlayers.length > 0 && (
         <>
           <Sub>By player — measured, not applied</Sub>
-          <p className="mb-3 max-w-3xl text-xs leading-relaxed text-ink-faint">
+          <Note>
             Players drafted at least three times, always in the same direction, with a spread smaller
             than the effect itself. {strictPlayers.length > 0 && `${(lb.player || []).filter((p) => p.passes_strict_filter).length} of ${(lb.player || []).length} players clear that bar.`}
-          </p>
+          </Note>
           <Table head={["Player", "Seasons", "Mean", "Spread"]} align={["left", "right", "right", "right"]}>
             {strictPlayers.map((p) => (
               <tr key={p.player_id} className="border-t border-line/60">
-                <td className="py-2 pr-3 text-ink-muted">{p.player_name}</td>
-                <td className="tabular py-2 pr-3 text-right text-ink-ghost">{p.n}</td>
+                <td className="py-1.5 pr-3 text-ink-muted">{p.player_name}</td>
+                <td className="tabular py-1.5 pr-3 text-right text-ink-ghost">{p.n}</td>
                 <td className={`tabular py-2 pr-3 text-right font-semibold ${p.mean < 0 ? "text-rose-300" : "text-emerald-300"}`}>
                   {p.mean > 0 ? "+" : ""}{fmt(p.mean, 1)}
                 </td>
-                <td className="tabular py-2 text-right text-ink-ghost">±{fmt(p.sd, 1)}</td>
+                <td className="tabular py-1.5 text-right text-ink-ghost">±{fmt(p.sd, 1)}</td>
               </tr>
             ))}
           </Table>
@@ -2037,14 +2122,14 @@ const PlayerTable = ({ rows, deltaLabel }) =>
     >
       {rows.map((r) => (
         <tr key={`${r.player_name}-${r.pick}`} className="border-t border-line/60">
-          <td className="py-2 pr-3">
+          <td className="py-1.5 pr-3">
             <div className="font-medium text-ink">{r.player_name}</div>
             <div className="text-[11px] text-ink-ghost">{r.team_name}</div>
           </td>
-          <td className="py-2 pr-3"><PositionChip position={r.position} /></td>
-          <td className="tabular py-2 pr-3 text-right text-ink-muted">{r.pick}</td>
-          <td className="tabular py-2 pr-3 text-right text-ink-muted">{fmtAdp(r.adp)}</td>
-          <td className="tabular py-2 pr-3 text-right text-ink-muted">
+          <td className="py-1.5 pr-3"><PositionChip position={r.position} /></td>
+          <td className="tabular py-1.5 pr-3 text-right text-ink-muted">{r.pick}</td>
+          <td className="tabular py-1.5 pr-3 text-right text-ink-muted">{fmtAdp(r.adp)}</td>
+          <td className="tabular py-1.5 pr-3 text-right text-ink-muted">
             {r.draft_delta > 0 ? "+" : ""}{fmt(r.draft_delta, 0)}
           </td>
           <td className={`tabular py-2 text-right font-semibold ${r.vorp >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
@@ -2177,18 +2262,17 @@ function AccuracySection({ data }) {
       </Figures>
 
       <Sub>Season by season</Sub>
-      <div className="space-y-2">
-        {seasons.map((s) => (
-          <div key={s.year} className="grid grid-cols-[3rem_minmax(0,1fr)_9rem] items-center gap-3">
-            <span className="tabular text-xs text-ink-faint">{s.year}</span>
-            <RatioBar value={Math.max(0, s.r2 ?? 0)} />
-            <span className="tabular text-right text-xs text-ink-muted">
-              R² {fmt(s.r2, 2)}
-              <span className="ml-2 text-ink-ghost">±{fmt(s.rmse, 0)}</span>
-            </span>
-          </div>
-        ))}
-      </div>
+      <BarChart
+        unit="R²"
+        tone="bg-sky-400"
+        rows={seasons.map((y) => ({
+          key: y.year,
+          label: String(y.year),
+          sub: `±${fmt(y.rmse, 0)}`,
+          value: Math.max(0, y.r2 ?? 0),
+          valueText: fmt(y.r2, 2),
+        }))}
+      />
 
       <Verdict tone={overall.bias < -3 ? "warn" : "info"}>
         Roughly {pctOf(overall.r2)} of the variance in what players actually delivered is explained
@@ -2238,21 +2322,16 @@ function PositionReliabilitySection({ data }) {
         </>
       }
     >
-      <div className="space-y-2.5">
-        {rows.map((p) => (
-          <div key={p.position} className="grid grid-cols-[3rem_minmax(0,1fr)_9rem] items-center gap-3">
-            <PositionChip position={p.position} />
-            <RatioBar
-              value={Math.max(0, p.r2 ?? 0)}
-              tone={(p.r2 ?? 0) <= 0.05 ? "bg-rose-400" : "bg-sky-400"}
-            />
-            <span className="tabular text-right text-xs text-ink-muted">
-              R² {fmt(p.r2, 2)}
-              <span className="ml-2 text-ink-ghost">±{fmt(p.rmse, 0)}</span>
-            </span>
-          </div>
-        ))}
-      </div>
+      <BarChart
+        unit="R²"
+        rows={rows.map((p) => ({
+          key: p.position,
+          label: p.position,
+          sub: `±${fmt(p.rmse, 0)} typical miss`,
+          value: p.r2,
+          valueText: fmt(p.r2, 2),
+        }))}
+      />
       <Verdict tone="warn">
         Kickers and defenses are the finding here. A negative R² means the projection did{" "}
         <em>worse than guessing the average every time</em> — there is no skill in the forecast at
@@ -2499,7 +2578,7 @@ function ModelSection({ data }) {
           <Table head={["Model", "CV RMSE", "CV MAE", "CV R²"]} align={["left", "right", "right", "right"]}>
             {models.map((m) => (
               <tr key={m.model} className={`border-t border-line/60 ${m.selected ? "bg-emerald-500/[0.06]" : ""}`}>
-                <td className="py-2 pr-3 font-medium text-ink">
+                <td className="py-1.5 pr-3 font-medium text-ink">
                   {m.model}
                   {m.selected === 1 && (
                     <span className="ml-2 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-300">
@@ -2507,9 +2586,9 @@ function ModelSection({ data }) {
                     </span>
                   )}
                 </td>
-                <td className="tabular py-2 pr-3 text-right text-ink-muted">{fmt(m.cv_rmse, 2)}</td>
-                <td className="tabular py-2 pr-3 text-right text-ink-muted">{fmt(m.cv_mae, 2)}</td>
-                <td className="tabular py-2 text-right text-ink-muted">{fmt(m.cv_r2, 3)}</td>
+                <td className="tabular py-1.5 pr-3 text-right text-ink-muted">{fmt(m.cv_rmse, 2)}</td>
+                <td className="tabular py-1.5 pr-3 text-right text-ink-muted">{fmt(m.cv_mae, 2)}</td>
+                <td className="tabular py-1.5 text-right text-ink-muted">{fmt(m.cv_r2, 3)}</td>
               </tr>
             ))}
           </Table>
@@ -2540,9 +2619,9 @@ function ModelSection({ data }) {
           >
             {ablation.map((a) => (
               <tr key={a.feature_set} className="border-t border-line/60">
-                <td className="py-2 pr-3 text-ink-muted">{a.feature_set}</td>
-                <td className="tabular py-2 pr-3 text-right text-ink-ghost">{a.n_features}</td>
-                <td className="tabular py-2 pr-3 text-right font-semibold text-ink">
+                <td className="py-1.5 pr-3 text-ink-muted">{a.feature_set}</td>
+                <td className="tabular py-1.5 pr-3 text-right text-ink-ghost">{a.n_features}</td>
+                <td className="tabular py-1.5 pr-3 text-right font-semibold text-ink">
                   {fmt(a.holdout_r2, 3)}
                 </td>
                 <td
@@ -2553,7 +2632,7 @@ function ModelSection({ data }) {
                 >
                   {a.r2_gain > 0 ? "+" : ""}{fmt(a.r2_gain, 3)}
                 </td>
-                <td className="tabular py-2 text-right text-ink-muted">{fmt(a.holdout_rmse, 1)}</td>
+                <td className="tabular py-1.5 text-right text-ink-muted">{fmt(a.holdout_rmse, 1)}</td>
               </tr>
             ))}
           </Table>
@@ -2652,24 +2731,17 @@ function BenchSection({ data }) {
         the rate toward deep-bench players who never appear at all, which measures irrelevance rather
         than injury.
       </p>
-      <Table
-        head={["Pos", "Games missed", "Mean games", "Depth value", ""]}
-        align={["left", "right", "right", "right", "left"]}
-      >
-        {rows.map((r) => (
-          <tr key={r.position} className="border-t border-line/60">
-            <td className="py-2 pr-3"><PositionChip position={r.position} /></td>
-            <td className="tabular py-2 pr-3 text-right text-ink-muted">{pctOf(r.missed_game_rate, 1)}</td>
-            <td className="tabular py-2 pr-3 text-right text-ink-faint">{fmt(r.mean_games, 1)}</td>
-            <td className="tabular py-2 pr-3 text-right font-semibold text-ink">
-              {fmt(r.depth_value, 2)}
-            </td>
-            <td className="w-24 py-2">
-              <RatioBar value={(r.depth_value || 0) / maxDepth} tone="bg-teal-400" />
-            </td>
-          </tr>
-        ))}
-      </Table>
+      <BarChart
+        unit="depth value"
+        tone="bg-teal-400"
+        rows={rows.map((r) => ({
+          key: r.position,
+          label: r.position,
+          sub: `${pctOf(r.missed_game_rate, 1)} of games missed`,
+          value: r.depth_value,
+          valueText: fmt(r.depth_value, 2),
+        }))}
+      />
       <Verdict tone="info">
         Depth value combines two things: how often the position's starters miss time, and how many of
         them you start (two RBs plus a share of FLEX is ~2.4× the exposure of a single QB). The
