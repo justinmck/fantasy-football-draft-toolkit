@@ -30,7 +30,7 @@ from src import state as state_module
 from src.state import SESSIONS, new_session, get_session
 from src.principal import Principal, require_espn, require_principal
 from src.leagues import assert_league
-from src.limits import limit_analysis_run, limit_auth_connect
+from src.limits import limit_analysis_run, limit_auth_connect, refund_analysis_run
 from src.recommender import recommend
 from src.scoring import RISK_AVERSION
 from src.biases import fit_league_bias, load_league_bias, persist_league_bias
@@ -596,7 +596,14 @@ def analysis_run(body: AnalysisRunBody, p: Principal = Depends(require_espn)):
 
     def work(report):
         report(0.02, "Checking which seasons exist…")
-        seasons = available_seasons(creds, league_id, range(first, last + 1))
+        try:
+            seasons = available_seasons(creds, league_id, range(first, last + 1))
+        except EspnAuthError:
+            # Dead cookies cost one request, not the minutes of ESPN traffic the
+            # limit exists to bound - and the fix for it is to reconnect and run
+            # again, which the limit would otherwise be blocking.
+            refund_analysis_run(p.user_id)
+            raise
         if not seasons:
             # Not a failure: a brand-new league genuinely has no history, and
             # the tab explains that rather than showing an error.

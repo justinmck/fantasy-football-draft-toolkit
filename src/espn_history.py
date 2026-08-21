@@ -58,12 +58,12 @@ PLAYER_FILTER = {"players": {"limit": 1500,
 ACTUAL, PROJECTED, SEASON_TOTAL = 0, 1, 0
 
 
-def _get(creds: EspnCredentials, league_id: str, year: int, view: str,
-         headers: dict | None = None) -> dict:
+def _fetch(creds: EspnCredentials, url: str, params: dict,
+           headers: dict | None) -> requests.Response:
     try:
-        resp = requests.get(
-            f"{BASE}/seasons/{year}/segments/0/leagues/{league_id}",
-            params={"view": view},
+        return requests.get(
+            url,
+            params=params,
             cookies={"SWID": creds.swid, "espn_s2": creds.espn_s2},
             headers=headers or {},
             timeout=45,
@@ -72,17 +72,45 @@ def _get(creds: EspnCredentials, league_id: str, year: int, view: str,
         # `from None`: the original can carry the request, and the request
         # headers are the cookies.
         raise EspnUnavailable(UNAVAILABLE_MESSAGE) from None
+
+
+def _get(creds: EspnCredentials, league_id: str, year: int, view: str,
+         headers: dict | None = None) -> dict:
+    """One view of one season, from whichever endpoint still serves it.
+
+    ESPN keeps a league's recent seasons under `/seasons/{year}/...` and moves
+    older ones to `/leagueHistory/{id}?seasonId={year}`. The two are not
+    interchangeable and the old one 404s on the new path, so asking only the
+    modern endpoint reports a league as having started whenever ESPN last
+    migrated it - which is indistinguishable, from here, from the league
+    genuinely not existing yet.
+
+    The fallback is only tried on a 404, so a league with nothing that year
+    still costs two cheap requests and every season that works costs one.
+    """
+    resp = _fetch(creds, f"{BASE}/seasons/{year}/segments/0/leagues/{league_id}",
+                  {"view": view}, headers)
     if resp.status_code in (401, 403):
         raise EspnAuthError(AUTH_MESSAGE)
+    if resp.status_code == 404:
+        resp = _fetch(creds, f"{BASE}/leagueHistory/{league_id}",
+                      {"view": view, "seasonId": year}, headers)
+        if resp.status_code in (401, 403):
+            raise EspnAuthError(AUTH_MESSAGE)
     if resp.status_code == 404:
         # A season before the league existed. Not an error - the caller skips it.
         return {}
     if resp.status_code >= 400:
         raise EspnUnavailable(UNAVAILABLE_MESSAGE)
     try:
-        return resp.json()
+        payload = resp.json()
     except ValueError:
         raise EspnUnavailable(UNAVAILABLE_MESSAGE) from None
+    # `leagueHistory` answers with a one-element list where the modern endpoint
+    # answers with an object. Every caller here expects the object.
+    if isinstance(payload, list):
+        payload = payload[0] if payload else {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def available_seasons(creds: EspnCredentials, league_id: str, years) -> list[int]:

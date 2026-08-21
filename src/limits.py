@@ -88,6 +88,21 @@ def check(scope: str, key: str, rate_per_sec: float, burst: float) -> None:
         bucket.tokens -= 1.0
 
 
+def refund(scope: str, key: str, burst: float) -> None:
+    """Hand a token back for work that never happened.
+
+    The analysis pull is limited because it is minutes of ESPN traffic. A run
+    that dies on the first request because the stored cookies expired is not
+    that - it is one request - but it still cost a slot, and at one refill per
+    twenty minutes, three fumbled reconnects locked the user out for an hour
+    from the one action that would have fixed it.
+    """
+    with _LOCK:
+        bucket = _BUCKETS.get((scope, key))
+        if bucket is not None:
+            bucket.tokens = min(burst, bucket.tokens + 1.0)
+
+
 def reset() -> None:
     """Drop all state. For tests."""
     with _LOCK:
@@ -107,9 +122,17 @@ def limit_auth_connect(request: Request) -> None:
     check("auth_connect_global", "*", rate_per_sec=1 / 60, burst=60)
 
 
+ANALYSIS_RUN_BURST = 3
+
+
 def limit_analysis_run(user_id: str) -> None:
     """A pull is minutes of ESPN traffic; three an hour is generous."""
-    check("analysis_run", user_id, rate_per_sec=1 / 1200, burst=3)
+    check("analysis_run", user_id, rate_per_sec=1 / 1200, burst=ANALYSIS_RUN_BURST)
+
+
+def refund_analysis_run(user_id: str) -> None:
+    """See `refund`. Called when a pull fails before it reaches ESPN in anger."""
+    refund("analysis_run", user_id, ANALYSIS_RUN_BURST)
 
 
 def limit_default(request: Request) -> None:

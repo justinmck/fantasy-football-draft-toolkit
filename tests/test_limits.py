@@ -153,3 +153,52 @@ class TestFieldBounds:
         res = client.post("/analysis/run", json={"league_id": "../etc/passwd"},
                           headers={"X-Device-Token": tok})
         assert res.status_code == 422
+
+
+class TestAnalysisRunRefund:
+    """A pull that dies on expired cookies must not cost a slot.
+
+    The limit exists to bound minutes of ESPN traffic. A run rejected on its
+    first request is one request - and the fix for it is to reconnect and run
+    again, which at one refill per twenty minutes the limit would otherwise be
+    blocking for an hour. This is the state the real account ended up in.
+    """
+
+    def test_a_refund_restores_one_attempt(self):
+        limits.reset()
+        for _ in range(limits.ANALYSIS_RUN_BURST):
+            limits.limit_analysis_run("user-a")
+        with pytest.raises(Exception) as exhausted:
+            limits.limit_analysis_run("user-a")
+        assert exhausted.value.status_code == 429
+
+        limits.refund_analysis_run("user-a")
+        limits.limit_analysis_run("user-a")          # the refunded attempt
+        with pytest.raises(Exception):
+            limits.limit_analysis_run("user-a")      # and only that one
+
+    def test_a_refund_cannot_exceed_the_burst(self):
+        """Otherwise repeated auth failures would mint an unbounded budget."""
+        limits.reset()
+        limits.limit_analysis_run("user-b")
+        for _ in range(10):
+            limits.refund_analysis_run("user-b")
+        for _ in range(limits.ANALYSIS_RUN_BURST):
+            limits.limit_analysis_run("user-b")
+        with pytest.raises(Exception) as exhausted:
+            limits.limit_analysis_run("user-b")
+        assert exhausted.value.status_code == 429
+
+    def test_a_refund_for_an_untouched_key_does_not_create_a_bucket(self):
+        limits.reset()
+        limits.refund_analysis_run("never-seen")
+        assert ("analysis_run", "never-seen") not in limits._BUCKETS
+
+    def test_refunds_do_not_leak_across_users(self):
+        limits.reset()
+        for _ in range(limits.ANALYSIS_RUN_BURST):
+            limits.limit_analysis_run("user-c")
+        limits.refund_analysis_run("user-d")
+        with pytest.raises(Exception) as exhausted:
+            limits.limit_analysis_run("user-c")
+        assert exhausted.value.status_code == 429
