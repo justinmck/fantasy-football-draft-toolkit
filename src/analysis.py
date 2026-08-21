@@ -37,6 +37,7 @@ from scipy import stats
 from sqlalchemy import text
 
 from notebooks.config import CURRENT_SEASON, POSITIONS, ROSTER_NEEDS, TEAMS
+from src.biases import _empirical_bayes_k, _shrink
 from src.migrations import known_leagues, seasons_for_league
 from src.scoring import (
     NO_ADP_SENTINEL,
@@ -63,7 +64,14 @@ SELECT
     d.team_id,
     t.team_name,
     t.final_standing,
-    a.position,
+    -- ESPN publishes no average draft position before 2020, and the join below
+    -- used to be an inner one - so eight seasons of real drafts were invisible
+    -- to every section built on this frame, and "who drafts best, all time"
+    -- quietly meant "since 2020". Grading a pick needs what the player scored
+    -- and what position they played, both of which sit on `players_stats`. ADP
+    -- is only needed to say whether the pick was a *bargain*, a different claim,
+    -- and the sections making it already drop rows without it.
+    {POSITION} AS position,
     a.avg               AS adp,
     d.overallPickNumber AS pick,
     d.roundId           AS round,
@@ -72,7 +80,7 @@ FROM drafts d
 JOIN players p       ON d.player_id = p.player_id
 JOIN players_stats s ON d.player_id = s.player_id AND d.year = s.year
 JOIN teams t         ON d.team_id   = t.team_id   AND d.year = t.year
-JOIN average_draft_position a
+LEFT JOIN average_draft_position a
      -- The CAST spelling must match `idx_adp_year_playerid` in src/indexes.py
      -- exactly, or SQLite silently stops using the expression index.
      ON CAST(a.player_id AS INTEGER) = d.player_id AND a.year = d.year
@@ -287,15 +295,65 @@ def load_draft_season(engine, year: int) -> pd.DataFrame:
     if not all(_has_table(ctx, t) for t in _REQUIRED_DRAFT_TABLES) or not ctx.league_id:
         ctx._draft[year] = pd.DataFrame()
         return pd.DataFrame()
-    df = pd.read_sql(text(_DRAFT_SEASON_SQL), _engine_of(engine),
+    # `players_stats.position` is what lets a season with no ADP still be
+    # graded, but a partially built database legitimately doesn't have it - the
+    # test fixture carries only the recommender's columns. Fall back to the ADP
+    # position there rather than failing to load at all.
+    pos_expr = ("COALESCE(a.position, s.position)"
+                if _has_columns(ctx, "players_stats", ["position"]) else "a.position")
+    df = pd.read_sql(text(_DRAFT_SEASON_SQL.replace("{POSITION}", pos_expr)),
+                     _engine_of(engine),
                      params={"year": year, "league_id": ctx.league_id})
     if not df.empty:
         df["position"] = df["position"].map(normalize_position)
         df = df[df["position"].notna()]
-        baselines = compute_baselines(df, teams=TEAMS, roster_needs=ctx.roster_need, value_col="points")
+        # Pinned float, because a pre-2020 season has no ADP at all and pandas
+        # infers an all-NaN column as object - which makes concatenating those
+        # seasons with recent ones a dtype warning and, in a future pandas, a
+        # different result dtype. Now a normal state rather than an edge case.
+        for col in ("adp", "draft_delta"):
+            df[col] = pd.to_numeric(df[col], errors="coerce").astype("float64")
+        # This season's league size, not today's. Replacement level is "the last
+        # player who'd still be starting somewhere", so it moves with the number
+        # of teams - and this league has run anywhere from eight to fourteen.
+        # Grading a 2010 draft against a fourteen-team baseline sets replacement
+        # too low and inflates every VORP in it, which would hand an all-time
+        # leaderboard to whoever played the most small-league seasons.
+        size = int(df["team_id"].nunique()) or TEAMS
+        baselines = compute_baselines(df, teams=size, roster_needs=ctx.roster_need,
+                                      value_col="points")
         df = add_vorp(df, baselines, value_col="points", out_col="vorp")
     ctx._draft[year] = df
     return df.copy()
+
+
+_LEAGUE_SIZE_SQL = """
+SELECT COUNT(DISTINCT team_id) FROM teams WHERE league_id = :league_id AND year = :year
+"""
+
+
+def league_size(engine, year: int) -> int:
+    """How many teams this league actually had that season.
+
+    `TEAMS` is a module default of fourteen. Replacement level is "the last
+    player who would still be starting somewhere in the league", so it is a
+    direct function of league size - which means a ten-team league was being
+    shown a fourteen-team baseline under a heading that says the number comes
+    from its own settings.
+
+    Falls back to the default rather than raising: a season with no `teams` rows
+    is a database that hasn't finished loading, not a reason to fail the page.
+    """
+    ctx = _ctx(engine)
+    if not _has_table(ctx, "teams") or not ctx.league_id:
+        return TEAMS
+    try:
+        with _engine_of(engine).connect() as conn:
+            n = conn.execute(text(_LEAGUE_SIZE_SQL),
+                             {"league_id": ctx.league_id, "year": year}).scalar()
+    except Exception:
+        return TEAMS
+    return int(n) if n else TEAMS
 
 
 def replacement_levels(engine, year: int) -> dict:
@@ -307,19 +365,25 @@ def replacement_levels(engine, year: int) -> dict:
     hand-picked rank cutoff, which is what earlier versions used.
     """
     ctx = _ctx(engine)
+    # `teams` is reported on every path, including the empty ones: the UI states
+    # it as a fact about the reader's league ("14 teams starting 1 QB, 2 RB...")
+    # and a missing value there falls back to the deployment default, which is
+    # how a ten-team league ends up being told it has fourteen.
+    size = league_size(ctx, year)
     if not _has_columns(ctx, "players_stats", _PROJECTION_COLUMNS) or not ctx.league_id:
-        return {"year": year, "positions": []}
+        return {"year": year, "teams": size, "positions": []}
     df = pd.read_sql(text(_PROJECTION_ACTUALS_SQL), _engine_of(engine),
                      params={"year": year, "league_id": ctx.league_id})
     if df.empty:
-        return {"year": year, "positions": []}
+        return {"year": year, "teams": size, "positions": []}
     df["position"] = df["position"].map(normalize_position)
     df = df[df["position"].isin(set(POSITIONS))]
-    baselines = compute_baselines(df, teams=TEAMS, roster_needs=ctx.roster_need, value_col="actual_points")
+    baselines = compute_baselines(df, teams=size, roster_needs=ctx.roster_need,
+                                  value_col="actual_points")
 
     rows = []
     for pos, grp in df.groupby("position"):
-        n = starters_needed(pos, teams=TEAMS, roster_needs=ctx.roster_need)
+        n = starters_needed(pos, teams=size, roster_needs=ctx.roster_need)
         rows.append({
             "position": pos,
             "starters_league_wide": n,
@@ -328,7 +392,7 @@ def replacement_levels(engine, year: int) -> dict:
             "pool": int(len(grp)),
         })
     rows.sort(key=lambda r: -r["baseline_points"])
-    return {"year": year, "teams": TEAMS, "roster_needs": ctx.roster_need, "positions": rows}
+    return {"year": year, "teams": size, "roster_needs": ctx.roster_need, "positions": rows}
 
 
 def draft_value_by_round(engine, year: int) -> list[dict]:
@@ -440,8 +504,32 @@ def career_performance(engine, seasons: list[int]) -> dict:
                           for r in g.itertuples()],
         })
 
-    rows.sort(key=lambda r: r["avg_vorp"], reverse=True)
-    return {"seasons": sorted({int(y) for y in allp["year"].unique()}), "managers": rows}
+    # Rank on a shrunk average, not the raw one.
+    #
+    # Opening this up to the league's whole history brought in franchises that
+    # played two early seasons and have eight graded picks between them. Three
+    # of them landed in the top three on raw average, ahead of managers with a
+    # hundred and fifty picks - which is not a leaderboard, it is a list of who
+    # got the smallest sample.
+    #
+    # So each manager's average is pulled toward the league average in
+    # proportion to how little supports it, using the same empirical-Bayes
+    # estimator `src/biases.py` already applies to draft habits: no arbitrary
+    # minimum-picks cutoff, no special cases, and a manager with 150 picks keeps
+    # essentially all of their estimate. `avg_vorp` stays raw, so the table can
+    # show what someone actually averaged beside where they rank.
+    league_mean = float(allp["vorp"].mean())
+    within_var = float(allp.groupby("team_id")["vorp"].var().mean())
+    k = _empirical_bayes_k([r["avg_vorp"] - league_mean for r in rows],
+                           [r["picks"] for r in rows], within_var)
+    for r in rows:
+        r["avg_vorp_shrunk"] = league_mean + _shrink(
+            r["avg_vorp"] - league_mean, r["picks"], k)
+    rows.sort(key=lambda r: r["avg_vorp_shrunk"], reverse=True)
+    return {"seasons": sorted({int(y) for y in allp["year"].unique()}),
+            "league_avg_vorp": league_mean,
+            "shrink_k": None if np.isinf(k) else round(float(k), 1),
+            "managers": rows}
 
 
 def best_and_worst_picks(engine, seasons: list[int], n: int = 8) -> dict:
@@ -693,8 +781,15 @@ def _projection_actuals(engine, years: list[int]) -> pd.DataFrame:
         df = df[df["position"].isin(set(POSITIONS))]
         if df.empty:
             continue
-        proj_base = compute_baselines(df, teams=TEAMS, roster_needs=ctx.roster_need, value_col="projected_points")
-        act_base = compute_baselines(df, teams=TEAMS, roster_needs=ctx.roster_need, value_col="actual_points")
+        # Per season, like everywhere else VORP is computed: this frame is
+        # league-scoped, and both projection accuracy and the ADP benchmark are
+        # measured on it, so a fixed team count would grade a ten-team league's
+        # forecasts against a fourteen-team replacement level.
+        size = league_size(ctx, year)
+        proj_base = compute_baselines(df, teams=size, roster_needs=ctx.roster_need,
+                                      value_col="projected_points")
+        act_base = compute_baselines(df, teams=size, roster_needs=ctx.roster_need,
+                                     value_col="actual_points")
         df = add_vorp(df, proj_base, value_col="projected_points", out_col="proj_vorp").drop(columns="baseline")
         df = add_vorp(df, act_base, value_col="actual_points", out_col="actual_vorp").drop(columns="baseline")
         df["year"] = year
@@ -876,7 +971,9 @@ def league_analysis(engine, year: int | None = None, league_id: str | None = Non
         # half of the page has nothing to say.
         "seasons": seasons,
         "has_history": bool(seasons),
-        "teams_in_league": TEAMS,
+        # This league's size, not the deployment default - it is shown to the
+        # reader as a fact about their own league.
+        "teams_in_league": league_size(engine, year),
         "roster_needs": engine.roster_need,
         "dataset": dataset_provenance(engine),
         "replacement_levels": replacement_levels(engine, year),

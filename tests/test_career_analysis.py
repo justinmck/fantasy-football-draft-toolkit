@@ -211,3 +211,128 @@ class TestTrophyCase:
         conn.commit()
         conn.close()
         assert trophy_case(_Ctx(engine, league_id=LEAGUE), [2024, 2025])["franchises"] == []
+
+
+class TestAllTimeCoverage:
+    """Grading a draft must not require the market price it went against.
+
+    ESPN publishes no average draft position before 2020, and `_DRAFT_SEASON_SQL`
+    joined it as an inner join - so eight of this league's fourteen seasons were
+    invisible to every section built on that frame, and a leaderboard captioned
+    "all time" silently meant "since 2020". What a pick scored and what position
+    the player played both live on `players_stats`; ADP only answers whether the
+    pick was a *bargain*, which is a different question.
+    """
+
+    def test_a_season_with_no_adp_is_still_graded(self, engine):
+        import sqlite3
+        conn = sqlite3.connect(engine.url.database)
+        # `players_stats` in this fixture has no position column, so add one:
+        # that is what carries a pre-ADP season.
+        conn.execute("ALTER TABLE players_stats ADD COLUMN position TEXT")
+        conn.execute("UPDATE players_stats SET position = 'RB'")
+        conn.execute("DELETE FROM average_draft_position WHERE year = 2024")
+        conn.commit()
+        conn.close()
+        out = career_performance(_Ctx(engine, league_id=LEAGUE), [2024, 2025])
+        assert 2024 in out["seasons"], "a season without ADP must still be graded"
+        for m in out["managers"]:
+            assert m["seasons_n"] == 2
+
+    def test_without_a_position_column_it_degrades_rather_than_failing(self, engine):
+        """A partially built database is a legitimate state, not a crash."""
+        out = career_performance(_Ctx(engine, league_id=LEAGUE), [2024, 2025])
+        assert out["managers"], "should still load using the ADP position"
+
+
+class TestSmallSamplesDoNotWinTheLeaderboard:
+    """A franchise with eight graded picks is not the best drafter in the league.
+
+    Opening the range to the whole history brought in teams that played two early
+    seasons, and on a raw average three of them took the top three places ahead
+    of managers with a hundred and fifty picks. Each average is now pulled toward
+    the league average in proportion to how little supports it - the same
+    empirical-Bayes estimator `src/biases.py` uses for draft habits.
+    """
+
+    def test_the_raw_average_is_still_reported(self, engine):
+        out = career_performance(_Ctx(engine, league_id=LEAGUE), [2024, 2025])
+        for m in out["managers"]:
+            assert "avg_vorp" in m and "avg_vorp_shrunk" in m
+
+    def test_shrinking_moves_estimates_toward_the_league_average(self, engine):
+        out = career_performance(_Ctx(engine, league_id=LEAGUE), [2024, 2025])
+        mean = out["league_avg_vorp"]
+        for m in out["managers"]:
+            # Never past the mean, and never further from it than the raw value.
+            assert abs(m["avg_vorp_shrunk"] - mean) <= abs(m["avg_vorp"] - mean) + 1e-9
+
+    def test_ranking_follows_the_shrunk_value(self, engine):
+        out = career_performance(_Ctx(engine, league_id=LEAGUE), [2024, 2025])
+        vals = [m["avg_vorp_shrunk"] for m in out["managers"]]
+        assert vals == sorted(vals, reverse=True)
+
+    def test_a_thin_record_cannot_outrank_a_deep_one_on_noise(self, engine):
+        """The property that matters, stated directly: give one manager a huge
+        average off very few picks and a second a good average off many, and the
+        second must still rank higher."""
+        import sqlite3
+        path = engine.url.database
+        conn = sqlite3.connect(path)
+        # Team 12 keeps three ordinary picks; team 11 gets many solid ones.
+        conn.execute("DELETE FROM drafts WHERE team_id = 12 AND overallPickNumber > 1")
+        pid = 500
+        for year in (2024, 2025):
+            for k in range(40):
+                conn.execute("INSERT INTO drafts VALUES (?,?,?,?,?,?)",
+                             (pid, year, LEAGUE, k + 10, 2, 11))
+                conn.execute("INSERT INTO players VALUES (?,?)", (pid, f"Filler {pid}"))
+                conn.execute("INSERT INTO players_stats VALUES (?,?,?,?,?,?)",
+                             (pid, year, LEAGUE, 150.0, 90.0, 16.0))
+                conn.execute("INSERT INTO average_draft_position VALUES (?,?,?,?)",
+                             (pid, year, float(k + 10), "RB"))
+                pid += 1
+        conn.commit()
+        conn.close()
+        out = career_performance(_Ctx(engine, league_id=LEAGUE), [2024, 2025])
+        by_id = {m["team_id"]: m for m in out["managers"]}
+        assert by_id[11]["picks"] > by_id[12]["picks"]
+        order = [m["team_id"] for m in out["managers"]]
+        assert order.index(11) < order.index(12), \
+            "the manager with the deep record must outrank the thin one"
+
+
+class TestLeagueSize:
+    """Replacement level is a function of how many teams there are.
+
+    The section reporting it says the number comes from the league's own
+    settings, but it was computed from a module default of fourteen - so a
+    ten-team league was shown a fourteen-team baseline and told it was theirs.
+    This league itself ran eight teams for its first seven seasons.
+    """
+
+    def test_it_reads_the_season_not_the_default(self, engine):
+        from src.analysis import league_size
+        # The fixture has two franchises per season.
+        assert league_size(_Ctx(engine, league_id=LEAGUE), 2025) == 2
+
+    def test_a_season_with_no_teams_falls_back_rather_than_failing(self, engine):
+        from notebooks.config import TEAMS
+        from src.analysis import league_size
+        assert league_size(_Ctx(engine, league_id=LEAGUE), 1999) == TEAMS
+
+    def test_replacement_level_reports_that_size(self, engine):
+        from src.analysis import replacement_levels
+        out = replacement_levels(_Ctx(engine, league_id=LEAGUE), 2025)
+        assert out["teams"] == 2, "the page states this number as the league's own"
+
+    def test_a_smaller_league_sets_a_higher_bar(self, engine):
+        """Fewer teams means fewer starters, so the last startable player is a
+        better one - replacement level goes up, and VORP goes down."""
+        from src.scoring import compute_baselines
+        import pandas as pd
+        df = pd.DataFrame({"position": ["RB"] * 10,
+                           "points": [100, 90, 80, 70, 60, 50, 40, 30, 20, 10]})
+        small = compute_baselines(df, teams=2, value_col="points")["RB"]
+        big = compute_baselines(df, teams=8, value_col="points")["RB"]
+        assert small > big

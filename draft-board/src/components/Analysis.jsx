@@ -1172,15 +1172,19 @@ function CareerSection({ data, leagueName, myTeamName }) {
   const card = {
       eyebrow: `${league} · ${(cp.seasons || []).join(", ")}`,
       title: "Who drafts best, all time",
+      // The ranked value, not the raw one - the rows arrive sorted by it, and a
+      // card whose longest bar sits fourth is the same defect as drawing signed
+      // values rightward from a common edge.
       rows: managers.map((m) => ({
         label: m.team_name,
-        sub: `${m.seasons_n} seasons` + (m.titles ? ` · ${m.titles} title${m.titles > 1 ? "s" : ""}` : ""),
-        value: m.avg_vorp,
-        valueText: `${m.avg_vorp > 0 ? "+" : ""}${fmt(m.avg_vorp, 1)}`,
+        sub: `${m.seasons_n} seasons · ${m.picks} picks`
+             + (m.titles ? ` · ${m.titles} title${m.titles > 1 ? "s" : ""}` : ""),
+        value: m.avg_vorp_shrunk ?? m.avg_vorp,
+        valueText: `${(m.avg_vorp_shrunk ?? m.avg_vorp) > 0 ? "+" : ""}${fmt(m.avg_vorp_shrunk ?? m.avg_vorp, 1)}`,
         highlight: isMine(m),
       })),
       footer: "Average VORP per pick, across every season on record.",
-      note: "Graded on what those players actually went on to score.",
+      note: "Adjusted for how many picks each record rests on, so a short record can't top it.",
   };
 
   const shareText = [
@@ -1188,7 +1192,8 @@ function CareerSection({ data, leagueName, myTeamName }) {
     "",
     ...managers.map((m, i) =>
       `${String(i + 1).padStart(2)}. ${m.team_name}${isMine(m) ? " (me)" : ""} — ` +
-      `${m.avg_vorp > 0 ? "+" : ""}${fmt(m.avg_vorp, 1)} avg VORP over ${m.seasons_n} seasons` +
+      `${(m.avg_vorp_shrunk ?? m.avg_vorp) > 0 ? "+" : ""}${fmt(m.avg_vorp_shrunk ?? m.avg_vorp, 1)}` +
+      ` over ${m.seasons_n} seasons (${m.picks} picks)` +
       (m.titles ? `, ${m.titles} title${m.titles > 1 ? "s" : ""}` : "")),
     "",
     "via Justin's Draft Assistant",
@@ -1198,7 +1203,7 @@ function CareerSection({ data, leagueName, myTeamName }) {
     <Section
       id="career"
       icon={<Crown size={17} />}
-      eyebrow={`Graded seasons · ${(cp.seasons || []).join(", ")}`}
+      eyebrow={`Every season on record · ${(cp.seasons || []).join(", ")}`}
       title="Who drafts best"
       action={<ShareButton {...share(card, "who-drafts-best", shareText)} />}
       blurb={
@@ -1217,9 +1222,15 @@ function CareerSection({ data, leagueName, myTeamName }) {
           key: m.team_id,
           label: m.team_name,
           sub: [m.titles ? `${m.titles} title${m.titles > 1 ? "s" : ""}` : null,
-                `avg finish ${fmt(m.avg_finish, 1)}`].filter(Boolean).join(" · "),
-          value: m.avg_vorp,
-          valueText: `${m.avg_vorp > 0 ? "+" : ""}${fmt(m.avg_vorp, 1)}`,
+                `${m.picks} picks`,
+                // The raw average, next to the rank it produced. A manager with
+                // eight picks can average +64 and still not be the best drafter
+                // in the league, and hiding one of those two numbers makes the
+                // other look wrong.
+                `raw ${m.avg_vorp > 0 ? "+" : ""}${fmt(m.avg_vorp, 1)}`,
+               ].filter(Boolean).join(" · "),
+          value: m.avg_vorp_shrunk ?? m.avg_vorp,
+          valueText: `${(m.avg_vorp_shrunk ?? m.avg_vorp) > 0 ? "+" : ""}${fmt(m.avg_vorp_shrunk ?? m.avg_vorp, 1)}`,
           highlight: isMine(m),
           // Each manager against their own average, so this reads as "a good
           // year for them" rather than "a good year".
@@ -1235,14 +1246,18 @@ function CareerSection({ data, leagueName, myTeamName }) {
         Best single season: {managers[0].best_year} ({fmt(managers[0].best_vorp, 0)} for{" "}
         {managers[0].team_name}). The sparkline is each manager's own shape across those seasons —
         a flat line is consistency, a spike is one good year carrying a reputation.
-        {allSeasons.length > (cp.seasons || []).length && (
+        {cp.shrink_k != null && (
           <>
-            {" "}Covers {(cp.seasons || []).length} of the league's {allSeasons.length} seasons:
-            grading a pick means comparing it to the market price it went against, and ESPN
-            publishes no average draft position before {(cp.seasons || [])[0]}. The trophy case and
-            the luck table, which need only the standings, cover all of them.
+            {" "}Ranked on an average pulled toward the league's ({fmt(cp.league_avg_vorp, 1)}) in
+            proportion to how few picks support it, which is why the raw figure beside each name
+            doesn't match the order. Some franchises played two early seasons and have a handful of
+            graded picks; on a raw average those took the top three places. A manager with a full
+            record keeps essentially all of their estimate.
           </>
-        )}
+        )}{" "}
+        Replacement level is computed from each season's own league size — this league has run
+        anywhere from eight teams to fourteen, and grading an eight-team draft against a
+        fourteen-team baseline would inflate every number in it.
       </Note>
     </Section>
   );
