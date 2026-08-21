@@ -136,6 +136,38 @@ WHERE a.avg IS NOT NULL AND a.avg > 0
   AND (s.league_id IS NULL OR s.league_id = :league_id)
 """
 
+_TEAM_NAMES_SQL = """
+SELECT team_id, team_name, year FROM teams WHERE league_id = :league_id
+"""
+
+
+def _latest_team_names(engine, league_id) -> dict:
+    """Current display name per franchise, keyed on the id the fit uses.
+
+    `_FIT_SQL` reads `drafts`, which carries `team_id` and no name, so the
+    manager table was persisted with an empty `team_name` column and the UI
+    rendered a blank first column with the steal and bust tallies - which it
+    joins on that name - all showing as "no data".
+
+    Only the notebook had ever filled this in, so the app's own refit silently
+    blanked it. Nothing noticed because the refit runs after a pull, and until
+    the season probe was fixed no pull had ever completed.
+
+    Sorted by year before taking the last, so a renamed franchise gets its
+    current name rather than whichever row the database returned last.
+    """
+    try:
+        df = pd.read_sql(text(_TEAM_NAMES_SQL), engine,
+                         params={"league_id": str(league_id)})
+    except Exception:
+        return {}
+    if df.empty:
+        return {}
+    df = df.dropna(subset=["team_id"]).sort_values("year")
+    return {int(t): str(n) for t, n in df.groupby("team_id")["team_name"].last().items()
+            if n is not None}
+
+
 _BIAS_TABLES = ("league_bias_position", "league_bias_proteam",
                 "league_bias_manager", "league_bias_player", "league_bias_meta")
 
@@ -318,6 +350,11 @@ def fit_league_bias(engine, years=None, adp_max: float = DEFAULT_ADP_MAX,
         mgr["seasons"] = seasons
         mgr["controlled"] = "position x year"
         mgr["p_perm"] = _permutation_p(mgr_df, "team_id", "resid", permutations)
+        # The name the comment above promises to carry. Never blank: a manager
+        # with no row in `teams` is still a manager, and an empty first column
+        # reads as a broken table rather than as missing metadata.
+        names = _latest_team_names(engine, league_id)
+        mgr["team_name"] = [names.get(int(t), f"Team {int(t)}") for t in mgr["team_id"]]
     else:
         mgr, k_mgr = pd.DataFrame(), float("inf")
 

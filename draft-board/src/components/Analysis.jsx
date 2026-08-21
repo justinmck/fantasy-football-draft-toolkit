@@ -110,6 +110,33 @@ const Note = ({ children }) => (
   <p className="mt-3 max-w-3xl text-xs leading-relaxed text-ink-faint">{children}</p>
 );
 
+/**
+ * Says whose numbers these are, when they aren't yours.
+ *
+ * Four sections read tables a notebook wrote once - projection reliability by
+ * position, unproven players, the regression diagnostics, bench depth. They are
+ * not recomputed per league, so for everyone except whoever ran the notebooks
+ * they describe a different league's data. The payload has carried
+ * `reference_league_id` for exactly this purpose and nothing ever read it, so
+ * the numbers were presented as the reader's own.
+ *
+ * Silent when the reference league *is* the one being viewed, which is the case
+ * that made this easy to miss.
+ */
+const ReferenceNote = ({ data }) => {
+  const ref = data.reference_league_id;
+  if (!ref || !data.league_id || String(ref) === String(data.league_id)) return null;
+  return (
+    <div className="mt-4 rounded border border-amber-400/20 bg-amber-500/5 px-3 py-2 text-xs
+      leading-relaxed text-amber-200/80">
+      <strong>Not measured on your league.</strong> This section ships with the tool, fitted once
+      on a reference league. It describes how ESPN's projections behave in general — which is what
+      the board's confidence column is built on — rather than anything about the people you draft
+      against.
+    </div>
+  );
+};
+
 /** A conclusion, stated plainly. Used sparingly — one per section at most. */
 const Verdict = ({ tone = "calm", children }) => {
   const tones = {
@@ -1341,15 +1368,21 @@ function ReachersSection({ data, leagueName, myTeamName }) {
 
   // The payoff half comes free: every steal and reach row already carries the
   // team that made the pick.
+  // Keyed on team_id where it exists, because the two sides of this join come
+  // from different places: the steal rows carry the name the franchise used
+  // *that season*, while the manager fit reports its current one. A rename
+  // between the two tallied as zero and rendered a column of dashes.
+  const keyOf = (x) => (x.team_id != null ? `#${x.team_id}` : x.team_name);
   const tally = {};
-  for (const p of data.steals_and_reaches?.steals || []) {
-    tally[p.team_name] = tally[p.team_name] || { steals: 0, reaches: 0 };
-    tally[p.team_name].steals += 1;
-  }
-  for (const p of data.steals_and_reaches?.reaches || []) {
-    tally[p.team_name] = tally[p.team_name] || { steals: 0, reaches: 0 };
-    tally[p.team_name].reaches += 1;
-  }
+  const count = (rows, field) => {
+    for (const p of rows || []) {
+      const k = keyOf(p);
+      tally[k] = tally[k] || { steals: 0, reaches: 0 };
+      tally[k][field] += 1;
+    }
+  };
+  count(data.steals_and_reaches?.steals, "steals");
+  count(data.steals_and_reaches?.reaches, "reaches");
 
   // Negative shrunk = drafts earlier than the market. Sorted most-eager first.
   const rows = [...managers].sort((a, b) => (a.shrunk || 0) - (b.shrunk || 0));
@@ -1358,7 +1391,7 @@ function ReachersSection({ data, leagueName, myTeamName }) {
     eyebrow: `${leagueName || "This league"} · habit against payoff`,
     title: "Who reaches, and whether it pays",
     rows: rows.map((m) => {
-      const t = tally[m.team_name] || { steals: 0, reaches: 0 };
+      const t = tally[keyOf(m)] || { steals: 0, reaches: 0 };
       const early = (m.shrunk || 0) < 0;
       return {
         label: m.team_name,
@@ -1395,7 +1428,7 @@ function ReachersSection({ data, leagueName, myTeamName }) {
       <Table head={["Manager", "Picks", "Tendency", "Steals", "Busts"]}>
         {rows.map((m) => {
           const mine = !!myTeamName && m.team_name === myTeamName;
-          const t = tally[m.team_name] || { steals: 0, reaches: 0 };
+          const t = tally[keyOf(m)] || { steals: 0, reaches: 0 };
           const early = (m.shrunk || 0) < 0;
           const solid = m.p_perm != null && m.p_perm < 0.05;
           return (
@@ -1725,6 +1758,28 @@ function LeagueBiasSection({ data, leagueName }) {
   // NFL-team and manager tendencies get a line in the footer rather than a
   // second ranking - one card, one finding.
   const topManager = managers[0];
+
+  // Computed, not written down. This is the one section whose whole claim is
+  // "here is how *your* league differs", so a verdict describing whichever
+  // league the author happened to be looking at is worse than no verdict: it
+  // states someone else's conclusion over your numbers. It used to open
+  // "Quarterbacks are the finding", which was true of exactly one league.
+  const MOVED_PICKS = 2;   // below this the shrinkage has taken it to nothing
+  const posRows = lb.position || [];
+  const moved = posRows
+    .filter((x) => Math.abs(x.shrunk || 0) >= MOVED_PICKS)
+    .sort((a, b) => Math.abs(b.shrunk) - Math.abs(a.shrunk));
+  const flatPositions = posRows
+    .filter((x) => Math.abs(x.shrunk || 0) < MOVED_PICKS).map((x) => x.position);
+  const headline = moved[0];
+  const seasonCount = (meta.years || "").split(",").filter(Boolean).length;
+  const teamCount = data.teams_in_league || 12;
+  const inRounds = headline ? Math.abs(headline.shrunk) / teamCount : 0;
+  const listOf = (xs) =>
+    xs.length <= 1 ? (xs[0] || "") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`;
+  const alsoEarly = moved.slice(1).filter((x) => (x.shrunk || 0) < 0).map((x) => x.position);
+  const alsoLate = moved.slice(1).filter((x) => (x.shrunk || 0) > 0).map((x) => x.position);
+
   const card = {
     eyebrow: `${leagueName || "This league"} · league fingerprint`,
     title: "How this league drafts differently",
@@ -1809,12 +1864,60 @@ function LeagueBiasSection({ data, leagueName }) {
           </tr>
         ))}
       </Table>
-      <Verdict tone="warn">
-        <strong>Quarterbacks are the finding.</strong> This league takes them about a full round
-        ahead of the market, and the sparkline is why that counts: every season, same direction, no
-        exceptions. Tight ends lean the same way more mildly. Kickers and defenses last longer here
-        than the market expects. Running backs and receivers show nothing at all — on the skill
-        positions, this league and the market agree.
+      <Verdict tone={headline ? "warn" : "info"}>
+        {!headline ? (
+          <>
+            <strong>No position moves enough to matter here.</strong> Every one of them is drafted
+            within {MOVED_PICKS} picks of where the national market says, once each estimate is
+            pulled toward zero by how little data supports it. That is a real result, not a missing
+            one — it means the board can time this league off market ADP directly.
+          </>
+        ) : (
+          <>
+            <strong>
+              {headline.position}
+              {headline.position.length <= 3 ? "s" : ""} are the finding.
+            </strong>{" "}
+            This league takes them about {fmt(Math.abs(headline.shrunk), 1)} picks{" "}
+            {headline.shrunk < 0 ? "ahead of" : "behind"} the market
+            {inRounds >= 0.75 && <> — most of a round in a {teamCount}-team league</>}.
+            {/* Consistency is the argument the sparkline makes visually; it is
+                worth saying in words, because a large effect that alternates
+                direction is noise wearing a big number. */}
+            {seasonCount > 1 && headline.seasons_same_sign > 0 && (
+              <>
+                {" "}
+                {headline.seasons_same_sign >= seasonCount
+                  ? "Every season leans the same way, with no exceptions"
+                  : `${headline.seasons_same_sign} of ${seasonCount} seasons lean the same way`}
+                , which is what separates a habit from a run of luck.
+              </>
+            )}
+            {/* Position codes read as collective nouns, so the verb has to
+                agree with how many are in the list, not with the word. */}
+            {alsoEarly.length > 0 && (
+              <>
+                {" "}{listOf(alsoEarly)} also {alsoEarly.length === 1 ? "goes" : "go"} earlier here
+                than the market expects.
+              </>
+            )}
+            {alsoLate.length > 0 && (
+              <>
+                {" "}{listOf(alsoLate)} {alsoLate.length === 1 ? "lasts" : "last"} longer than the
+                market expects.
+              </>
+            )}
+            {flatPositions.length > 0 && (
+              <>
+                {" "}
+                {listOf(flatPositions)} {flatPositions.length === 1 ? "shows" : "show"} nothing at
+                all — on{" "}
+                {flatPositions.length === 1 ? "that position" : "those positions"} this league and
+                the market agree.
+              </>
+            )}
+          </>
+        )}
       </Verdict>
 
       {topTeam && (
@@ -2163,6 +2266,7 @@ function PositionReliabilitySection({ data }) {
         outcomes barely vary in the first place. Small errors on a narrow distribution isn't skill —
         it's a position where everyone scores about the same and picking one is close to a coin flip.
       </Note>
+      <ReferenceNote data={data} />
     </Section>
   );
 }
@@ -2232,6 +2336,7 @@ function RookieSection({ data }) {
         Position and unproven status compose multiplicatively, so an unproven tight end and an
         unproven running back don't collapse to the same number.
       </Note>
+      <ReferenceNote data={data} />
     </Section>
   );
 }
@@ -2502,6 +2607,7 @@ function ModelSection({ data }) {
           </Note>
         </>
       )}
+      <ReferenceNote data={data} />
     </Section>
   );
 }
@@ -2577,6 +2683,7 @@ function BenchSection({ data }) {
         bench room left. Once starters <em>and</em> bench are full, roster need stops separating
         players entirely and the board ranks on projected value alone.
       </Note>
+      <ReferenceNote data={data} />
     </Section>
   );
 }

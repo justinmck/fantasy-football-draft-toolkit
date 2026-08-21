@@ -650,7 +650,11 @@ def steals_and_reaches(engine, year: int, n: int = 8) -> dict:
     df = load_draft_season(engine, year)
     if df.empty:
         return {"steals": [], "reaches": []}
-    cols = ["player_name", "team_name", "position", "pick", "adp", "draft_delta", "points", "vorp"]
+    # `team_id` as well as the name: the Reachers table joins these counts to
+    # the manager fit, and a franchise that renamed carries a different name in
+    # an older season than the fit reports, which silently tallied as zero.
+    cols = ["player_name", "team_name", "team_id", "position", "pick", "adp",
+            "draft_delta", "points", "vorp"]
     return {
         "steals": _records(df[df["draft_delta"] > 0].nlargest(n, "vorp")[cols]),
         "reaches": _records(df[df["draft_delta"] < 0].nsmallest(n, "vorp")[cols]),
