@@ -3,6 +3,7 @@ import {
   Activity,
   AlertTriangle,
   BarChart3,
+  ChevronDown,
   Crown,
   Database,
   Fingerprint,
@@ -32,18 +33,72 @@ import { PositionChip } from "./primitives";
 // primitives
 // ---------------------------------------------------------------------------
 
-const Section = ({ id, icon, eyebrow, title, blurb, action, children }) => (
+/**
+ * A section, open or collapsed.
+ *
+ * The page is eighteen sections and about eight screens. The methodology half
+ * is reference material - true, worth having, and not what anyone opens this
+ * tab to read - so it starts collapsed and the league's own findings are what
+ * you land on. Which half a section belongs to is read from `SECTIONS` rather
+ * than passed in, so a section that moves groups changes behavior by moving.
+ *
+ * `hidden` rather than unmounting: the contents nav counts rendered sections,
+ * and a collapsed section is still on the page.
+ */
+const COLLAPSED_GROUP = "How it's measured";
+
+const Section = ({ id, icon, eyebrow, title, blurb, action, children }) => {
+  const collapsible = !!children;
+  const [open, setOpen] = useState(
+    () => !collapsible || SECTIONS.find((s) => s.id === id)?.group !== COLLAPSED_GROUP);
+
+  // A link from the contents - or a pasted deep link - has to open what it
+  // points at, otherwise it scrolls to a title and looks broken.
+  useEffect(() => {
+    const sync = () => { if (window.location.hash === `#${id}`) setOpen(true); };
+    sync();
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, [id]);
+
+  return SectionShell({ id, icon, eyebrow, title, blurb, action, children,
+                        collapsible, open, onToggle: () => setOpen((v) => !v) });
+};
+
+const SectionShell = ({ id, icon, eyebrow, title, blurb, action, children,
+                        collapsible, open, onToggle }) => (
   <section id={id} className="card scroll-mt-20 p-5 sm:p-6">
     {eyebrow && <div className="label mb-1.5">{eyebrow}</div>}
     <div className="mb-2 flex items-start gap-2">
       <span className="mt-0.5 shrink-0 text-emerald-400">{icon}</span>
-      <h2 className="text-lg font-semibold tracking-tight text-ink">{title}</h2>
+      {collapsible ? (
+        <button
+          onClick={onToggle}
+          aria-expanded={open}
+          aria-controls={`${id}-body`}
+          className="group flex min-w-0 flex-1 items-start gap-2 text-left"
+        >
+          <h2 className="text-lg font-semibold tracking-tight text-ink">{title}</h2>
+          <ChevronDown
+            size={16}
+            aria-hidden="true"
+            className={`mt-1 shrink-0 text-ink-faint transition-transform group-hover:text-ink-muted
+              ${open ? "rotate-180" : ""}`}
+          />
+        </button>
+      ) : (
+        <h2 className="text-lg font-semibold tracking-tight text-ink">{title}</h2>
+      )}
       {/* Share sits on the title row of the sections worth sending, so it
-          reads as part of the finding rather than a toolbar over the page. */}
+          reads as part of the finding rather than a toolbar over the page.
+          Outside the toggle button, because nesting a button in a button is
+          invalid and would make Share collapse the section instead. */}
       {action && <div className="ml-auto">{action}</div>}
     </div>
-    {blurb && <div className="mb-5 max-w-3xl text-sm leading-relaxed text-ink-muted">{blurb}</div>}
-    {children}
+    <div id={`${id}-body`} hidden={!open}>
+      {blurb && <div className="mb-5 max-w-3xl text-sm leading-relaxed text-ink-muted">{blurb}</div>}
+      {children}
+    </div>
   </section>
 );
 
@@ -200,6 +255,10 @@ const PROMISES = [
 ];
 
 /** The screen before the page: what you'd get, what it needs, and the button. */
+// Matches EARLIEST_SEASON in src/api.py, which is where the pull range is
+// actually enforced. Shown so the gate can say how far back re-pulling looks.
+const EARLIEST_PULL_SEASON = 2010;
+
 function RunGate({ leagueName, status, onRun, job, error }) {
   const seasons = status?.seasons || [];
   const has = seasons.length > 0;
@@ -248,6 +307,15 @@ function RunGate({ leagueName, status, onRun, job, error }) {
             <>
               <strong>{seasons.length} season{seasons.length === 1 ? "" : "s"} stored</strong>{" "}
               ({seasons.join(", ")}). Everything above is available.
+              {/* The stored range is whatever the last pull asked for, which is
+                  not necessarily what the league has. Running reuses these rows
+                  without going back to ESPN, so a range that was capped once
+                  stays capped until someone re-pulls - and nothing said so. */}
+              <div className="mt-1.5 text-xs text-emerald-200/60">
+                That's what a previous pull fetched, not necessarily everything the league has
+                played. Re-pulling checks {EARLIEST_PULL_SEASON} onward and adds any earlier
+                seasons ESPN still serves.
+              </div>
               {seasons.length < 3 && (
                 <div className="mt-1 text-xs text-emerald-200/60">
                   Thin history — the league-habit figures are measured on a few hundred picks, so
@@ -300,9 +368,10 @@ function RunGate({ leagueName, status, onRun, job, error }) {
         {has && !running && (
           <button
             onClick={() => onRun({ pull: true })}
-            className="mt-2 w-full text-center text-xs text-ink-faint hover:text-ink-muted"
+            className="mt-2 h-10 w-full rounded border border-line bg-surface-panel text-xs
+              font-medium text-ink-muted transition hover:border-line-strong hover:text-ink"
           >
-            Re-pull from ESPN first
+            Re-pull full history from ESPN
           </button>
         )}
       </div>
