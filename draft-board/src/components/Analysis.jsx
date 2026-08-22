@@ -679,18 +679,19 @@ export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
       <Contents />
       {/* Dimmed rather than replaced while a season loads - see showYear. */}
       <div className={`mt-4 space-y-3 transition-opacity ${switching ? "opacity-40" : ""}`}>
-        <GroupHeading
+        <Group
           title="All time"
           blurb="Every season this league has played, pooled. The questions that don't depend
                  on which year you're looking at."
-        />
-        <TrophyCaseSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
-        <CareerSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
-        <PicksSection data={data} myTeamName={myTeamName} />
-        <LuckSection data={data} myTeamName={myTeamName} />
-        <LeagueBiasSection data={data} leagueName={leagueName} />
+        >
+          <TrophyCaseSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
+          <CareerSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
+          <PicksSection data={data} myTeamName={myTeamName} />
+          <LuckSection data={data} myTeamName={myTeamName} />
+          <LeagueBiasSection data={data} leagueName={leagueName} />
+        </Group>
 
-        <GroupHeading
+        <Group
           title="Season"
           blurb="One season at a time. Everything in this group follows the year on the right."
           aside={
@@ -701,26 +702,28 @@ export default function Analysis({ apiUrl, leagueId, leagueName, myTeamName,
               )}
             </span>
           }
-        />
-        <DraftPerformanceSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
-        <ExpectationsSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
-        <MarketSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
-        <ReachersSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
-        <RoundsSection data={data} leagueName={leagueName} />
+        >
+          <DraftPerformanceSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
+          <ExpectationsSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
+          <MarketSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
+          <ReachersSection data={data} leagueName={leagueName} myTeamName={myTeamName} />
+          <RoundsSection data={data} leagueName={leagueName} />
+        </Group>
 
-        <GroupHeading
+        <Group
           title="How it's measured"
           blurb="The machinery behind the numbers above - how replacement level is set, how far
                  the projections can be trusted, and what the live board does with all of it."
-        />
-        <ReplacementSection data={data} leagueName={leagueName} />
-        <AccuracySection data={data} />
-        <PositionReliabilitySection data={data} />
-        <RookieSection data={data} />
-        <BenchmarkSection data={data} />
-        <BenchSection data={data} />
-        <ModelSection data={data} />
-        <LiveScoreSection data={data} />
+        >
+          <ReplacementSection data={data} leagueName={leagueName} />
+          <AccuracySection data={data} />
+          <PositionReliabilitySection data={data} />
+          <RookieSection data={data} />
+          <BenchmarkSection data={data} />
+          <BenchSection data={data} />
+          <ModelSection data={data} />
+          <LiveScoreSection data={data} />
+        </Group>
       </div>
     </div>
   );
@@ -766,7 +769,13 @@ function Headline({ data, myTeamName }) {
     },
     bestDrafter && {
       href: "#career", label: "Best drafter",
-      value: `${bestDrafter.avg_vorp > 0 ? "+" : ""}${fmt(bestDrafter.avg_vorp, 1)}`,
+      // The ranked figure, not the raw one - this tile links straight to the
+      // table, and a tile reading +38.2 above a row reading +35.7 makes one of
+      // them look wrong.
+      value: (() => {
+        const v = bestDrafter.avg_vorp_shrunk ?? bestDrafter.avg_vorp;
+        return `${v > 0 ? "+" : ""}${fmt(v, 1)}`;
+      })(),
       who: bestDrafter.team_name, mine: mine(bestDrafter.team_name),
     },
     steal && {
@@ -853,15 +862,62 @@ const Intro = ({ data, leagueName }) => (
  * implied it changed the career leaderboard and the methodology too - it
  * changes neither.
  */
-const GroupHeading = ({ title, blurb, aside }) => (
-  <div className="!mt-6 border-t border-line pt-4 first:!mt-0 first:border-0 first:pt-0">
-    <div className="flex flex-wrap items-center justify-between gap-3">
-      <h2 className="text-lg font-semibold tracking-tight text-ink">{title}</h2>
-      {aside}
+/**
+ * A whole group of sections, collapsible as one.
+ *
+ * Sections were siblings of their heading, so there was nothing to fold - you
+ * could close eight methodology sections one at a time and still scroll past
+ * eight headers. They are children now, and the heading owns the state.
+ *
+ * `hidden` rather than unmounting, for the same reason the sections use it:
+ * `Contents` counts rendered sections, and a section inside a closed group is
+ * still on the page and still linkable.
+ */
+const Group = ({ title, blurb, aside, children }) => {
+  const [open, setOpen] = useState(true);
+  const box = useRef(null);
+
+  // A contents link into a closed group has to open it, or it scrolls to a
+  // heading and nothing appears to happen. The sections handle their own hash;
+  // this handles the wrapper around them.
+  useEffect(() => {
+    const sync = () => {
+      const id = window.location.hash.slice(1);
+      if (id && box.current?.querySelector(`[id="${CSS.escape(id)}"]`)) setOpen(true);
+    };
+    sync();
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
+
+  const count = React.Children.toArray(children).length;
+
+  return (
+    <div ref={box} className="!mt-6 border-t border-line pt-4 first:!mt-0 first:border-0 first:pt-0">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="group flex items-center gap-2 text-left"
+        >
+          <h2 className="text-lg font-semibold tracking-tight text-ink">{title}</h2>
+          <span className="tabular text-xs text-ink-ghost">{count}</span>
+          <ChevronDown
+            size={16}
+            aria-hidden="true"
+            className={`shrink-0 text-ink-faint transition-transform group-hover:text-ink-muted
+              ${open ? "rotate-180" : ""}`}
+          />
+        </button>
+        {aside}
+      </div>
+      {blurb && open && (
+        <p className="mt-1 max-w-3xl text-xs leading-relaxed text-ink-muted">{blurb}</p>
+      )}
+      <div className="mt-3 space-y-3" hidden={!open}>{children}</div>
     </div>
-    {blurb && <p className="mt-1 max-w-3xl text-xs leading-relaxed text-ink-muted">{blurb}</p>}
-  </div>
-);
+  );
+};
 
 const Contents = () => {
   // Keyed as a string rather than a Set, so the "did this actually change?"
