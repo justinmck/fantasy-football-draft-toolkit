@@ -1,0 +1,50 @@
+# One machine, one volume, always on. The reasoning is in docs/HOSTING.md; the
+# short version is that rate limits, draft sessions and the job pool are all
+# in-process, and the SQLite files must outlive a deploy.
+app = "draft-assistant"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  APP_ENV = "prod"
+  # Both live on the mounted volume. Without these the app would write inside
+  # the container and lose everything - including every stored credential - on
+  # the next deploy.
+  DATABASE_URL = "sqlite:////data/fantasy_data.db"
+  AUTH_DB_URL  = "sqlite:////data/auth.db"
+  # Set to the real frontend origin before going live. Validated at startup:
+  # https only in prod, no "*", no trailing path.
+  API_ORIGINS = "https://CHANGE-ME.pages.dev"
+
+[[mounts]]
+  source = "draft_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # Never scale past one. A second machine means a second set of rate-limit
+  # buckets and jobs that only one of them can report on.
+  auto_stop_machines = false
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 40
+    hard_limit = 80
+
+# A history pull is minutes of outbound ESPN calls after the response has already
+# returned, so the health check must not be tied to request latency.
+[[http_service.checks]]
+  grace_period = "20s"
+  interval = "30s"
+  timeout = "5s"
+  method = "GET"
+  path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

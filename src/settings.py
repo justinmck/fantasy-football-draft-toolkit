@@ -20,18 +20,37 @@ REFERENCE_DB = Path(__file__).resolve().parent.parent / "data" / "reference.db"
 RUNTIME_DB = Path(__file__).resolve().parent.parent / "data" / "runtime" / "fantasy_data.db"
 
 
-def _default_db_url() -> str:
-    """Seed the runtime database from the shipped one, once."""
-    if not RUNTIME_DB.exists() and REFERENCE_DB.exists():
-        RUNTIME_DB.parent.mkdir(parents=True, exist_ok=True)
-        tmp = RUNTIME_DB.with_suffix(".seeding")
-        shutil.copy2(REFERENCE_DB, tmp)
-        # Atomic, so two workers starting together can't see a half-copy.
-        os.replace(tmp, RUNTIME_DB)
-    return f"sqlite:///{RUNTIME_DB}"
+def _seed(target: Path) -> None:
+    """Copy the shipped reference database into place, once."""
+    if target.exists() or not REFERENCE_DB.exists():
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(".seeding")
+    shutil.copy2(REFERENCE_DB, tmp)
+    # Atomic, so two workers starting together can't see a half-copy.
+    os.replace(tmp, target)
 
 
-DB_URL = os.getenv("DATABASE_URL") or _default_db_url()
+def _resolve_db_url() -> str:
+    """Where the working database lives, seeded whether or not it was configured.
+
+    Seeding used to be reachable only through the default path: `DATABASE_URL`
+    short-circuited it entirely. That is exactly backwards for a deployment -
+    pointing the app at a mounted volume is the one case where the file is
+    guaranteed not to exist yet, and it would have come up empty on first boot
+    with no tables and no explanation.
+    """
+    configured = os.getenv("DATABASE_URL")
+    if not configured:
+        _seed(RUNTIME_DB)
+        return f"sqlite:///{RUNTIME_DB}"
+    # Only SQLite has a file to seed; anything else is someone else's problem.
+    if configured.startswith("sqlite:///"):
+        _seed(Path(configured[len("sqlite:///"):]))
+    return configured
+
+
+DB_URL = _resolve_db_url()
 TEAMS = int(os.getenv("LEAGUE_TEAMS", "14"))
 
 

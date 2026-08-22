@@ -1,0 +1,23 @@
+# What the API actually needs at runtime.
+#
+# `requirements.txt` is the working set: it also carries jupyter, matplotlib,
+# seaborn, plotly, scikit-learn, espn-api and pytest, which the notebooks and
+# the test suite need and the server never imports. Installing those into the
+# image costs several hundred megabytes and adds attack surface for code that
+# is never reached from a request.
+#
+# Derived from the imports in `src/`, not by guesswork — if you add a dependency
+# there, add it here too or the container will fail on the first request that
+# touches it rather than at build time.
+#
+# Versions are pinned to match `requirements.txt` exactly; the two must not drift.
+pandas==2.3.1
+SQLAlchemy==2.0.42
+fastapi==0.116.1
+uvicorn==0.35.0
+scipy==1.16.1
+numpy==2.3.2
+requests==2.32.4
+python-dotenv==1.1.1
+pydantic==2.11.7
+cryptography==48.0.1

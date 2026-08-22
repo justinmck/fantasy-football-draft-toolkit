@@ -1,0 +1,50 @@
+# Docker does not read .gitignore. Everything gitignored that matters is
+# repeated here, because the failure mode is a credential store baked into an
+# image layer and pushed to a registry.
+#
+# Deliberately no `!negation` patterns. The Dockerfile needs notebooks/config.py
+# and data/reference.db, and a re-include that silently loses to a later rule
+# breaks the build in a way that reads as a missing file rather than a bad
+# ignore rule. Exclusions here are specific instead.
+
+# --- never, under any circumstances ---
+.env
+.env.*
+data/runtime/
+data/device_tokens.json
+data/device_tokens.json.migrated
+data/fantasy_data.db
+*.pem
+*.key
+
+# --- not reachable from a request ---
+# The image runs src/ plus notebooks/config.py. Everything else in notebooks/ is
+# a script or a notebook that only ever runs locally.
+notebooks/*.ipynb
+notebooks/build_reference_db.py
+notebooks/compute_availability.py
+notebooks/compute_league_bias.py
+notebooks/create_indexes.py
+notebooks/export_draft_fixture.py
+notebooks/pull_projections.py
+notebooks/rebuild_projections.py
+notebooks/utils.py
+tests/
+docs/
+draft-board/
+figures/
+
+# --- build and tooling noise ---
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.git/
+.github/
+.claude/
+node_modules/
+.DS_Store
+*.log
+requirements.txt
