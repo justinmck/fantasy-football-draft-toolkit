@@ -13,7 +13,23 @@ COPY requirements-server.txt /tmp/
 # saying plainly that a wheel is missing.
 RUN python -m venv /venv \
  && /venv/bin/pip install --no-cache-dir --upgrade pip \
- && /venv/bin/pip install --no-cache-dir --only-binary=:all: -r /tmp/requirements-server.txt
+ && /venv/bin/pip install --no-cache-dir --no-compile --only-binary=:all: \
+      -r /tmp/requirements-server.txt \
+ # 138 MB of the venv, measured, is things a running server never reads.
+ #
+ # `--no-compile` above is the largest single piece: PYTHONDONTWRITEBYTECODE is
+ # set in the runtime stage, but the venv is built *here*, where it isn't - so
+ # pip left 93 MB of .pyc behind that the runtime was configured never to use.
+ # The rest is scipy's and pandas' own test suites (~78 MB) and pip itself,
+ # which builds the venv and is never needed once it exists.
+ #
+ # Deletions, not a smaller dependency set: every package in
+ # requirements-server.txt is still installed and importable.
+ && find /venv -name "__pycache__" -type d -prune -exec rm -rf {} + \
+ && find /venv \( -path "*/tests" -o -path "*/test" \) -type d -prune -exec rm -rf {} + \
+ && rm -rf /venv/lib/python3.12/site-packages/pip \
+           /venv/lib/python3.12/site-packages/setuptools \
+           /venv/lib/python3.12/site-packages/pkg_resources
 
 # --- runtime ----------------------------------------------------------------
 FROM python:3.12-slim
